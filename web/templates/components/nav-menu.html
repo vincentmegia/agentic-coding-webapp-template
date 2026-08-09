@@ -1,0 +1,61 @@
+{{/* Reusable dropdown: a trigger (icon + label) and its list of submenu
+     items (each with its own icon). Used twice by header.html — Home and
+     Settings — each with its own NavMenu view-model (internal/handler/nav.go).
+     Keyboard behavior (Enter/Space/arrow keys/Escape, outside-click close)
+     lives in web/static/js/nav-menu.js; this template only supplies the
+     ARIA structure it operates on. See docs/features/home.md's Business
+     Rules and docs/skills/htmx-ui/SKILL.md "Component Boundaries". */}}
+{{define "nav-menu"}}
+<div class="relative" data-nav-menu>
+	<button
+		type="button"
+		id="{{.ID}}-trigger"
+		data-nav-trigger
+		aria-haspopup="menu"
+		aria-expanded="false"
+		aria-controls="{{.ID}}-list"
+		class="inline-flex items-center gap-1.5 rounded-card px-3 py-2 text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+	>
+		{{.TriggerIcon}}
+		<span>{{.Label}}</span>
+		<svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+			<path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clip-rule="evenodd" />
+		</svg>
+	</button>
+	<ul
+		id="{{.ID}}-list"
+		data-nav-list
+		role="menu"
+		aria-labelledby="{{.ID}}-trigger"
+		class="hidden absolute {{if eq .Align "right"}}right-0{{else}}left-0{{end}} z-50 mt-1 min-w-[10rem] rounded-card border border-slate-200 bg-white py-1 shadow transition-opacity duration-150"
+	>
+		{{range .Items}}
+		<li role="none">
+			{{if eq .Method "POST"}}
+			<form method="post" action="{{.Href}}">
+				<button
+					type="submit"
+					role="menuitem"
+					data-nav-item
+					class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+				>{{.Icon}}<span>{{.Label}}</span></button>
+			</form>
+			{{else}}
+			<a
+				href="{{.Href}}"
+				role="menuitem"
+				data-nav-item
+				data-nav-link
+				hx-get="{{.Href}}"
+				hx-target="#main-content"
+				hx-swap="outerHTML"
+				hx-push-url="true"
+				hx-indicator="#nav-loading"
+				class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+			>{{.Icon}}<span>{{.Label}}</span></a>
+			{{end}}
+		</li>
+		{{end}}
+	</ul>
+</div>
+{{end}}

@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,6 +16,15 @@ import (
 	"github.com/vincentmegia/vincentmegia/internal/handler"
 	"github.com/vincentmegia/vincentmegia/internal/middleware"
 )
+
+// Version is the build version footer.html displays (see
+// docs/features/home.md's Business Rules: "injected at build time ... not
+// hand-maintained in a template"). Set via:
+//
+//	go build -ldflags "-X main.Version=$(git describe --tags --always)"
+//
+// Defaults to "dev" for local builds where it isn't set.
+var Version = "dev"
 
 func main() {
 	if err := run(); err != nil {
@@ -34,7 +44,10 @@ func run() error {
 	}))
 	slog.SetDefault(logger)
 
-	mux := newMux()
+	mux, err := newMux()
+	if err != nil {
+		return err
+	}
 
 	handlerChain := middleware.Chain(mux,
 		middleware.Recover,
@@ -57,18 +70,38 @@ func run() error {
 
 // newMux registers all routes on a fresh ServeMux using Go 1.22+
 // method+pattern routing. See docs/skills/go-backend/SKILL.md "Routing".
-func newMux() *http.ServeMux {
+//
+// Templates are parsed once at startup (fail fast if a template is
+// missing/malformed, per go-backend's Configuration guidance) rather than
+// per-request.
+func newMux() (*http.ServeMux, error) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", handler.Healthz)
 
-	// TEMPORARY: replaced by the real layout/page feature in a later task.
-	mux.HandleFunc("GET /{$}", handler.TemporaryRoot)
+	tmpl, err := handler.LoadTemplates("web/templates")
+	if err != nil {
+		return nil, fmt.Errorf("load templates: %w", err)
+	}
+	pages := handler.NewPagesHandler(handler.NewRenderer(tmpl), Version)
+
+	// See docs/features/home.md's Routes/Handlers table. This feature
+	// owns the shell and these routes; the real page content behind each
+	// is a separate, not-yet-built feature (placeholders for now).
+	mux.HandleFunc("GET /{$}", pages.Home)
+	mux.HandleFunc("GET /resume", pages.Resume)
+	mux.HandleFunc("GET /projects", pages.Projects)
+	mux.HandleFunc("GET /blogs", pages.Blogs)
+	mux.HandleFunc("GET /settings/profile", pages.Profile)
+	mux.HandleFunc("GET /settings/security", pages.Security)
+	// TEMPORARY: real logout (session invalidation) is a separate,
+	// not-yet-built auth feature; see handler.PagesHandler.Logout.
+	mux.HandleFunc("POST /logout", pages.Logout)
 
 	fileServer := http.FileServer(http.Dir("web/static"))
 	mux.Handle("GET /static/", http.StripPrefix("/static/", fileServer))
 
-	return mux
+	return mux, nil
 }
 
 // serveWithGracefulShutdown starts srv and blocks until SIGINT/SIGTERM is

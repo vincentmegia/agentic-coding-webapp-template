@@ -19,3 +19,36 @@
 
 /* Ensure Tailwind's content scanner can see class usage in Go templates. */
 @source "../../templates/**/*.html";
+
+/* HTMX loading-indicator visibility, per docs/skills/htmx-ui/SKILL.md "CSS
+   for Swaps": hidden by default, shown while its associated request is in
+   flight — hx-indicator targets the element directly, so htmx adds
+   .htmx-request to #nav-loading itself while a nav swap is pending. */
+.htmx-indicator {
+	display: none;
+}
+.htmx-indicator.htmx-request {
+	display: block;
+}
+
+/* Respect prefers-reduced-motion for this shell's own transitions (nav
+   dropdowns, header background transition). See
+   docs/features/home.md's Visual Direction and Client-side Behavior. */
+@media (prefers-reduced-motion: reduce) {
+	#site-header,
+	[data-nav-list] {
+		transition: none;
+	}
+}
+
+/* Marker classes reflecting header.html's TransparentOverHero flag. The
+   actual transparent visual treatment (background removal, backdrop-blur,
+   scroll transition) belongs to docs/features/landing-page.md, which is
+   not built yet — this feature (home.md) only guarantees the correct
+   starting class is present so that future CSS has something to hook
+   into. Mobile-always-solid is enforced separately once that CSS lands,
+   e.g. via a `@media` override scoped under this same class pair. */
+.header--transparent {
+}
+.header--solid {
+}

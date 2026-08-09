@@ -1,0 +1,70 @@
+{{/* Header: identity + Home menu (left), Settings menu + theme-toggle slot
+     + mobile nav trigger (right). See docs/features/home.md.
+
+     TransparentOverHero renders the starting "transparent" vs "solid"
+     class only — the actual transparent visual treatment (background
+     removal, backdrop-blur, scroll transition) belongs to
+     docs/features/landing-page.md and is intentionally not implemented
+     here (see app.css's .header--transparent/.header--solid hook
+     comments). Mobile always renders solid regardless of this flag —
+     enforced by the mobile-only nav-trigger below replacing the desktop
+     menus, not this class. */}}
+{{define "header"}}
+<header
+	id="site-header"
+	class="sticky top-0 z-40 border-b border-slate-200 bg-surface transition-colors duration-150 {{if .TransparentOverHero}}header--transparent{{else}}header--solid{{end}}"
+>
+	<div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
+		<div class="flex items-center gap-6">
+			{{/* Identity: the only header element linking back to `/`. Real
+			     avatar photo not available yet, so this renders the
+			     initials fallback directly (docs/features/home.md's
+			     Visual Direction) rather than an <img> with an onerror
+			     handler, which would need inline JS that this shell's
+			     strict CSP disallows (see go-backend's Security Headers).
+			     When a real avatar.jpg is added, its failure-fallback
+			     wiring should go through an external script, not an
+			     inline event handler. */}}
+			<a
+				href="/"
+				id="identity-link"
+				data-identity-link
+				data-nav-link
+				hx-get="/"
+				hx-target="#main-content"
+				hx-swap="outerHTML"
+				hx-push-url="true"
+				hx-indicator="#nav-loading"
+				class="flex items-center gap-2 rounded-card px-1 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+			>
+				<span role="img" aria-label="Vincent Megia" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold text-white">VM</span>
+				<span class="font-semibold text-slate-900">Vincent Megia</span>
+			</a>
+
+			<nav aria-label="Primary" class="hidden md:block">
+				{{template "nav-menu" .HomeMenu}}
+			</nav>
+		</div>
+
+		<div class="flex items-center gap-2">
+			{{/* Hard security requirement (docs/features/home.md): this
+			     markup must be entirely absent from the response for
+			     anonymous visitors, not merely hidden with CSS. Since
+			     .IsAuthenticated is false, Go's html/template never
+			     evaluates the {{template}} call below, so none of
+			     settingsMenu's bytes are written to the response. */}}
+			{{if .IsAuthenticated}}
+			<nav aria-label="Account" class="hidden md:block">
+				{{template "nav-menu" .SettingsMenu}}
+			</nav>
+			{{end}}
+
+			{{/* Reserved for docs/features/dark-mode.md. Left genuinely
+			     empty — see nav-theme-toggle.html (not yet built). */}}
+			{{block "theme-toggle" .}}{{end}}
+
+			{{template "mobile-nav-panel" .}}
+		</div>
+	</div>
+</header>
+{{end}}

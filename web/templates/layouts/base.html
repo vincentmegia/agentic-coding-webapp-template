@@ -1,0 +1,46 @@
+{{/* Shared page shell: header + dynamic content + footer.
+     See docs/features/home.md and docs/skills/htmx-ui/SKILL.md "Layout
+     Architecture". Pages only ever define "content" (see
+     web/templates/pages/placeholder.html) — they never redeclare this
+     shell. Rendered for full page loads; HTMX nav requests instead
+     execute just the "content" template (see internal/handler/template.go
+     Renderer.Render), so header/footer are never re-rendered on a nav
+     swap per home.md's HTMX Interactions. */}}
+{{define "base"}}
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{{if .Title}}{{.Title}} · Vincent Megia{{else}}Vincent Megia{{end}}</title>
+	<link rel="stylesheet" href="/static/css/output.css">
+	{{/* Self-hosted, not a CDN — see web/static/js/htmx.min.js. */}}
+	<script src="/static/js/htmx.min.js"></script>
+</head>
+<body class="min-h-screen bg-surface text-slate-900">
+	<a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-card focus:bg-brand focus:px-4 focus:py-2 focus:text-white">Skip to content</a>
+
+	{{/* Local loading indicator for nav swaps (docs/features/home.md's
+	     HTMX Interactions: every GET nav row uses hx-indicator="#nav-loading").
+	     See docs/skills/htmx-ui/SKILL.md "CSS for Swaps" / "Loading States". */}}
+	<div id="nav-loading" class="htmx-indicator fixed inset-x-0 top-0 z-50 h-0.5 bg-brand" aria-hidden="true"></div>
+
+	{{template "header" .}}
+
+	<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+		{{block "content" .}}{{end}}
+	</main>
+
+	{{template "footer" .}}
+
+	<script src="/static/js/nav-menu.js"></script>
+	<script src="/static/js/mobile-nav-panel.js"></script>
+	{{/* header-scroll.js and theme-toggle.js are loaded on every page so
+	     the not-yet-built landing-page.md and dark-mode.md features don't
+	     need to touch base.html — both files are intentionally empty
+	     placeholders for now. */}}
+	<script src="/static/js/header-scroll.js"></script>
+	<script src="/static/js/theme-toggle.js"></script>
+</body>
+</html>
+{{end}}

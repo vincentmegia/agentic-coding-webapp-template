@@ -1,0 +1,12 @@
+{{/* Single generic content page every Wave 1 route renders through,
+     parameterized by PageData.ContentTitle/ContentMessage. Resume,
+     Projects, Blogs, Profile, and Security each get real content from
+     their own not-yet-built feature, which will replace this file's
+     {{define "content"}} with their own (or split into per-page files) —
+     see docs/features/home.md's Scope. */}}
+{{define "content"}}
+<section class="space-y-4">
+	<h1 class="text-2xl font-semibold text-slate-900">{{.ContentTitle}}</h1>
+	<p class="text-slate-600">{{.ContentMessage}}</p>
+</section>
+{{end}}
