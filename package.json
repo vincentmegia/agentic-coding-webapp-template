@@ -1,0 +1,14 @@
+{
+  "name": "vincentmegia",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Tailwind CSS build tooling for vincentmegia.com. No JS framework/runtime dependency for the app itself — see docs/skills/go-backend/SKILL.md and htmx-ui/SKILL.md.",
+  "scripts": {
+    "build:css": "tailwindcss -i ./web/static/css/app.css -o ./web/static/css/output.css --minify",
+    "watch:css": "tailwindcss -i ./web/static/css/app.css -o ./web/static/css/output.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}
