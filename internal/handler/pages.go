@@ -64,8 +64,56 @@ func versionLabel(version string) string {
 // docs/features/home.md — the transparent-over-hero visual behavior itself
 // belongs to docs/features/landing-page.md and is intentionally not
 // implemented yet; this only passes the flag through correctly.
+//
+// Sets ContentTemplate to "landing-content" (web/templates/pages/landing.html)
+// instead of going through h.page's shared placeholder — the landing page is
+// the first route with real content below its still-placeholder hero: the
+// image carousel from docs/features/landing-carousel.md. See
+// docs/features/resume.md's Template Rendering section for why this dispatch
+// happens via ContentTemplate rather than landing.html redefining "content"
+// (which would silently take over every other placeholder-backed route).
 func (h *PagesHandler) Home(w http.ResponseWriter, r *http.Request) {
-	h.Renderer.Render(w, r, h.page(r, "", true, "Welcome", "Landing page content coming soon."))
+	data := shellPageData(r, h.Version, "", true)
+	data.ContentTemplate = "landing-content"
+	data.ContentTitle = "Welcome"
+	data.ContentMessage = "Landing page content coming soon."
+	data.CarouselSlides = landingCarouselSlides
+	h.Renderer.Render(w, r, data)
+}
+
+// landingCarouselSlides is the hand-authored slide list for the landing-page
+// carousel (docs/features/landing-carousel.md's Data Model: "static,
+// hand-authored in Go — no DB, no admin editing yet"). Up to 5 entries;
+// placeholder images/copy until real photography/links are chosen.
+var landingCarouselSlides = []CarouselSlide{
+	{
+		ImagePath: "/static/images/carousel/1.svg",
+		Alt:       "Illustration of a keyboard",
+		Caption:   "Engineering, hands-on — placeholder caption",
+	},
+	{
+		ImagePath: "/static/images/carousel/2.svg",
+		Alt:       "Illustration of a client/server/database system architecture diagram",
+		Caption:   "System design & architecture — placeholder caption",
+		LinkURL:   "/projects",
+	},
+	{
+		ImagePath: "/static/images/carousel/3.svg",
+		Alt:       "Illustration of a desktop computer workstation",
+		Caption:   "Where the work happens — placeholder caption",
+	},
+	{
+		ImagePath: "/static/images/carousel/4.svg",
+		Alt:       "Illustration of a server rack",
+		Caption:   "Infrastructure & backend systems — placeholder caption",
+		LinkURL:   "https://github.com/vincentmegia",
+		External:  true,
+	},
+	{
+		ImagePath: "/static/images/carousel/5.svg",
+		Alt:       "Illustration of a code editor window",
+		Caption:   "Code — placeholder caption",
+	},
 }
 
 // Projects renders GET /projects. Real content is a separate feature.

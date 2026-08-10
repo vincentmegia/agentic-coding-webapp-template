@@ -74,6 +74,12 @@
 	     placeholders for now. */}}
 	<script src="/static/js/header-scroll.js"></script>
 	<script src="/static/js/theme-toggle.js"></script>
+	{{/* carousel.js only does anything on "/" (the only route rendering
+	     #carousel — docs/features/landing-carousel.md), but is loaded here
+	     unconditionally, same as header-scroll.js/theme-toggle.js above,
+	     rather than from landing.html itself — it no-ops harmlessly on
+	     every other page when it finds no #carousel element. */}}
+	<script src="/static/js/carousel.js"></script>
 </body>
 </html>
 {{end}}

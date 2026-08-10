@@ -1,0 +1,33 @@
+{{/* / (landing) page: the hero placeholder text PagesHandler.Home has
+     always rendered, plus the image carousel section below it
+     (docs/features/landing-carousel.md). Defines "landing-content", not
+     "content" — reusing "content" would silently take over the shared
+     placeholder every other still-unbuilt route (/projects, /blogs,
+     /settings/*) renders. See docs/features/resume.md's Template
+     Rendering and internal/handler/template.go's
+     PageData.ContentTemplate/LoadTemplates, the same pattern resume.html
+     established.
+
+     The hero itself is still undesigned/out of scope (docs/features/
+     landing-page.md's Open Questions) — this reproduces the exact
+     ContentTitle/ContentMessage copy the old shared-placeholder render
+     used for "/", not a new design, so this change is scoped to adding
+     the carousel section only.
+
+     Supplies its own <main id="main-content"> wrapper rather than relying
+     on base.html for it — required because hx-swap="outerHTML" (home.md's
+     HTMX Interactions) replaces the *entire* #main-content element with
+     whatever this template renders; base.html renders .RenderedContent
+     directly with no wrapper of its own. See resume.html's doc comment
+     for the full explanation of why this is load-bearing, not a style
+     choice. */}}
+{{define "landing-content"}}
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<section class="space-y-4">
+		<h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">{{.ContentTitle}}</h1>
+		<p class="text-slate-600 dark:text-slate-400">{{.ContentMessage}}</p>
+	</section>
+
+	{{template "carousel" .}}
+</main>
+{{end}}

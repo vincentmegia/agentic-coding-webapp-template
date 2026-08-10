@@ -7,8 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Active development. The site shell (header/nav/footer, dropdown + mobile nav,
 dark mode) and the Resume feature (Postgres-backed `/resume` page) are
 implemented and covered by tests — see `docs/features/home.md` and
-`docs/features/resume.md`. Projects, Blogs, and the landing page's hero
-content are still placeholders. Update this file as decisions are made or
+`docs/features/resume.md`. The landing page (`/`) now also renders an image
+carousel section below its hero, with hand-authored placeholder illustrations
+— see `docs/features/landing-carousel.md`; automated test coverage for it is
+still pending (see that doc's Testing Plan). The hero itself, Projects, and
+Blogs are still placeholders. Update this file as decisions are made or
 change.
 
 ## What this is

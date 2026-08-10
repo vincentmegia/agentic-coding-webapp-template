@@ -85,6 +85,26 @@ type PageData struct {
 	// time against a well-defined view-model, per htmx-ui's Component
 	// Boundaries.
 	Resume *service.ResumeView
+
+	// CarouselSlides backs the landing-page image carousel
+	// (components/carousel.html), set only by PagesHandler.Home. Up to 5
+	// entries, hand-authored in Go — no DB, no admin editing yet, per
+	// docs/features/landing-carousel.md's Data Model. Nil/empty for every
+	// other route.
+	CarouselSlides []CarouselSlide
+}
+
+// CarouselSlide is one slide of the landing-page carousel. This shape is a
+// fixed contract shared with web/static/js/carousel.js (see
+// docs/features/landing-carousel.md's "Implementation Contract (DOM /
+// Data)"), written independently against the same spec — do not rename or
+// restructure these fields without updating that doc.
+type CarouselSlide struct {
+	ImagePath string // e.g. "/static/images/carousel/1.jpg"
+	Alt       string // required
+	Caption   string // optional, "" if none
+	LinkURL   string // optional, "" if none
+	External  bool   // true if LinkURL is off-site; drives target/rel
 }
 
 // LoadTemplates parses the shared shell (layouts/base.html), its
@@ -105,6 +125,15 @@ type PageData struct {
 // This list is explicit, not a directory glob: a new page/component file
 // must be added here, or it fails fast at startup as a template
 // parse/lookup error rather than silently missing at render time.
+//
+// carousel.html/landing.html (docs/features/landing-carousel.md) are the
+// first templates needing a custom function: text/template has no
+// arithmetic built in, and carousel.html needs each slide's 1-based
+// position (data-index, "{n} of {total}") from a zero-based {{range}}
+// index. "add" is registered via templateFuncs below rather than adding an
+// Index field to the CarouselSlide contract struct, which stays exactly
+// the shape docs/features/landing-carousel.md's Implementation Contract
+// specifies.
 func LoadTemplates(templatesDir string) (*template.Template, error) {
 	files := []string{
 		filepath.Join(templatesDir, "layouts", "base.html"),
@@ -124,8 +153,16 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "resume-timeline.html"),
 		filepath.Join(templatesDir, "components", "resume-role.html"),
 		filepath.Join(templatesDir, "pages", "resume.html"),
+		filepath.Join(templatesDir, "components", "carousel.html"),
+		filepath.Join(templatesDir, "pages", "landing.html"),
 	}
-	return template.ParseFiles(files...)
+	return template.New(filepath.Base(files[0])).Funcs(templateFuncs).ParseFiles(files...)
+}
+
+// templateFuncs are helper functions available to every parsed template.
+// "add" is the only one so far — see LoadTemplates' doc comment.
+var templateFuncs = template.FuncMap{
+	"add": func(a, b int) int { return a + b },
 }
 
 // Renderer renders PageData through the shared template set, branching on

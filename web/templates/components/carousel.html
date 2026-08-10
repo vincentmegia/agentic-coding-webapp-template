@@ -1,0 +1,148 @@
+{{/* Landing-page image carousel: up to 5 slides, crossfade transition,
+     prev/next arrows, dot indicators, pause/play toggle. Dot is the full
+     PageData so it can read .CarouselSlides (set only by PagesHandler.Home,
+     see docs/features/landing-carousel.md's Data Model — static,
+     hand-authored slides, no DB).
+
+     DOM structure/IDs/data-attributes/ARIA below are a FIXED CONTRACT (see
+     that doc's "Implementation Contract (DOM / Data)") shared with
+     web/static/js/carousel.js, written independently against the same
+     spec — do not rename ids/classes/data-attributes or restructure the
+     parent/sibling relationships (#carousel-prev/#carousel-next/
+     #carousel-dots/#carousel-toggle must stay DOM siblings of
+     .carousel-slide, never nested inside a slide's <a>) without updating
+     that doc first.
+
+     Crossfade mechanism (not a sliding track): #carousel-track is
+     position:relative; every .carousel-slide is absolutely positioned
+     (inset-0) and stacked. Slide 1 renders opacity-100/z-10; every other
+     slide renders opacity-0/z-0/pointer-events-none/aria-hidden="true" —
+     this is both the initial JS starting state AND the correct no-JS
+     degraded state (only slide 1 is visible/reachable without JS).
+     carousel.js moves these same classes/attributes at runtime; it never
+     restructures the DOM.
+
+     Single-slide case: with exactly one slide, arrows/dots/toggle are
+     omitted entirely (docs/features/landing-carousel.md's Business Rules)
+     — nothing to navigate to or pause.
+
+     Layout: #carousel itself is a 3-column grid (1fr/auto/gap-y-4
+     auto/1fr) rather than wrapping #carousel-dots and #carousel-toggle in
+     an extra container div — that wrapper isn't part of the fixed DOM
+     contract above (they must stay direct children of #carousel, siblings
+     of #carousel-frame). The grid still centers the dots row and pins the
+     toggle to its trailing edge (Visual Direction) using the two empty
+     1fr flanking columns plus col-start-3/justify-self-end, without any
+     additional nesting. #carousel-frame spans all 3 columns (col-span-3)
+     since it's the only row-1 item. */}}
+{{define "carousel"}}
+<section
+	id="carousel"
+	role="region"
+	aria-roledescription="carousel"
+	aria-label="Featured images"
+	data-autoplay-interval="6000"
+	class="grid grid-cols-[1fr_auto_1fr] items-center gap-y-4 py-12 sm:py-16"
+>
+	<div id="carousel-frame" class="relative col-span-3">
+		{{/* aria-live reflects the "autoplay running" starting state (docs/
+		     features/landing-carousel.md's Client-side Behavior: "off" while
+		     autoplay runs, "polite" once paused) — carousel.js owns this
+		     attribute from here on; this is only the no-JS/initial value. */}}
+		<div id="carousel-track" class="relative aspect-[16/9] overflow-hidden rounded-xl bg-surface-2" aria-live="off">
+			{{range $i, $slide := .CarouselSlides}}
+			{{$index := add $i 1}}
+			<div
+				class="carousel-slide absolute inset-0 transition-opacity duration-150 {{if eq $index 1}}z-10 opacity-100{{else}}pointer-events-none z-0 opacity-0{{end}}"
+				data-index="{{$index}}"
+				role="group"
+				aria-roledescription="slide"
+				aria-label="{{$index}} of {{len $.CarouselSlides}}"
+				{{if ne $index 1}}aria-hidden="true"{{end}}
+			>
+				{{/* A slide's anchor (when LinkURL is set) wraps only the
+				     image + caption, never the arrow/dot/toggle controls —
+				     those are DOM siblings above/below, not descendants of
+				     this <a>. Two separate {{if $slide.LinkURL}} actions
+				     (open tag here, close tag below) rather than one
+				     {{if}}/{{else}}/{{end}} around duplicated markup, since
+				     both branches converge to the same "plain HTML body"
+				     escaping context either way. */}}
+				{{if $slide.LinkURL}}<a
+					href="{{$slide.LinkURL}}"
+					{{if $slide.External}}target="_blank" rel="noopener noreferrer"{{end}}
+					class="relative block h-full w-full focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
+				>{{end}}
+					<img
+						src="{{$slide.ImagePath}}"
+						alt="{{$slide.Alt}}"
+						class="h-full w-full bg-surface-2 object-cover"
+						{{if eq $index 1}}loading="eager" fetchpriority="high"{{else}}loading="lazy"{{end}}
+					>
+					{{if $slide.Caption}}
+					<div class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent px-4 pb-3 pt-12 sm:px-6 sm:pb-4">
+						<p class="text-sm font-medium text-white sm:text-base">{{$slide.Caption}}</p>
+					</div>
+					{{end}}
+				{{if $slide.LinkURL}}</a>{{end}}
+			</div>
+			{{end}}
+		</div>
+
+		{{if gt (len .CarouselSlides) 1}}
+		<button
+			type="button"
+			id="carousel-prev"
+			aria-label="Previous slide"
+			class="absolute left-3 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white shadow-sm backdrop-blur-sm transition-colors duration-150 hover:bg-black/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white sm:left-4 sm:p-2.5"
+		>
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+				<path d="M15 18l-6-6 6-6" />
+			</svg>
+		</button>
+		<button
+			type="button"
+			id="carousel-next"
+			aria-label="Next slide"
+			class="absolute right-3 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white shadow-sm backdrop-blur-sm transition-colors duration-150 hover:bg-black/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white sm:right-4 sm:p-2.5"
+		>
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+				<path d="M9 6l6 6-6 6" />
+			</svg>
+		</button>
+		{{end}}
+	</div>
+
+	{{if gt (len .CarouselSlides) 1}}
+	<div id="carousel-dots" class="col-start-2 flex items-center justify-center gap-2">
+		{{range $i, $slide := .CarouselSlides}}
+		{{$index := add $i 1}}
+		<button
+			type="button"
+			class="carousel-dot rounded-full transition-all duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary {{if eq $index 1}}h-2.5 w-6 bg-primary{{else}}h-2.5 w-2.5 bg-line hover:bg-muted{{end}}"
+			data-index="{{$index}}"
+			aria-label="Go to slide {{$index}}"
+			{{if eq $index 1}}aria-current="true" tabindex="0"{{else}}tabindex="-1"{{end}}
+		></button>
+		{{end}}
+	</div>
+
+	<button
+		type="button"
+		id="carousel-toggle"
+		aria-label="Pause autoplay"
+		data-state="playing"
+		class="col-start-3 justify-self-end rounded-full border border-line bg-surface p-2 text-ink shadow-sm transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+	>
+		{{/* carousel.js swaps aria-label/data-state only, never this icon's
+		     markup (docs/features/landing-carousel.md's Implementation
+		     Contract) — a two-bar pause glyph is the correct starting icon
+		     since autoplay is running by default. */}}
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4" aria-hidden="true">
+			<rect x="6" y="5" width="4" height="14" rx="1" />
+			<rect x="14" y="5" width="4" height="14" rx="1" />
+		</svg>
+	</button>
+	{{end}}
+</section>
+{{end}}
