@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Swordfish, a long fish with a pointed bill and a tall dorsal sail fin, worth 100 points</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3E6F9E"/>
+      <stop offset="100%" stop-color="#B9D3E8"/>
+    </linearGradient>
+  </defs>
+  <path d="M150 102 L184 88 L184 116 Z" fill="#3E6F9E"/>
+  <path d="M20 104 L60 94 Q110 96 150 102 Q110 112 60 114 Q30 112 20 104 Z" fill="url(#body)"/>
+  <path d="M4 100 L60 96 L60 108 Z" fill="#8FA9BC"/>
+  <path d="M78 92 Q92 40 112 34 Q100 70 96 92 Z" fill="#E3B872"/>
+  <path d="M84 118 L74 148 L96 120 Z" fill="#3E6F9E" opacity="0.85"/>
+  <circle cx="66" cy="98" r="5.5" fill="#F4F3EF"/>
+  <circle cx="67" cy="98" r="2.6" fill="#152743"/>
+</svg>

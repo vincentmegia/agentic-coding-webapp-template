@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Giant squid, a deep red-maroon creature with a long mantle and trailing tentacles, worth 300 points</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8B3A52"/>
+      <stop offset="100%" stop-color="#5A2038"/>
+    </linearGradient>
+  </defs>
+  <path d="M76 172 Q60 150 66 118 M92 178 Q84 150 88 118 M108 178 Q112 150 108 118 M124 172 Q136 150 128 118 M64 160 Q46 140 54 112" stroke="#5A2038" stroke-width="7" fill="none" stroke-linecap="round" opacity="0.9"/>
+  <path d="M100 20 Q60 30 56 78 Q54 118 100 128 Q146 118 144 78 Q140 30 100 20 Z" fill="url(#body)"/>
+  <circle cx="76" cy="72" r="14" fill="#F4F3EF" opacity="0.92"/>
+  <circle cx="76" cy="72" r="7" fill="#8B2E2E"/>
+  <circle cx="124" cy="72" r="14" fill="#F4F3EF" opacity="0.92"/>
+  <circle cx="124" cy="72" r="7" fill="#8B2E2E"/>
+  <path d="M100 20 Q90 8 100 2 Q110 8 100 20 Z" fill="#5A2038"/>
+</svg>

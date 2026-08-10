@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Shark hazard, a fast dark grey predator with a dorsal fin and sharp teeth</title>
+  <defs>
+    <linearGradient id="shark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4A5560"/>
+      <stop offset="60%" stop-color="#2C333B"/>
+      <stop offset="100%" stop-color="#E8E9EA"/>
+    </linearGradient>
+  </defs>
+  <path d="M180 108 L150 96 L156 108 L150 120 Z" fill="#2C333B"/>
+  <path d="M14 112 Q60 60 130 78 Q170 90 156 108 Q170 126 130 138 Q60 156 14 112 Z" fill="url(#shark)"/>
+  <path d="M92 78 L108 40 L120 82 Z" fill="#2C333B"/>
+  <path d="M40 100 L26 128 L52 112 Z" fill="#2C333B" opacity="0.9"/>
+  <path d="M20 108 L38 102 L40 116 Z" fill="#E8E9EA"/>
+  <path d="M22 106 L28 112 L22 118 M30 104 L36 112 L30 120 M38 103 L44 112 L38 121" stroke="#F4F3EF" stroke-width="1.5" fill="none" opacity="0.9"/>
+  <circle cx="46" cy="98" r="5" fill="#C0392B"/>
+</svg>

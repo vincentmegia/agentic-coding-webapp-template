@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Eel hazard, a long dark serpentine fish with a red eye</title>
+  <defs>
+    <linearGradient id="eel" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#324A32"/>
+      <stop offset="100%" stop-color="#141A14"/>
+    </linearGradient>
+  </defs>
+  <path d="M20 60 Q60 40 90 70 Q120 100 100 120 Q80 140 110 158 Q140 172 172 150" stroke="url(#eel)" stroke-width="20" fill="none" stroke-linecap="round"/>
+  <path d="M162 144 L182 138 L178 158 Z" fill="#141A14"/>
+  <circle cx="26" cy="58" r="6" fill="#C0392B"/>
+  <path d="M12 54 L26 52 L22 66 Z" fill="#141A14"/>
+</svg>

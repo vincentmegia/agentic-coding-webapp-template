@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Golden koi, a large radiant gold-orange fish with flowing fins, the rarest catch, worth 750 points</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFE28A"/>
+      <stop offset="100%" stop-color="#E8823D"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#F5C542" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#F5C542" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="100" cy="100" r="94" fill="url(#glow)"/>
+  <path d="M150 96 Q186 60 194 40 Q176 78 168 100 Q176 122 194 160 Q186 140 150 104 Z" fill="#E8823D" opacity="0.9"/>
+  <ellipse cx="92" cy="100" rx="66" ry="30" fill="url(#body)"/>
+  <path d="M60 84 Q40 76 30 60 Q46 78 66 90 Z" fill="#F5C542" opacity="0.85"/>
+  <path d="M96 76 L112 50 L124 80 Z" fill="#F5C542"/>
+  <circle cx="58" cy="70" r="6" fill="#8B2E2E" opacity="0.5"/>
+  <circle cx="46" cy="98" r="6.5" fill="#F4F3EF"/>
+  <circle cx="47" cy="98" r="3.2" fill="#152743"/>
+</svg>

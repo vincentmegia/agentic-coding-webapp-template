@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Diver in a rounded helmet suit, descending through the ocean</title>
+  <defs>
+    <linearGradient id="suit" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3E5F8A"/>
+      <stop offset="100%" stop-color="#1F3A5F"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#F4F3EF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#6FA8DC" stop-opacity="0.55"/>
+    </radialGradient>
+    <radialGradient id="lamp" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F5C542"/>
+      <stop offset="100%" stop-color="#E3B872" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="100" cy="55" r="26" fill="url(#lamp)"/>
+  <path d="M78 165 L52 190 L78 178 Z" fill="#1F3A5F"/>
+  <path d="M122 165 L148 190 L122 178 Z" fill="#1F3A5F"/>
+  <path d="M70 95 Q100 80 130 95 L138 160 Q100 178 62 160 Z" fill="url(#suit)"/>
+  <ellipse cx="58" cy="120" rx="12" ry="24" fill="#1F3A5F"/>
+  <ellipse cx="142" cy="120" rx="12" ry="24" fill="#1F3A5F"/>
+  <circle cx="100" cy="65" r="34" fill="url(#suit)"/>
+  <circle cx="100" cy="65" r="26" fill="url(#glass)"/>
+  <circle cx="100" cy="46" r="6" fill="#F5C542"/>
+</svg>

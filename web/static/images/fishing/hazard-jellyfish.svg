@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Jellyfish hazard, a translucent purple bell with trailing tentacles</title>
+  <defs>
+    <radialGradient id="bell" cx="50%" cy="25%" r="75%">
+      <stop offset="0%" stop-color="#B073A8"/>
+      <stop offset="100%" stop-color="#6B2E63"/>
+    </radialGradient>
+  </defs>
+  <path d="M50 90 Q50 34 100 34 Q150 34 150 90 Q100 108 50 90 Z" fill="url(#bell)" opacity="0.88"/>
+  <path d="M62 86 Q100 100 138 86" stroke="#4A1F45" stroke-width="2" fill="none" opacity="0.5"/>
+  <path d="M64 92 Q58 130 66 168 M84 96 Q80 136 86 172 M100 98 Q100 138 100 176 M116 96 Q120 136 114 172 M136 92 Q142 130 134 168" stroke="#8B2E5B" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.75"/>
+</svg>

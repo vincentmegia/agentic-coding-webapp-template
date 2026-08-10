@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Tuna, a large streamlined blue-silver fish with gold finlets, worth 75 points</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2E5A8A"/>
+      <stop offset="55%" stop-color="#4E7FAE"/>
+      <stop offset="100%" stop-color="#D8E4EE"/>
+    </linearGradient>
+  </defs>
+  <path d="M162 100 L192 82 L192 118 Z" fill="#2E5A8A"/>
+  <path d="M150 92 L164 80 L168 92 Z" fill="#E3B872"/>
+  <path d="M150 108 L164 120 L168 108 Z" fill="#E3B872"/>
+  <path d="M38 100 Q60 40 116 62 Q168 78 172 100 Q168 122 116 138 Q60 160 38 100 Z" fill="url(#body)"/>
+  <path d="M96 62 L114 38 L128 66 Z" fill="#2E5A8A"/>
+  <path d="M60 78 L48 92 L64 92 Z" fill="#2E5A8A" opacity="0.85"/>
+  <circle cx="52" cy="94" r="6.5" fill="#F4F3EF"/>
+  <circle cx="53" cy="94" r="3.2" fill="#152743"/>
+</svg>

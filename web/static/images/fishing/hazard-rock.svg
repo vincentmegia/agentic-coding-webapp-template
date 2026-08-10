@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Rock hazard, a jagged dark grey stone outcrop</title>
+  <defs>
+    <linearGradient id="rock" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5C5A5F"/>
+      <stop offset="100%" stop-color="#332F35"/>
+    </linearGradient>
+  </defs>
+  <path d="M30 158 L46 96 L74 108 L88 60 L118 100 L142 76 L172 140 L164 160 L110 148 L70 166 Z" fill="url(#rock)"/>
+  <path d="M88 60 L74 108 L98 116 Z" fill="#221F24" opacity="0.5"/>
+  <path d="M142 76 L118 100 L138 118 Z" fill="#221F24" opacity="0.4"/>
+</svg>

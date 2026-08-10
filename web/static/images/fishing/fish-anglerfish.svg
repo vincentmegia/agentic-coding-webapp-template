@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Anglerfish, a dark deep-sea fish with sharp teeth and a glowing lure, worth 200 points</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3A2A52"/>
+      <stop offset="100%" stop-color="#1B1430"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFE28A"/>
+      <stop offset="60%" stop-color="#F5C542" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#F5C542" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="130" cy="52" r="26" fill="url(#glow)"/>
+  <path d="M100 96 Q98 60 128 52" stroke="#1B1430" stroke-width="4" fill="none"/>
+  <circle cx="130" cy="52" r="7" fill="#F5C542"/>
+  <path d="M140 100 L170 88 L170 112 Z" fill="#1B1430"/>
+  <path d="M40 108 Q34 68 82 62 Q140 62 156 100 Q140 138 82 138 Q34 132 40 108 Z" fill="url(#body)"/>
+  <path d="M60 118 Q90 132 122 120 L118 128 Q88 140 62 126 Z" fill="#0E0A1C"/>
+  <path d="M64 120 L70 130 L76 120 M82 122 L88 132 L94 122 M100 122 L106 132 L112 122" fill="#F4F3EF" opacity="0.9"/>
+  <circle cx="58" cy="98" r="6" fill="#F4F3EF" opacity="0.9"/>
+  <circle cx="59" cy="98" r="3" fill="#0E0A1C"/>
+</svg>

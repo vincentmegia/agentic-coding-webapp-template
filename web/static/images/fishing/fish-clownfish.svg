@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Clownfish, an orange fish with white stripes, worth 40 points</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F2955A"/>
+      <stop offset="100%" stop-color="#E0722E"/>
+    </linearGradient>
+  </defs>
+  <path d="M152 100 L182 78 L182 122 Z" fill="#E0722E"/>
+  <ellipse cx="98" cy="100" rx="60" ry="34" fill="url(#body)"/>
+  <path d="M78 66 Q78 100 78 134" stroke="#F4F3EF" stroke-width="10" fill="none"/>
+  <path d="M112 68 Q112 100 112 132" stroke="#F4F3EF" stroke-width="10" fill="none"/>
+  <path d="M78 66 Q78 100 78 134 M112 68 Q112 100 112 132" stroke="#152743" stroke-width="1.5" fill="none" opacity="0.4"/>
+  <path d="M96 68 L112 48 L124 72 Z" fill="#E0722E" opacity="0.9"/>
+  <circle cx="46" cy="96" r="7" fill="#F4F3EF"/>
+  <circle cx="47" cy="96" r="3.4" fill="#152743"/>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Sardine, a small silver-blue schooling fish, worth 10 points</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#DCEAF6"/>
+      <stop offset="100%" stop-color="#6FA8DC"/>
+    </linearGradient>
+  </defs>
+  <path d="M155 100 L182 84 L182 116 Z" fill="#6FA8DC"/>
+  <ellipse cx="100" cy="100" rx="55" ry="17" fill="url(#body)"/>
+  <path d="M95 84 L108 68 L118 86 Z" fill="#6FA8DC" opacity="0.85"/>
+  <circle cx="62" cy="98" r="5" fill="#F4F3EF"/>
+  <circle cx="63" cy="98" r="2.4" fill="#152743"/>
+</svg>

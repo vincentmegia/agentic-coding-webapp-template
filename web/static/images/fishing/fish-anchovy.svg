@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Anchovy, a slender silver-green fish with a dark lateral stripe, worth 15 points</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#E2F0E6"/>
+      <stop offset="100%" stop-color="#7FBFAE"/>
+    </linearGradient>
+  </defs>
+  <path d="M158 100 L186 83 L186 117 Z" fill="#7FBFAE"/>
+  <ellipse cx="100" cy="100" rx="58" ry="18" fill="url(#body)"/>
+  <path d="M46 100 L182 100" stroke="#3E6F63" stroke-width="2.5" opacity="0.55"/>
+  <path d="M96 83 L110 66 L120 85 Z" fill="#7FBFAE" opacity="0.85"/>
+  <circle cx="60" cy="98" r="5.5" fill="#F4F3EF"/>
+  <circle cx="61" cy="98" r="2.6" fill="#152743"/>
+</svg>
