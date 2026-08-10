@@ -127,11 +127,18 @@ func newMux(conn *sql.DB) (*http.ServeMux, error) {
 	resumeService := service.NewResumeService(repository.NewResumeRepository(conn))
 	resume := handler.NewResumeHandler(renderer, resumeService, Version)
 
+	fishingService := service.NewFishingService(repository.NewFishingRepository(conn))
+	fishingGame := handler.NewFishingGameHandler(renderer, fishingService, Version)
+
 	// See docs/features/home.md's Routes/Handlers table. This feature
 	// owns the shell and these routes; the real page content behind each
 	// is a separate, not-yet-built feature (placeholders for now).
 	mux.HandleFunc("GET /{$}", pages.Home)
 	mux.HandleFunc("GET /resume", resume.Index)
+	// See docs/features/fishing-game.md's Routes/Handlers table.
+	mux.HandleFunc("GET /fishing-game", fishingGame.Index)
+	mux.HandleFunc("GET /fishing-game/leaderboard", fishingGame.Leaderboard)
+	mux.HandleFunc("POST /fishing-game/score", fishingGame.SubmitScore)
 	mux.HandleFunc("GET /projects", pages.Projects)
 	mux.HandleFunc("GET /blogs", pages.Blogs)
 	mux.HandleFunc("GET /settings/profile", pages.Profile)

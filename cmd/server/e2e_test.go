@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vincentmegia/vincentmegia/internal/config"
 	"github.com/vincentmegia/vincentmegia/internal/db"
@@ -160,6 +163,78 @@ func TestEndToEnd(t *testing.T) {
 		if !strings.Contains(body, `id="resume-role-`) {
 			t.Error("HTMX fragment response missing resume content")
 		}
+	})
+
+	t.Run("fishing game routes round-trip through the real fishing_scores table", func(t *testing.T) {
+		resp, body := get(t, client, srv.URL+"/fishing-game")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /fishing-game: status = %d, want 200", resp.StatusCode)
+		}
+		if !strings.Contains(body, "Fishing Game") {
+			t.Errorf("GET /fishing-game missing its title/content: %s", body)
+		}
+
+		resp, body = get(t, client, srv.URL+"/fishing-game/leaderboard")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /fishing-game/leaderboard: status = %d, want 200", resp.StatusCode)
+		}
+		if !strings.Contains(body, `id="fishing-leaderboard"`) {
+			t.Errorf("leaderboard fragment missing its #fishing-leaderboard id: %s", body)
+		}
+
+		// Unique per test run so this doesn't collide with (or get
+		// mistaken for) a real visitor's name in the shared dev database,
+		// and so the cleanup below can target exactly this row. Kept
+		// within the 20-char player_name bound (docs/features/
+		// fishing-game.md's Data Model).
+		playerName := fmt.Sprintf("e2e-%d", time.Now().UnixNano()%1_000_000)
+		t.Cleanup(func() {
+			if _, err := conn.Exec(`DELETE FROM fishing_scores WHERE player_name = $1`, playerName); err != nil {
+				t.Errorf("cleanup: delete test fishing_scores row: %v", err)
+			}
+		})
+
+		form := url.Values{"player_name": {playerName}, "score": {"1234"}, "depth_reached_miles": {"567"}}
+		resp, err := client.PostForm(srv.URL+"/fishing-game/score", form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = string(b)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("POST /fishing-game/score: status = %d, want 200, body: %s", resp.StatusCode, body)
+		}
+		// A real row actually round-tripped through
+		// FishingRepository.Insert -> Postgres -> FishingRepository.TopScores,
+		// not a fixture — this only appears if the INSERT and the
+		// re-rendered leaderboard fragment both genuinely hit the DB.
+		if !strings.Contains(body, playerName) || !strings.Contains(body, "1234 pts") {
+			t.Errorf("POST /fishing-game/score response missing the newly inserted entry: %s", body)
+		}
+
+		t.Run("rejects an out-of-range submission with 400, not a raw DB error", func(t *testing.T) {
+			badForm := url.Values{"player_name": {"e2e-invalid"}, "score": {"99999999"}, "depth_reached_miles": {"50"}}
+			resp, err := client.PostForm(srv.URL+"/fishing-game/score", badForm)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			b, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := string(b)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400, body: %s", resp.StatusCode, body)
+			}
+			if strings.Contains(body, "constraint") || strings.Contains(body, "SQLSTATE") {
+				t.Errorf("error body looks like a raw DB error: %s", body)
+			}
+		})
 	})
 
 	t.Run("placeholder routes are unaffected by the resume feature", func(t *testing.T) {

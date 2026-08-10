@@ -155,6 +155,7 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "pages", "resume.html"),
 		filepath.Join(templatesDir, "components", "carousel.html"),
 		filepath.Join(templatesDir, "pages", "landing.html"),
+		filepath.Join(templatesDir, "components", "fishing-leaderboard.html"),
 	}
 	return template.New(filepath.Base(files[0])).Funcs(templateFuncs).ParseFiles(files...)
 }
@@ -208,6 +209,18 @@ func (ren *Renderer) Render(w http.ResponseWriter, r *http.Request, data PageDat
 	ren.execute(w, "base", data)
 }
 
+// RenderFragment executes a single named component template directly to
+// the response, with no full-page/HX-Request branching — for component-level
+// HTMX endpoints (e.g. FishingGameHandler.Leaderboard/SubmitScore) that
+// always return just a fragment, never wrapped in "base", regardless of
+// whether the request carries HX-Request. This differs from Render, which
+// exists for page-level nav routes where a direct (non-HTMX) request must
+// still get the full document shell. data is whatever the named template's
+// dot context expects — not necessarily a PageData.
+func (ren *Renderer) RenderFragment(w http.ResponseWriter, name string, data any) {
+	ren.execute(w, name, data)
+}
+
 // renderToString executes a named template into a string, for the
 // pre-render step Render's full-page path needs (see
 // PageData.RenderedContent).
@@ -219,8 +232,10 @@ func (ren *Renderer) renderToString(name string, data PageData) (string, error) 
 	return buf.String(), nil
 }
 
-// execute writes a named template's output directly to the response.
-func (ren *Renderer) execute(w http.ResponseWriter, name string, data PageData) {
+// execute writes a named template's output directly to the response. data
+// is `any`, not PageData, so RenderFragment can share this with Render —
+// html/template.ExecuteTemplate itself takes an arbitrary dot value.
+func (ren *Renderer) execute(w http.ResponseWriter, name string, data any) {
 	var buf bytes.Buffer
 	if err := ren.tmpl.ExecuteTemplate(&buf, name, data); err != nil {
 		ren.renderError(w, name, err)

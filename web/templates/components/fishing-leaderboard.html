@@ -1,0 +1,35 @@
+{{/* Top-N fishing_scores leaderboard fragment — the actual response
+     contract for both GET /fishing-game/leaderboard (innerHTML into this
+     element) and POST /fishing-game/score (outerHTML swap replacing this
+     element, per docs/features/fishing-game.md's HTMX Interactions), so it
+     carries its own id="fishing-leaderboard" wrapper for the outerHTML
+     swap to target, same reasoning as placeholder.html's #main-content
+     wrapper comment.
+
+     Dot is []model.FishingScore, ordered score DESC (already sorted by
+     the repository query) — not re-sorted here.
+
+     player_name is rendered through html/template's normal auto-escaping
+     (plain {{.PlayerName}}, never template.HTML-wrapped) since it's
+     visitor-supplied text shown to every visitor — the XSS concern
+     flagged in that doc's Security Considerations. */}}
+{{define "fishing-leaderboard"}}
+<ol id="fishing-leaderboard" class="divide-y divide-line rounded-card border border-line bg-surface">
+	{{if .}}
+	{{range $i, $entry := .}}
+	<li class="flex items-center justify-between gap-4 px-4 py-2 text-sm">
+		<span class="flex items-center gap-3">
+			<span class="w-6 shrink-0 text-right font-mono text-muted">{{add $i 1}}</span>
+			<span class="font-medium text-ink">{{$entry.PlayerName}}</span>
+		</span>
+		<span class="flex items-center gap-4 font-mono tabular-nums text-ink">
+			<span>{{$entry.Score}} pts</span>
+			<span class="text-muted">{{$entry.DepthReachedMiles}} mi</span>
+		</span>
+	</li>
+	{{end}}
+	{{else}}
+	<li class="px-4 py-3 text-sm text-muted">No scores yet — be the first!</li>
+	{{end}}
+</ol>
+{{end}}
