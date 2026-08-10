@@ -2,7 +2,13 @@
 
 ## Status
 
-`Proposed`
+`Shipped` — implemented, running against a real Postgres instance, and
+covered by unit tests (Go: validation/leaderboard; JS: `rules.js`/
+`engine-state.js` via `node --test`), a real-Postgres end-to-end test
+(`cmd/server/e2e_test.go`), and a Playwright suite (`e2e/fishing-game.spec.js`,
+Chromium + WebKit). Point values, token costs, and gear magnitudes remain
+illustrative/tunable, as called out throughout Business Rules and Open
+Questions — nothing in that tuning blocks calling this Shipped.
 
 ## Summary
 

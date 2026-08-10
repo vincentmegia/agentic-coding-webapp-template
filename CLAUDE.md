@@ -10,9 +10,12 @@ implemented and covered by tests — see `docs/features/home.md` and
 `docs/features/resume.md`. The landing page (`/`) now also renders an image
 carousel section below its hero, with hand-authored placeholder illustrations
 — see `docs/features/landing-carousel.md`; automated test coverage for it is
-still pending (see that doc's Testing Plan). The hero itself, Projects, and
-Blogs are still placeholders. Update this file as decisions are made or
-change.
+still pending (see that doc's Testing Plan). A Fishing Game mini-game
+(canvas-based, Postgres-backed public leaderboard, gear upgrades via
+`localStorage`-persisted fishing tokens) is implemented and covered by tests
+at `/fishing-game`, reachable from the Home dropdown — see
+`docs/features/fishing-game.md`. The hero itself, Projects, and Blogs are
+still placeholders. Update this file as decisions are made or change.
 
 ## What this is
 
