@@ -44,17 +44,19 @@ func NewFishingGameHandler(renderer *Renderer, fishingService *service.FishingSe
 
 // Index handles GET /fishing-game.
 //
-// Renders the shared generic placeholder (same pattern as
-// PagesHandler.Projects/Blogs in internal/handler/pages.go) rather than
-// real page content: the canvas game shell (web/templates/pages/
-// fishing-game.html — HUD, start/round-over/shop overlays) is a separate,
-// not-yet-built task (#4 of this feature's breakdown). This route only
-// needs to exist and render *something* today so nav wiring and routing
-// aren't blocked on that task landing.
+// Renders the real page content (web/templates/pages/fishing-game.html —
+// canvas, HUD, start/round-over/shop overlays, leaderboard placeholder) now
+// that it exists (feature breakdown task #4). Unlike ResumeHandler.Index,
+// there's no database fetch here: every player-specific value (tokens, gear,
+// best score/depth) loads client-side from localStorage, and the
+// leaderboard itself loads via its own request (GET /fishing-game/
+// leaderboard), not inline — see docs/features/fishing-game.md's Routes/
+// Handlers table. So this handler only needs to set ContentTemplate and
+// render, same as ResumeHandler.Index but with nothing extra to pass in
+// PageData.
 func (h *FishingGameHandler) Index(w http.ResponseWriter, r *http.Request) {
 	data := shellPageData(r, h.Version, "Fishing Game", false)
-	data.ContentTitle = "Fishing Game"
-	data.ContentMessage = "The fishing game is still being built. Check back soon."
+	data.ContentTemplate = "fishing-game-content"
 	h.Renderer.Render(w, r, data)
 }
 

@@ -1,0 +1,280 @@
+{{/* /fishing-game page: canvas game shell (HUD + start/round-over/shop
+     overlays) + leaderboard, per docs/features/fishing-game.md's UI and
+     HTMX Interactions sections. Defines "fishing-game-content", not
+     "content" — reusing "content" would silently take over the shared
+     placeholder every other still-placeholder route renders. See
+     docs/features/resume.md's Template Rendering and
+     internal/handler/template.go's PageData.ContentTemplate/LoadTemplates,
+     the same pattern resume.html/landing.html established.
+
+     Supplies its own <main id="main-content"> wrapper rather than relying
+     on base.html for it — required because hx-swap="outerHTML" (home.md's
+     HTMX Interactions) replaces the *entire* #main-content element with
+     whatever this template renders; base.html renders .RenderedContent
+     directly with no wrapper of its own. See resume.html's doc comment for
+     the full explanation of why this is load-bearing, not a style choice.
+
+     Dot is PageData; this page reads none of its fields directly (no
+     server-side fetch — all player state is localStorage-driven, per
+     fishing-game.js's header comment) beyond passing dot through to
+     {{template "fishing-shop" .}} and {{template "fishing-leaderboard" .}}-
+     adjacent markup, which itself needs no page data either.
+
+     fishing-game.js is loaded here, inside this page's own content block —
+     not in base.html — matching resume.html's resume-print.js placement:
+     it's only needed on this one route. type="module" (not defer) since the
+     file uses ES `import`/`export`; module scripts defer automatically, per
+     that file's own header comment.
+
+     Raw/pre-JS default visibility: #fishing-start-screen has no "hidden"
+     class (visible by default) while #fishing-round-over-screen and
+     #fishing-shop-screen both default to class="hidden" — fishing-game.js's
+     init() calls renderStartScreen() synchronously at its end (see that
+     file's header/init() JSDoc), which is what actually manages screen
+     visibility going forward; these defaults only minimize any flash before
+     the module script runs, matching this task's brief exactly (JS corrects
+     it either way, but first paint shouldn't rely on that). */}}
+{{define "fishing-game-content"}}
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<div class="space-y-6">
+		<section class="space-y-2">
+			<h1 class="text-2xl font-semibold text-ink">Fishing Game</h1>
+			<p class="text-muted">
+				Steer the diver down through the ocean, catch fish, dodge hazards, and see how deep you can push it
+				without getting hit. Tokens earned each round buy gear upgrades that make the next dive a little more
+				survivable.
+			</p>
+		</section>
+
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
+			<div class="space-y-4">
+				{{/* HUD: always present in the DOM (fishing-game.js updates its
+				     text nodes every frame but never manages visibility itself,
+				     per this task's brief) — sits above the canvas as normal
+				     dark-mode-aware chrome (bg-surface-2/text-ink, no fixed
+				     palette), unlike the canvas box below it. Tabular-nums +
+				     font-mono per the doc's Visual Direction: "HUD numbers...
+				     don't jitter in width as digits change every frame." */}}
+				<dl class="grid grid-cols-5 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Depth</dt>
+						<dd id="fishing-hud-depth" class="font-mono text-sm tabular-nums text-ink sm:text-base">0</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Score</dt>
+						<dd id="fishing-hud-score" class="font-mono text-sm tabular-nums text-ink sm:text-base">0</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Lives</dt>
+						<dd id="fishing-hud-lives" class="font-mono text-sm tabular-nums text-ink sm:text-base">0</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Tokens</dt>
+						<dd id="fishing-hud-tokens" class="font-mono text-sm tabular-nums text-ink sm:text-base">0</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Streak</dt>
+						<dd id="fishing-hud-streak" class="font-mono text-sm tabular-nums text-ink sm:text-base">1.00x</dd>
+					</div>
+				</dl>
+
+				{{/* Canvas game box: a fixed dark-ocean scene regardless of the
+				     site's light/dark mode toggle (docs/features/fishing-game.md's
+				     Visual Direction) — bg-[#01111f] is a literal arbitrary value
+				     with no dark: variant, deliberately not one of this site's
+				     semantic surface tokens (which do swap with the theme). The
+				     three overlay screens inside it (start/round-over/shop) are
+				     normal dark-mode-aware chrome (bg-surface, text-ink, etc.)
+				     stacked on top via position:absolute; inset-0 — they cover the
+				     canvas entirely whenever shown, so they read correctly in
+				     either theme even though the canvas behind them never changes
+				     palette. touch-none on the canvas prevents touch-drag steering
+				     (fishing-game.js's pointer/touch handlers) from also
+				     scrolling the page on mobile. width/height attributes below
+				     are the initial world size fishing-game.js's init() reads
+				     before its own resizeCanvasToDisplaySize() call re-measures
+				     the rendered (CSS) box and becomes the authoritative
+				     coordinate space from then on — see that file's init()/
+				     resizeCanvasToDisplaySize() for why this template doesn't need
+				     to keep those numbers in sync with anything else. */}}
+				<div class="relative mx-auto w-full max-w-[480px] overflow-hidden rounded-card border border-line bg-[#01111f] shadow-sm">
+					<canvas
+						id="fishing-canvas"
+						width="480"
+						height="640"
+						class="block h-auto w-full touch-none"
+						role="img"
+						aria-label="Fishing game play area"
+					>Your browser doesn't support the canvas element needed to play this game.</canvas>
+
+					{{/* Start screen — visible by default (see file header comment). */}}
+					<div id="fishing-start-screen" class="absolute inset-0 flex items-center justify-center p-4">
+						<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 text-center shadow-lg">
+							<h2 class="text-lg font-semibold text-ink">Ready to dive?</h2>
+							<dl class="space-y-1.5 text-sm">
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Tokens</dt>
+									<dd id="fishing-start-tokens" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Best score</dt>
+									<dd id="fishing-start-best-score" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Best depth</dt>
+									<dd id="fishing-start-best-depth" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+							</dl>
+							{{/* Unhidden by fishing-game.js's init() when
+							     probeStorageAvailable() fails (private browsing /
+							     disabled storage) — doc's UI table: "a small notice
+							     explains progress won't be saved". */}}
+							<p id="fishing-storage-notice" class="hidden rounded-card border border-line bg-surface-2 px-3 py-2 text-xs text-muted">
+								Your progress won't be saved in this browser.
+							</p>
+							<div class="flex flex-col gap-2 pt-1">
+								<button
+									type="button"
+									id="fishing-start-dive-button"
+									class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Start Dive</button>
+								<button
+									type="button"
+									id="fishing-start-shop-button"
+									class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Open Shop</button>
+							</div>
+						</div>
+					</div>
+
+					{{/* Round-over screen — hidden by default (see file header
+					     comment); fishing-game.js's endRound() unhides it and sets
+					     data-outcome="caught"|"reached-abyss" on this root. */}}
+					<div id="fishing-round-over-screen" class="hidden absolute inset-0 flex items-center justify-center overflow-y-auto p-4">
+						<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
+							<h2 id="fishing-round-over-title" class="text-center text-lg font-semibold text-ink">Round over</h2>
+
+							<dl class="space-y-1.5 text-sm">
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Fish caught</dt>
+									<dd id="fishing-round-over-fish-caught" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Score</dt>
+									<dd id="fishing-round-over-score" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Depth reached</dt>
+									<dd id="fishing-round-over-depth" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Tokens earned</dt>
+									<dd id="fishing-round-over-tokens" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+							</dl>
+
+							{{/* Submit to leaderboard — real HTML form + hx-post, per
+							     the doc's HTMX Interactions table. hx-swap="outerHTML"
+							     (not innerHTML) matches #fishing-leaderboard's own
+							     fragment root swap below — see that element's comment
+							     for why outerHTML is required here to avoid a
+							     duplicate-id bug. fishing-game.js sets scoreInput/
+							     depthInput's .value itself after each round (this
+							     template only supplies value="0" as a harmless
+							     pre-round default) and disables submitButton after
+							     click as a double-submit guard on top of, not instead
+							     of, this real form. */}}
+							<form
+								hx-post="/fishing-game/score"
+								hx-target="#fishing-leaderboard"
+								hx-swap="outerHTML"
+								hx-indicator="#leaderboard-loading"
+								class="space-y-2 border-t border-line pt-4"
+							>
+								<label for="fishing-round-over-name-input" class="block text-xs font-medium text-muted">
+									Submit to leaderboard (optional)
+								</label>
+								<div class="flex gap-2">
+									<input
+										type="text"
+										id="fishing-round-over-name-input"
+										name="player_name"
+										maxlength="20"
+										required
+										placeholder="Your name"
+										class="w-full min-w-0 rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>
+									<button
+										type="submit"
+										id="fishing-round-over-submit-button"
+										class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+									>Submit</button>
+								</div>
+								<input type="hidden" id="fishing-round-over-score-input" name="score" value="0">
+								<input type="hidden" id="fishing-round-over-depth-input" name="depth_reached_miles" value="0">
+							</form>
+
+							<div class="flex gap-2 pt-1">
+								<button
+									type="button"
+									id="fishing-round-over-dive-again-button"
+									class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Dive Again</button>
+								<button
+									type="button"
+									id="fishing-round-over-shop-button"
+									class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Open Shop</button>
+							</div>
+						</div>
+					</div>
+
+					{{template "fishing-shop" .}}
+				</div>
+			</div>
+
+			<aside class="space-y-3">
+				<div class="flex items-center justify-between gap-2">
+					<h2 class="text-lg font-semibold text-ink">Leaderboard</h2>
+					{{/* Indicator element for both leaderboard-affecting requests
+					     below (doc's HTMX Interactions table: "#leaderboard-loading"),
+					     kept separate from #fishing-leaderboard's own content so
+					     toggling it never touches the element that GET/POST swap
+					     outerHTML/innerHTML into. Hidden by default, shown while its
+					     request is in flight (app.css's .htmx-indicator rule, same
+					     mechanism as #nav-loading in layouts/base.html). */}}
+					<span id="leaderboard-loading" class="htmx-indicator text-xs text-muted">Loading…</span>
+				</div>
+
+				{{/* Leaderboard: the initial placeholder here *is* the hx-get
+				     target (hx-target="this"), so it — not a separate wrapper —
+				     carries id="fishing-leaderboard" and gets replaced outright
+				     (hx-swap="outerHTML") by fishing-leaderboard.html's fragment,
+				     whose own root is also <ol id="fishing-leaderboard">. This
+				     avoids ever having two elements share that id at once: if this
+				     were a <div id="fishing-leaderboard"> doing an innerHTML swap
+				     instead, the fragment's own id="fishing-leaderboard" <ol> would
+				     nest inside it, leaving two elements with the same id and
+				     breaking any later hx-target="#fishing-leaderboard" selector —
+				     including the score-submission form above, which needs its
+				     outerHTML swap to land on exactly one element. Functionally
+				     this is the same "leaderboard fragment loads in place"
+				     behavior the doc describes, just phrased as a self-replacing
+				     target rather than an innerHTML swap into a permanent wrapper. */}}
+				<div
+					id="fishing-leaderboard"
+					hx-get="/fishing-game/leaderboard"
+					hx-trigger="load"
+					hx-target="this"
+					hx-swap="outerHTML"
+					hx-indicator="#leaderboard-loading"
+				>
+					<p class="rounded-card border border-line bg-surface px-4 py-3 text-sm text-muted">Loading leaderboard…</p>
+				</div>
+			</aside>
+		</div>
+	</div>
+</main>
+
+<script type="module" src="/static/js/fishing-game.js"></script>
+{{end}}

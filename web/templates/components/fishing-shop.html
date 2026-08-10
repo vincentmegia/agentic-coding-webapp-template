@@ -1,0 +1,182 @@
+{{/* Gear upgrade shop (docs/features/fishing-game.md's UI: "Shop screen" and
+     Business Rules "Gear upgrades" table). One row per web/static/js/
+     fishing-game.js's GEAR_DEFS key, in that exact order (hullPlating,
+     ballastThrusters, magneticLure, sonarRange, goldenBait,
+     emergencyBallast) — labels/descriptions are hardcoded static English
+     strings here, not passed through from Go, since GEAR_DEFS itself lives
+     in JS and this template has no server-side gear data to render (all of
+     it is localStorage-driven, per that file's header comment).
+
+     Split into its own file (rather than inlined in fishing-game.html)
+     purely for component-boundary consistency with the rest of this
+     codebase (resume-sidebar.html, resume-summary.html, etc. are each their
+     own file) — {{define "fishing-shop"}} takes no meaningful dot context
+     of its own; fishing-game.html includes it via {{template "fishing-shop" .}}
+     only because html/template's {{template}} action requires *some* dot
+     argument, not because this template reads anything from PageData.
+
+     DOM contract (see fishing-game.js's init() JSDoc, "shopScreen" section):
+     root #fishing-shop-screen (defaults to class="hidden" — fishing-game.js's
+     renderStartScreen() runs synchronously at the end of init() and is what
+     actually manages screen visibility every time after that; this default
+     only minimizes pre-JS flash, per this task's brief), #fishing-shop-tokens
+     (balance), #fishing-shop-close-button, #fishing-shop-reset-button (native
+     confirm() already handled in JS — no hx-confirm/extra guard needed here).
+     Each gear row carries data-gear-key="<key>" plus three children JS reads/
+     writes: [data-gear-level], [data-gear-cost], and a <button data-gear-buy>
+     (JS toggles .disabled and .opacity-50 on that button itself, per its
+     renderShop(), not the row — this markup must not put opacity-50 on the
+     row).
+
+     Positioned as an absolute inset-0 overlay, matching #fishing-start-screen
+     and #fishing-round-over-screen (fishing-game.html) — showScreen() in
+     fishing-game.js treats all three as mutually exclusive "screens" shown in
+     place of the canvas, so the shop follows the same overlay pattern rather
+     than living outside the canvas box. It still fully respects the site's
+     dark mode via bg-surface/text-ink/etc (semantic tokens, not the fixed
+     dark-ocean canvas background) — see fishing-game.html's canvas-container
+     comment for why those are different. */}}
+{{define "fishing-shop"}}
+<div id="fishing-shop-screen" class="hidden absolute inset-0 overflow-y-auto p-4">
+	<div class="mx-auto w-full max-w-sm space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
+		<div class="flex items-center justify-between gap-2">
+			<h2 class="text-lg font-semibold text-ink">Gear Shop</h2>
+			<button
+				type="button"
+				id="fishing-shop-close-button"
+				class="shrink-0 rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+			>Close</button>
+		</div>
+
+		<div class="flex items-center justify-between rounded-card border border-line bg-surface-2 px-3 py-2 text-sm">
+			<span class="text-muted">Tokens</span>
+			<span id="fishing-shop-tokens" class="font-mono tabular-nums text-ink">0</span>
+		</div>
+
+		<ul class="space-y-3">
+			{{/* Hull Plating: +1 max life per level. */}}
+			<li data-gear-key="hullPlating" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Hull Plating</p>
+						<p class="text-xs text-muted">+1 max life per level</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> tok</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Ballast Thrusters: faster lateral steering (easier hazard dodges). */}}
+			<li data-gear-key="ballastThrusters" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Ballast Thrusters</p>
+						<p class="text-xs text-muted">Faster steering, easier hazard dodges</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> tok</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Magnetic Lure: wider catch radius around the diver. */}}
+			<li data-gear-key="magneticLure" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Magnetic Lure</p>
+						<p class="text-xs text-muted">Wider catch radius around the diver</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> tok</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Sonar Range: fish/hazards become visible farther ahead. */}}
+			<li data-gear-key="sonarRange" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Sonar Range</p>
+						<p class="text-xs text-muted">Fish and hazards become visible farther ahead</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> tok</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Golden Bait: shifts spawn weight further toward higher-value fish. */}}
+			<li data-gear-key="goldenBait" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Golden Bait</p>
+						<p class="text-xs text-muted">Spawn weight shifts toward higher-value fish</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> tok</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Emergency Ballast: once per round, automatically absorbs a hit
+			     for free (no life lost, streak not reset), then recharges next
+			     round — a single level 0/1 unlock, not a stacking stat (see
+			     GEAR_DEFS's maxLevel: 1 in fishing-game.js). */}}
+			<li data-gear-key="emergencyBallast" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Emergency Ballast</p>
+						<p class="text-xs text-muted">Once per round, automatically absorbs a hit for free</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> tok</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+		</ul>
+
+		<button
+			type="button"
+			id="fishing-shop-reset-button"
+			class="w-full rounded-card border border-danger px-3 py-2 text-sm font-medium text-danger transition-colors duration-150 hover:bg-danger/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-danger"
+		>Reset Progress</button>
+	</div>
+</div>
+{{end}}
