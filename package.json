@@ -6,7 +6,8 @@
   "scripts": {
     "build:css": "tailwindcss -i ./web/static/css/app.css -o ./web/static/css/output.css --minify",
     "watch:css": "tailwindcss -i ./web/static/css/app.css -o ./web/static/css/output.css --watch",
-    "test:e2e": "playwright test --config=e2e/playwright.config.js"
+    "test:e2e": "playwright test --config=e2e/playwright.config.js",
+    "test:unit": "node --test web/static/js/fishing/*.test.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
