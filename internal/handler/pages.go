@@ -30,6 +30,7 @@ func (h *PagesHandler) page(r *http.Request, title string, transparentOverHero b
 		Title:               title,
 		TransparentOverHero: transparentOverHero,
 		IsAuthenticated:     IsAuthenticated(r),
+		Theme:               themeFromRequest(r),
 		VersionLabel:        versionLabel(h.Version),
 		CopyrightYear:       time.Now().Year(),
 		HomeMenu:            homeMenu,

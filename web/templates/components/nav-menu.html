@@ -14,7 +14,7 @@
 		aria-haspopup="menu"
 		aria-expanded="false"
 		aria-controls="{{.ID}}-list"
-		class="inline-flex items-center gap-1.5 rounded-card px-3 py-2 text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+		class="inline-flex items-center gap-1.5 rounded-card px-3 py-2 text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand dark:text-slate-200 dark:hover:bg-slate-800"
 	>
 		{{.TriggerIcon}}
 		<span>{{.Label}}</span>
@@ -27,7 +27,7 @@
 		data-nav-list
 		role="menu"
 		aria-labelledby="{{.ID}}-trigger"
-		class="hidden absolute {{if eq .Align "right"}}right-0{{else}}left-0{{end}} z-50 mt-1 min-w-[10rem] rounded-card border border-slate-200 bg-white py-1 shadow transition-opacity duration-150"
+		class="hidden absolute {{if eq .Align "right"}}right-0{{else}}left-0{{end}} z-50 mt-1 min-w-[10rem] rounded-card border border-slate-200 bg-white py-1 shadow transition-opacity duration-150 dark:border-slate-700 dark:bg-slate-800"
 	>
 		{{range .Items}}
 		<li role="none">
@@ -37,7 +37,7 @@
 					type="submit"
 					role="menuitem"
 					data-nav-item
-					class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+					class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand dark:text-slate-200 dark:hover:bg-slate-700"
 				>{{.Icon}}<span>{{.Label}}</span></button>
 			</form>
 			{{else}}
@@ -51,7 +51,7 @@
 				hx-swap="outerHTML"
 				hx-push-url="true"
 				hx-indicator="#nav-loading"
-				class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+				class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand dark:text-slate-200 dark:hover:bg-slate-700"
 			>{{.Icon}}<span>{{.Label}}</span></a>
 			{{end}}
 		</li>

@@ -1,9 +1,22 @@
 @import "tailwindcss";
 
-/* Enable the class-based dark variant (`.dark` ancestor) so a later feature
-   can toggle themes explicitly rather than relying solely on
-   prefers-color-scheme. See docs/skills/tailwind-ui/SKILL.md "Dark Mode". */
-@variant dark (&:where(.dark, .dark *));
+/* Class-based dark variant: an explicit `.dark` (or `.light`) ancestor,
+   set server-side from the `theme` cookie (docs/features/dark-mode.md),
+   always wins. When neither class is present — no cookie has been set
+   yet — `dark:` utilities still apply under prefers-color-scheme, as long
+   as `.light` wasn't explicitly chosen; this is what makes the first
+   visit follow the OS preference without any JS. See
+   docs/skills/tailwind-ui/SKILL.md "Dark Mode". */
+@custom-variant dark {
+	&:where(.dark, .dark *) {
+		@slot;
+	}
+	@media (prefers-color-scheme: dark) {
+		&:where(:not(.light, .light *)) {
+			@slot;
+		}
+	}
+}
 
 /* Starter semantic design tokens. Placeholder values — refine when the real
    visual design lands. See docs/skills/tailwind-ui/SKILL.md
@@ -36,7 +49,8 @@
    docs/features/home.md's Visual Direction and Client-side Behavior. */
 @media (prefers-reduced-motion: reduce) {
 	#site-header,
-	[data-nav-list] {
+	[data-nav-list],
+	[data-theme-toggle] {
 		transition: none;
 	}
 }

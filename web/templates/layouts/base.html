@@ -8,7 +8,13 @@
      swap per home.md's HTMX Interactions. */}}
 {{define "base"}}
 <!doctype html>
-<html lang="en">
+{{/* docs/features/dark-mode.md: server-side cookie read renders the
+     correct dark/light class in this initial response, so there's no
+     flash of the wrong theme. Empty .Theme (no cookie yet, or an
+     invalid/malformed value already rejected by themeFromRequest) means
+     neither class is present — app.css's prefers-color-scheme fallback
+     variant takes over. */}}
+<html lang="en" class="{{if eq .Theme "dark"}}dark{{else if eq .Theme "light"}}light{{end}}">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,7 +23,7 @@
 	{{/* Self-hosted, not a CDN — see web/static/js/htmx.min.js. */}}
 	<script src="/static/js/htmx.min.js"></script>
 </head>
-<body class="min-h-screen bg-surface text-slate-900">
+<body class="min-h-screen bg-surface text-slate-900 dark:bg-slate-900 dark:text-slate-100">
 	<a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-card focus:bg-brand focus:px-4 focus:py-2 focus:text-white">Skip to content</a>
 
 	{{/* Local loading indicator for nav swaps (docs/features/home.md's

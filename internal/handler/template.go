@@ -29,6 +29,14 @@ type PageData struct {
 	// auth feature lands.
 	IsAuthenticated bool
 
+	// Theme is the validated theme cookie value ("light", "dark", or ""
+	// when unset/invalid — see themeFromRequest), read server-side so
+	// base.html can render the correct dark/light class in the initial
+	// HTML with no flash. Empty means no explicit choice has been made
+	// yet; base.html renders no class and CSS falls back to
+	// prefers-color-scheme. See docs/features/dark-mode.md.
+	Theme string
+
 	// VersionLabel is the build version footer.html displays, sourced
 	// from build metadata (cmd/server/main.go's Version var, formatted by
 	// PagesHandler.page), not hand-edited here. See
@@ -65,6 +73,11 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "header.html"),
 		filepath.Join(templatesDir, "components", "nav-menu.html"),
 		filepath.Join(templatesDir, "components", "mobile-nav-panel.html"),
+		// Parsed after header.html/mobile-nav-panel.html so its real
+		// {{define "theme-toggle"}} overrides their empty {{block}}
+		// defaults, same "parsed last wins" pattern as placeholder.html
+		// below for "content".
+		filepath.Join(templatesDir, "components", "nav-theme-toggle.html"),
 		filepath.Join(templatesDir, "components", "footer.html"),
 		filepath.Join(templatesDir, "pages", "placeholder.html"),
 	}

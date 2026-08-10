@@ -31,13 +31,21 @@ own instead of growing the layout doc further.
   so the initial response already has the correct theme.
 * Server-side validation of the cookie value against an exact allow-list.
 * Falling back to `prefers-color-scheme` when no cookie has been set yet.
+* `dark:` colors for the shell that already exists at the time this feature
+  ships — `base.html`'s `<body>`, `header.html`, `nav-menu.html`'s dropdown
+  panels, `mobile-nav-panel.html`, `footer.html`, and the `placeholder.html`
+  page content — so toggling is visibly correct today, not just
+  mechanically correct. Without this the toggle flips a cookie and an icon
+  but the rest of the page (including dropdown/panel surfaces) looks
+  unchanged, which reads as broken.
 
 **Out of scope:**
 
 * The header/mobile-panel structure and mount points themselves (`home.md`).
-* Per-page dark-mode color decisions — each page/component is responsible for
-  its own `dark:` classes as it's built; this feature only makes the mechanism
-  (toggle, persistence, initial render) work correctly.
+* Per-page dark-mode color decisions for pages built *after* this feature
+  ships (resume, projects, blogs, etc.) — each new page/component is
+  responsible for its own `dark:` classes as it's built, following the
+  pattern established here for the shell.
 
 ---
 
@@ -64,6 +72,10 @@ own instead of growing the layout doc further.
   colors ad hoc per component.
 * Toggle icon reflects current state (e.g. a sun/moon swap), not a generic
   on/off switch — the icon itself communicates which mode is active.
+* The moon icon is solid/filled (`fill="currentColor"`), not a thin outline
+  stroke — a filled crescent reads clearly at the toggle's small size, where
+  an outline crescent tends to look faint and hard to spot. The sun icon
+  stays as-is.
 * Icon/color transition on toggle is short and respects `prefers-reduced-motion`.
 
 ---
@@ -87,6 +99,10 @@ States this feature's UI must handle:
 | Light (explicit, `theme=light`)     | Renders light regardless of OS preference. |
 | Dark (explicit, `theme=dark`)       | Renders dark regardless of OS preference. |
 | Toggle activated                   | Theme flips instantly, cookie is set, no page reload required. |
+
+The existing shell (`body`, header, footer, placeholder page) must carry
+matching `dark:` classes so these states are visibly, not just mechanically,
+correct — see Scope.
 
 ---
 
@@ -168,6 +184,9 @@ None. Preference lives entirely in a client cookie, not the database.
       nav panel, and reflects the same state in both places.
 * [ ] Toggle icon correctly reflects current state (not a generic switch).
 * [ ] Toggle transition respects `prefers-reduced-motion`.
+* [ ] Toggling actually changes the visible appearance of the existing shell
+      (body background, header, footer, placeholder page text) in a real
+      browser — not just the `<html>` class and the toggle icon.
 
 ---
 
@@ -179,5 +198,7 @@ None. Preference lives entirely in a client cookie, not the database.
 * [ ] Cookie set with `SameSite=Lax` and `Secure` in production.
 * [ ] No inline `<script>` tags exist.
 * [ ] No flash of the wrong theme on reload.
+* [ ] Existing shell (`body`, header, footer, placeholder page) has `dark:`
+      classes and visibly changes appearance when toggled.
 * [ ] Accessibility checked (keyboard-operable toggle, focus visible, reduced-motion respected).
 * [ ] Tests cover the behavior in the Testing Plan above.

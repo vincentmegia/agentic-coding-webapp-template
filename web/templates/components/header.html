@@ -12,7 +12,7 @@
 {{define "header"}}
 <header
 	id="site-header"
-	class="sticky top-0 z-40 border-b border-slate-200 bg-surface transition-colors duration-150 {{if .TransparentOverHero}}header--transparent{{else}}header--solid{{end}}"
+	class="sticky top-0 z-40 border-b border-slate-200 bg-surface transition-colors duration-150 dark:border-slate-800 dark:bg-slate-900 {{if .TransparentOverHero}}header--transparent{{else}}header--solid{{end}}"
 >
 	<div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
 		<div class="flex items-center gap-6">
@@ -38,7 +38,7 @@
 				class="flex items-center gap-2 rounded-card px-1 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
 			>
 				<span role="img" aria-label="Vincent Megia" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold text-white">VM</span>
-				<span class="font-semibold text-slate-900">Vincent Megia</span>
+				<span class="font-semibold text-slate-900 dark:text-slate-100">Vincent Megia</span>
 			</a>
 
 			<nav aria-label="Primary" class="hidden md:block">
