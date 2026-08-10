@@ -688,7 +688,17 @@ export function init(canvas, elements) {
       // table — this file only guards against a double-submit for the same
       // round; the request/response itself is not this file's concern.
       submittedThisRound = true;
-      elements.roundOverScreen.submitButton.disabled = true;
+      // Deferred one tick (real bug fixed here, caught by
+      // e2e/fishing-game.spec.js's leaderboard-submission test): a submit
+      // <button>'s default action — actually submitting its form, which is
+      // what triggers htmx's hx-post interception — runs synchronously
+      // right after this click listener returns, but only if the button is
+      // still enabled at that point. Disabling it inline, in this same
+      // handler, suppressed that default action entirely in both Chromium
+      // and WebKit, so the leaderboard submission silently never fired.
+      // setTimeout(0) lets the real submission happen first; it still
+      // disables the button well before any realistic second click.
+      setTimeout(() => { elements.roundOverScreen.submitButton.disabled = true; }, 0);
     });
   }
   elements.shopScreen.closeButton.addEventListener('click', renderStartScreen);
@@ -724,6 +734,45 @@ export function init(canvas, elements) {
   document.body.addEventListener('htmx:beforeSwap', teardown);
 
   teardownActiveInstance = teardown;
+
+  // Test-only debug hook for e2e/fishing-game.spec.js. Reaching round-over
+  // "naturally" depends on Math.random()-driven fish/hazard spawn timing
+  // (a hazard hit) or a full 1000-mile descent, either of which is too slow
+  // and/or flaky to wait out reliably from a browser test. This hook drives
+  // the exact same transitions real play uses — applyHazardHit/advance from
+  // ./fishing/engine-state.js, then the real endRound() below — so a
+  // test-forced round-over exercises the identical code path a real round
+  // would; nothing here is a parallel/faked "test mode". Left unconditional
+  // (no build/env flag) since this is a personal portfolio site with no
+  // stakes riding on the game, and this codebase has no existing env-flag
+  // mechanism worth inventing just to hide a harmless no-op-in-production
+  // global.
+  if (typeof window !== 'undefined') {
+    window.__fishingGameTestHooks = {
+      /**
+       * Forces the in-progress round to end via the real round-over path.
+       * @param {'caught'|'reached-abyss'} [outcome='caught']
+       */
+      forceRoundOver(outcome) {
+        if (!running || !state || state.roundStatus !== 'playing') return;
+        if (outcome === 'reached-abyss') {
+          state = advance(state, DEPTH_CAP_MILES, 0).state;
+        } else {
+          // Apply real hazard hits, each timed just past the previous
+          // invulnerability window, until lives reach 0. An Emergency
+          // Ballast charge (if any) absorbs the first one for free, exactly
+          // as in real play, before subsequent hits start costing lives —
+          // the loop just keeps calling the same real transition either way.
+          let guard = 0;
+          while (state.roundStatus === 'playing' && state.lives > 0 && guard < 20) {
+            state = applyHazardHit(state, state.invulnerableUntil + 0.01);
+            guard += 1;
+          }
+        }
+        if (state.roundStatus !== 'playing') endRound();
+      },
+    };
+  }
 
   renderStartScreen();
 
