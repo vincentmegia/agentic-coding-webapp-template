@@ -39,6 +39,10 @@ features (or a database schema) built first. Content is hand-authored in Go for 
   the first slide with manual navigation only.
 * Responsive layout: consistent image aspect ratio and `object-fit: cover` across
   breakpoints, spacing consistent with `tailwind-ui`'s scale.
+* A decorative artistic background behind the carousel card itself (not the
+  page/hero) — a soft abstract gradient-and-glow illustration, light/dark
+  theme-aware, purely CSS `background-image` with no accessibility role of
+  its own (see Visual Direction and Business Rules).
 
 **Out of scope:**
 
@@ -107,6 +111,18 @@ excess) and its Cards/Spacing guidance:
 * Short (150–200ms) opacity/transform transition between slides, never a hard cut;
   skipped entirely under `prefers-reduced-motion` (moot for autoplay itself, but
   also applies to manual/arrow/dot navigation).
+* **Decorative backdrop**: the outer `#carousel` section (not just
+  `#carousel-frame`) carries its own `background-image` — a soft abstract
+  gradient-and-glow illustration (`web/static/images/landing-bg-light.svg` /
+  `landing-bg-dark.svg`, swapped via the `dark:` variant per `tailwind-ui`'s
+  Dark Mode section) sharing the carousel illustrations' palette, so it reads
+  as one cohesive art direction rather than a mismatched addition. The section
+  gets its own horizontal/vertical padding (beyond `#carousel-frame`'s own
+  edges) specifically so this artwork is visible as a "mat" around the frame
+  and the dots/toggle row, plus `rounded-card`/`border-line`/`shadow-sm` — the
+  same card treatment used elsewhere in the shell (e.g. `resume-summary.html`)
+  — so the whole section reads as one card, not a background image floating
+  behind loose controls.
 
 ---
 
@@ -124,9 +140,11 @@ web/templates/
 
 web/static/
 ├── images/
-│   └── carousel/
-│       ├── 1.svg … 5.svg     # hand-authored illustrative SVGs (not photos) — see
-│                              # Data Model; swap for real photography/screenshots later
+│   ├── carousel/
+│   │   └── 1.svg … 5.svg     # hand-authored illustrative SVGs (not photos) — see
+│   │                          # Data Model; swap for real photography/screenshots later
+│   ├── landing-bg-light.svg  # decorative backdrop behind the carousel card (Visual
+│   └── landing-bg-dark.svg   # Direction) — not a slide, referenced only from carousel.html's CSS
 └── js/
     └── carousel.js           # autoplay timer, pause/resume, keyboard, swipe
 ```
@@ -335,6 +353,10 @@ for when/if this needs to move to Postgres.
   at initialization (this feature does not need to react to the preference
   changing mid-session).
 * The first slide's image loads eagerly; slides 2–5 use `loading="lazy"` (see UI).
+* The decorative backdrop (`landing-bg-*.svg`) is a plain CSS `background-image`,
+  never an `<img>` — it carries no `alt` text and is invisible to assistive
+  technology by construction, which is correct here: it's pure ornament with no
+  informational content, unlike the carousel's actual slide images.
 
 ---
 
@@ -396,6 +418,12 @@ for when/if this needs to move to Postgres.
 * [ ] Layout (aspect ratio, spacing, arrow/dot positioning) holds correctly across
       mobile, tablet, and desktop breakpoints — including WebKit, per `home.md`'s
       precedent of Safari-specific nav bugs.
+* [ ] The decorative backdrop swaps between `landing-bg-light.svg` and
+      `landing-bg-dark.svg` correctly on theme toggle, with no flash of the wrong
+      variant on initial load in either theme.
+* [ ] Prev/next arrows, dots, and the pause/play toggle remain legible (contrast,
+      focus rings) against the backdrop in both themes, not just against
+      `#carousel-frame`'s own opaque background.
 
 ---
 

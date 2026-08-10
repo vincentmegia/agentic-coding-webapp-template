@@ -36,13 +36,22 @@
      additional nesting. #carousel-frame spans all 3 columns (col-span-3)
      since it's the only row-1 item. */}}
 {{define "carousel"}}
+{{/* The bg-[url(...)] pair below is purely decorative backdrop art behind
+     the carousel card (docs/features/landing-carousel.md's Visual
+     Direction) — light/dark variants swap via the dark: variant, same
+     "first-class theme, not an inversion" approach as the rest of the
+     shell (tailwind-ui's Dark Mode section). Padding on this section (not
+     #carousel-frame, which stays full-width via col-span-3) is what makes
+     the artwork visible as a border/mat around the frame, dots, and
+     toggle. This is plain background styling, not part of the DOM/JS
+     contract above — carousel.js never reads these classes. */}}
 <section
 	id="carousel"
 	role="region"
 	aria-roledescription="carousel"
 	aria-label="Featured images"
 	data-autoplay-interval="6000"
-	class="grid grid-cols-[1fr_auto_1fr] items-center gap-y-4 py-12 sm:py-16"
+	class="grid grid-cols-[1fr_auto_1fr] items-center gap-y-4 rounded-card border border-line bg-[url('/static/images/landing-bg-light.svg')] bg-cover bg-center px-6 py-12 shadow-sm dark:bg-[url('/static/images/landing-bg-dark.svg')] sm:px-10 sm:py-16 lg:px-14"
 >
 	<div id="carousel-frame" class="relative col-span-3">
 		{{/* aria-live reflects the "autoplay running" starting state (docs/
