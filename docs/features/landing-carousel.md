@@ -123,6 +123,79 @@ excess) and its Cards/Spacing guidance:
   same card treatment used elsewhere in the shell (e.g. `resume-summary.html`)
   — so the whole section reads as one card, not a background image floating
   behind loose controls.
+* **Page background (adjacent, not carousel-specific)**: `landing.html` also
+  renders a decorative full-bleed backdrop behind the hero text and the
+  carousel — `web/static/images/landing-page-bg-light.svg` /
+  `landing-page-bg-dark.svg`. This palette (and the fact that it's a color
+  gradient at all, distinct from the carousel illustrations' navy/accent-blue
+  system) is a deliberate, explicit design request, not an oversight — kept
+  soft/muted rather than saturated primary colors, per "professional and
+  creative, softer colors, eye-catching, and a gradient."
+  * **Technique**: dark mode's base is a true SVG `linearGradient` (5 color
+    stops, diagonal sweep) — chosen specifically over the earlier approaches
+    below, since a native gradient is smooth by construction, with zero risk
+    of the blob/seam/mud failure modes that follow. Light mode's base is now
+    a flat single-color fill instead (see its own entry below — the
+    one-color constraint leaves no second hue for a gradient to sweep
+    between). Both themes layer a handful of large, soft `radialGradient`
+    glow circles on top at varied opacity for depth/movement, plus a light
+    dusting of fine grain-texture dots for a tactile finish.
+  * **Light mode**: exactly one color, by explicit request — a single warm
+    cream (`#E7D8AE`) layered over a lighter cream base (`#FBF7EC`, not pure
+    white) at five deliberately varied opacities (~0.10–0.45). No
+    `linearGradient` at all here, unlike dark mode — the base is a flat fill,
+    and every bit of depth/movement comes from that one accent's opacity
+    layering, since a second gradient hue would violate the one-color
+    constraint. Superseded revisions, not to be reintroduced: a two-color
+    cream + creamy-yellow version; before that a 5-stop pastel wash
+    (periwinkle → orchid → blush → peach → cream) that tinted the whole
+    canvas evenly and read as flat/washed out; and before that a "mostly
+    white with a bold violet/magenta/orange corner bloom" version — each
+    superseded by a follow-up request narrowing the palette further, not by
+    a technical problem with that revision.
+  * **Dark mode**: deep indigo → violet → magenta-plum → warm amber → umber
+    — richer/more saturated at each stop than a naive "darken the light
+    palette" pass would produce; muted jewel tones transitioning directly
+    into each other read as brown mud (shipped once, corrected) — matching
+    `tailwind-ui`'s Dark Mode guidance to design it as its own first-class
+    theme, not an inversion or a shared-gradient-recolor of light mode.
+  * **Earlier revisions, not to be re-tried**: (1) a constellation/line-graph
+    illustration read as a generic "tech network diagram," not art; (2) an
+    orange/pink/blue *pool*-based version (overlapping `radialGradient`
+    circles with gaps between them, no continuous base gradient) had a
+    two-tier opacity falloff that produced a visible ring artifact where two
+    circles' edges coincided, and an evenly-spaced layout that read as
+    mechanical rather than abstract; (3) a version using `feGaussianBlur`
+    with large `stroke-width` produced a visible hard-edged rectangular seam
+    in Chromium (large blur combined with large stroke-width on an elongated
+    bounding box hit a filter-region/tiling artifact) — this is why the
+    shipped version avoids `feGaussianBlur` entirely; (4) tinting the whole
+    light-mode canvas evenly with pastels (see above) read as flat/washed out.
+
+  It's a full viewport-width layer, not confined to `#main-content`'s own
+  `max-w-5xl` column — see "Full-bleed technique" below for why and how.
+  This is really `docs/features/landing-page.md`'s territory (that doc owns
+  "what renders inside `#main-content`" for `/`) — documented here because
+  it shipped alongside the carousel work and touches the same `landing.html`
+  file; `landing-page.md` cross-references this, but still owns the actual
+  hero copy/headline/CTA decision, which remains open.
+* **Full-bleed technique**: a plain `background-image` directly on
+  `#main-content` confines the artwork to that element's own `max-w-5xl`
+  column — visually barely bigger than the carousel card itself, not an
+  actual page backdrop (this shipped once, looked wrong, and was corrected).
+  Instead, the artwork is a `<div aria-hidden="true">`, absolutely positioned
+  as `#main-content`'s first child and broken out to full viewport width via
+  the standard `left-1/2 w-screen -translate-x-1/2` technique, `-z-10` so it
+  paints behind the in-flow hero text/carousel without needing z-index on
+  them. `#main-content` itself only gains `relative` (the positioning anchor)
+  and `isolate` (so `-z-10` can't paint below unrelated shell elements like
+  the footer) — every class the outerHTML-swap contract requires (`mx-auto`,
+  `max-w-5xl`, `px-4`, `py-8`) is untouched, and it's still the sole element
+  `landing-content` defines. `base.html`'s `<body>` carries
+  `overflow-x-hidden` specifically because of this: `w-screen` can be a few
+  pixels wider than the viewport on desktop browsers whose scrollbar isn't an
+  overlay (100vw includes the scrollbar gutter), which would otherwise add a
+  stray site-wide horizontal scroll range.
 
 ---
 
@@ -143,8 +216,10 @@ web/static/
 │   ├── carousel/
 │   │   └── 1.svg … 5.svg     # hand-authored illustrative SVGs (not photos) — see
 │   │                          # Data Model; swap for real photography/screenshots later
-│   ├── landing-bg-light.svg  # decorative backdrop behind the carousel card (Visual
-│   └── landing-bg-dark.svg   # Direction) — not a slide, referenced only from carousel.html's CSS
+│   ├── landing-bg-light.svg       # decorative backdrop behind the carousel card
+│   ├── landing-bg-dark.svg        # (Visual Direction) — referenced only from carousel.html's CSS
+│   ├── landing-page-bg-light.svg  # decorative backdrop behind the whole #main-content
+│   └── landing-page-bg-dark.svg   # area (Visual Direction) — referenced only from landing.html's CSS
 └── js/
     └── carousel.js           # autoplay timer, pause/resume, keyboard, swipe
 ```
@@ -356,7 +431,14 @@ for when/if this needs to move to Postgres.
 * The decorative backdrop (`landing-bg-*.svg`) is a plain CSS `background-image`,
   never an `<img>` — it carries no `alt` text and is invisible to assistive
   technology by construction, which is correct here: it's pure ornament with no
-  informational content, unlike the carousel's actual slide images.
+  informational content, unlike the carousel's actual slide images. The same
+  applies to `landing-page-bg-*.svg` on `#main-content`.
+* The page background sits behind the "Welcome" hero placeholder text, not just
+  the carousel — its node/line density was deliberately kept low enough that
+  `ContentTitle`/`ContentMessage` (`text-slate-900 dark:text-slate-100` /
+  `text-slate-600 dark:text-slate-400`) stay legible without needing a scrim;
+  revisit this if that copy is ever replaced with something requiring stronger
+  contrast guarantees (see `landing-page.md`'s Open Questions).
 
 ---
 
@@ -424,6 +506,9 @@ for when/if this needs to move to Postgres.
 * [ ] Prev/next arrows, dots, and the pause/play toggle remain legible (contrast,
       focus rings) against the backdrop in both themes, not just against
       `#carousel-frame`'s own opaque background.
+* [ ] The page background (`landing-page-bg-*.svg`) swaps correctly on theme
+      toggle with no flash of the wrong variant, and the "Welcome" hero text
+      stays clearly legible against it in both themes.
 
 ---
 

@@ -12,7 +12,7 @@
      landing-page.md's Open Questions) — this reproduces the exact
      ContentTitle/ContentMessage copy the old shared-placeholder render
      used for "/", not a new design, so this change is scoped to adding
-     the carousel section only.
+     the carousel section (and the page background below) only.
 
      Supplies its own <main id="main-content"> wrapper rather than relying
      on base.html for it — required because hx-swap="outerHTML" (home.md's
@@ -20,9 +20,30 @@
      whatever this template renders; base.html renders .RenderedContent
      directly with no wrapper of its own. See resume.html's doc comment
      for the full explanation of why this is load-bearing, not a style
-     choice. */}}
+     choice.
+
+     The decorative constellation/network illustration (distinct from the
+     carousel card's own backdrop — docs/features/landing-carousel.md's
+     Visual Direction) is a full-bleed layer: putting bg-[url(...)] directly
+     on #main-content (as this first shipped) confines the artwork to
+     #main-content's own max-w-5xl column, which reads as barely bigger than
+     the carousel itself rather than an actual page backdrop. Instead it's a
+     child <div>, absolutely positioned and broken out to full viewport
+     width via the standard left-1/2 + w-screen + -translate-x-1/2 technique,
+     -z-10 so it paints behind the in-flow hero text/carousel content without
+     needing z-index on them. #main-content itself only needs `relative`
+     (as the positioning anchor) and `isolate` (so -z-10 can't accidentally
+     paint below unrelated shell elements like the footer) — it keeps every
+     class the outerHTML-swap contract above requires; nothing here changes
+     which element is #main-content or what wraps it. base.html's <body>
+     carries overflow-x-hidden specifically because of the w-screen
+     break-out here — see its own comment. */}}
 {{define "landing-content"}}
-<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+<main id="main-content" class="relative isolate mx-auto max-w-5xl px-4 py-8">
+	<div
+		aria-hidden="true"
+		class="absolute inset-y-0 left-1/2 -z-10 w-screen -translate-x-1/2 bg-[url('/static/images/landing-page-bg-light.svg')] bg-cover bg-center bg-no-repeat dark:bg-[url('/static/images/landing-page-bg-dark.svg')]"
+	></div>
 	<section class="space-y-4">
 		<h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">{{.ContentTitle}}</h1>
 		<p class="text-slate-600 dark:text-slate-400">{{.ContentMessage}}</p>

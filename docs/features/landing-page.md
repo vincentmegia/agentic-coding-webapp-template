@@ -37,9 +37,18 @@ which is why it's worth the added implementation complexity documented below.
 
 **Out of scope (undesigned, needs a dedicated pass):**
 
-* Hero copy, headline, imagery, and any call-to-action.
-* Page sections below the hero (if any) — what the rest of `/` contains.
-* Anything about what actually renders inside `#main-content` on this route.
+* Hero copy, headline, imagery, and any call-to-action — still just the
+  placeholder "Welcome" / "Landing page content coming soon." text.
+* Page sections below the hero — an image carousel now exists there, see
+  `docs/features/landing-carousel.md`.
+* Anything about what actually renders inside `#main-content` on this route,
+  **except** a decorative page background: a full-bleed layer behind
+  `#main-content` (not confined to its `max-w-5xl` column — see
+  `landing-carousel.md`'s "Full-bleed technique") now carries a soft
+  multi-stop gradient illustration (`web/static/images/landing-page-bg-light.svg` /
+  `landing-page-bg-dark.svg`), documented in `landing-carousel.md`'s Visual
+  Direction since it shipped alongside that work. The actual hero
+  copy/headline/imagery/CTA decision above is still fully open.
 
 ---
 
