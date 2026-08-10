@@ -1,0 +1,33 @@
+{{/* Dark navy banner: name, role title, tenure/location, and the contact
+     link row. Fixed dark surface in both site themes (docs/features/
+     resume.md's Visual Direction) — uses only the banner-* tokens, no
+     dark: overrides needed here. Dot is .Resume (service.ResumeView). */}}
+{{define "resume-banner"}}
+<section id="resume-banner" class="rounded-card bg-banner-bg px-6 py-8 shadow-sm sm:px-10 sm:py-10">
+	<h1 class="text-2xl font-semibold text-banner-ink sm:text-3xl">Vincent Megia</h1>
+	<p class="mt-1 text-base font-medium text-banner-accent sm:text-lg">{{.RoleTitle}}</p>
+	<p class="mt-3 text-sm text-banner-muted">
+		<span>{{.TenureLabel}}</span>
+		<span aria-hidden="true"> &middot; </span>
+		<span>{{.LocationLabel}}</span>
+	</p>
+
+	{{if .ContactLinks}}
+	<ul class="mt-6 flex flex-wrap gap-x-6 gap-y-3">
+		{{range .ContactLinks}}
+		<li>
+			<a
+				href="{{.Href}}"
+				target="_blank"
+				rel="noopener noreferrer"
+				class="inline-flex items-center gap-2 rounded-card text-sm text-banner-ink transition-colors duration-150 hover:text-banner-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-banner-accent"
+			>
+				{{if .Icon}}{{.Icon}}{{end}}
+				<span>{{.Label}}</span>
+			</a>
+		</li>
+		{{end}}
+	</ul>
+	{{end}}
+</section>
+{{end}}

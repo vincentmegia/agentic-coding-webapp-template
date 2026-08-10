@@ -1,0 +1,19 @@
+{{/* Wraps the ordered list of resume-role cards. Dot is .Resume
+     (service.ResumeView) so it can range over .Roles. docs/features/
+     resume.md's Business Rules: display order is .Roles' own
+     (sort_order-derived) order — never re-sorted here.
+
+     The connecting vertical line (docs/features/resume.md's Visual
+     Direction "Timeline connector") is one element here, positioned to
+     thread through every resume-role's dot (see that template) — left-[9px]
+     centers it under the dot's left-0/h-5 w-5 (20px) circle, same math as
+     the reviewed artifact. Hidden below sm, matching each role's own
+     gutter/dot visibility. */}}
+{{define "resume-timeline"}}
+<section aria-label="Experience timeline" class="relative space-y-6">
+	<div class="absolute bottom-2.5 left-[9px] top-2.5 hidden w-0.5 bg-line sm:block" aria-hidden="true"></div>
+	{{range .Roles}}
+	{{template "resume-role" .}}
+	{{end}}
+</section>
+{{end}}

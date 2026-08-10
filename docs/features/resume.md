@@ -2,7 +2,11 @@
 
 ## Status
 
-`Proposed`
+`Shipped` — implemented, running against a real Postgres instance, and
+covered by both a backend end-to-end test (`cmd/server/e2e_test.go`) and a
+frontend Playwright suite (`e2e/`, Chromium + WebKit). One known gap: the
+"Least-privilege DB role" item under Security Considerations was never
+actually configured — see that section and the Open Questions below.
 
 ## Summary
 
@@ -123,6 +127,18 @@ real design lands") — this feature is that refinement:
   use them either, so nothing to trim there).
 * Stat numbers and skill pills use the new semantic tokens, not raw Tailwind
   palette classes, per `tailwind-ui`'s token guidance.
+* **Timeline connector**: the artifact's experience timeline has a vertical
+  line running down the left gutter, threading through a small circular dot
+  per role — the current role's dot is highlighted (`--color-accent` border
+  + tinted fill) instead of the neutral `--color-line` border/`--color-surface`
+  fill every other role's dot uses. This was missed in the first
+  implementation pass (`resume-timeline.html`/`resume-role.html` shipped as a
+  plain stacked list, no connector at all) — decorative only
+  (`aria-hidden="true"`, conveys nothing `IsCurrent`'s existing text
+  "Current" badge doesn't already convey), and hidden below the `sm`
+  breakpoint along with the gutter's reserved space, matching the artifact's
+  own `max-width:640px` mobile behavior — role cards go full-width on mobile
+  with nothing to connect.
 
 ---
 
@@ -217,6 +233,20 @@ This is a prerequisite for the rest of this doc, not an implementation
 detail to improvise later — the UI, Routes/Handlers, and Data Model sections
 below all assume it exists.
 
+**`resume-content` owns its own `<main id="main-content">` wrapper — this
+shipped without one initially, and it was a real bug, not just a style
+choice.** `hx-swap="outerHTML"` (`home.md`'s HTMX Interactions) replaces the
+*entire* `#main-content` element with the server's response. `resume.html`
+originally rendered only its inner `<div class="space-y-6">`, assuming
+`base.html` would supply the wrapper — correct for a direct page load
+(`base.html` does wrap `.RenderedContent`), but every HTMX nav swap onto
+`/resume` destroyed `#main-content`'s own `mx-auto max-w-5xl px-4 py-8`
+classes along with the old content, leaving the page full-bleed with no
+container or padding. `resume-content` now renders
+`<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">` itself; see
+`home.md`'s HTMX Interactions for the general rule every content template
+must follow, not just this one.
+
 ---
 
 ## HTMX Interactions
@@ -246,28 +276,32 @@ registration in `cmd/server/main.go`'s `newMux()` — currently
 `mux.HandleFunc("GET /resume", pages.Resume)` — to construct and wire the new
 `ResumeHandler` instead.
 
-`GET /healthz` needs a matching structural change: `handler.Healthz` is
-currently a stateless package-level function (`mux.HandleFunc("GET /healthz",
-handler.Healthz)`) with no dependencies. Verifying DB connectivity (Scope,
-Security Considerations) means it needs the connection pool, so it becomes a
-method on a small struct (e.g. `HealthHandler{Pool *pgxpool.Pool}`), with its
-`newMux()` registration updated the same way as `ResumeHandler`'s.
+`GET /healthz` got the matching structural change: `handler.Healthz` was a
+stateless package-level function with no dependencies; verifying DB
+connectivity (Scope, Security Considerations) meant it needed the connection
+pool, so it's now `HealthHandler`, a method on a small struct holding
+`*sql.DB` (not `*pgxpool.Pool` — this project uses `database/sql` with the
+pgx driver, per `postgres`'s Query Layer section, not pgx's native pool
+API), registered in `newMux()` the same way as `ResumeHandler`.
 
 ---
 
 ## Data Model
 
-This is the first feature requiring a live Postgres connection —
-`internal/repository`, `internal/service`, and `internal/model` are currently
-empty (`.gitkeep` only), and there's no `migrations/` directory, no
-`DATABASE_URL` config, and no `pgx` dependency yet. Implementing this feature
-also means standing up:
+This was the first feature requiring a live Postgres connection —
+`internal/repository`, `internal/service`, and `internal/model` were empty
+(`.gitkeep` only) before it, and there was no `migrations/` directory, no
+`DATABASE_URL` config, and no `pgx` dependency. Implementing it also stood up:
 
-* Connection pool wiring in `cmd/server/main.go` / `internal/config`
-  (`DATABASE_URL`, pool size, statement/lock timeouts) per `postgres`'s
-  Connection Management and Timeouts sections.
-* The `migrations/` directory and `goose` invocation per `postgres`'s
-  Migrations section.
+* Connection pool wiring in `internal/db` (`database/sql` + the pgx driver,
+  per `postgres`'s Query Layer section — not pgx's native pool API),
+  configured from `internal/config` (`DATABASE_URL`, pool size, statement/
+  lock timeouts) per `postgres`'s Connection Management and Timeouts
+  sections. `DATABASE_URL` itself is environment-variable-or-`.env`-only —
+  see `go-backend`'s Configuration section — never a `config.yaml` key.
+* The `migrations/` directory (embedded into the binary via
+  `migrations/embed.go`, run automatically at startup — see Open Questions)
+  and `goose` invocation per `postgres`'s Migrations section.
 
 The schema is deliberately kept to **two tables** rather than fully
 normalizing every list (skills, bullets, sub-projects) into its own table:
@@ -459,13 +493,17 @@ Considerations).
   environment variable, never hardcoded, fails fast if missing, and is
   expected to require TLS (`sslmode=require`) once a hosted provider is
   chosen (CLAUDE.md's Database hosting decision is still open).
-* **Least-privilege DB role**: the app's runtime connection only ever needs
-  `SELECT` on `resume_profile`/`resume_roles` — there's no write path from
-  the running app (writes only happen via migrations/direct admin SQL, per
-  Open Questions), so the runtime role should not hold `INSERT`/`UPDATE`/
-  `DELETE`/DDL on these tables, per `postgres`'s "do not use a superuser
-  account for the application." Migrations run under a separate, more
-  privileged role.
+* **Least-privilege DB role — designed but not yet configured**: the app's
+  runtime connection only ever needs `SELECT` on `resume_profile`/
+  `resume_roles` — there's no write path from the running app (writes only
+  happen via migrations/direct admin SQL, per Open Questions), so the
+  runtime role should not hold `INSERT`/`UPDATE`/`DELETE`/DDL on these
+  tables, per `postgres`'s "do not use a superuser account for the
+  application." **This isn't actually true of the current dev setup**: local
+  dev's `DATABASE_URL` connects as the `postgres` superuser, since goose
+  needs DDL privileges to run migrations and there's only one connection
+  string/role configured today, used for both migrating and serving. See
+  Open Questions.
 * **`/healthz`'s DB check must not leak details**: once it verifies DB
   connectivity (Scope), the response stays the existing plain `ok`/non-200
   pattern — never the underlying driver error, connection string, or host,
@@ -476,41 +514,69 @@ Considerations).
 
 ## Testing Plan
 
-* [ ] `/resume` renders banner, sidebar (skills/education/featured projects +
+End-to-end coverage against a real Postgres instance now exists —
+`cmd/server/e2e_test.go` (backend: full config → DB → migrations → routing →
+templates chain, driven over real HTTP, skipped rather than failing when
+`DATABASE_URL`/`.env` isn't set) and `e2e/*.spec.js` (frontend: a real
+browser via Playwright, driving the actually-running server — see
+`e2e/playwright.config.js`, `make test-e2e`). Both are currently green. The
+per-behavior list below still stands as the fuller checklist; items already
+covered by those suites are noted inline.
+
+* [x] `/resume` renders banner, sidebar (skills/education/featured projects +
       link to `/projects`), summary + stats, and the full experience timeline
-      with nested sub-projects, matching the seeded content.
-* [ ] A role with `end_date IS NULL` shows the "Current" badge and "PRESENT".
-* [ ] `**bold**` spans in summary paragraphs render as `<b>`; a literal `<`
-      or `&` in seeded content renders escaped, not interpreted as HTML.
-* [ ] Print button triggers the browser print dialog; the print stylesheet
-      avoids splitting a role card or sub-project across a page break.
+      with nested sub-projects, matching the seeded content — `cmd/server/
+      e2e_test.go` (real DB) and `e2e/resume.spec.js` (real browser).
+* [x] A role with `end_date IS NULL` shows the "Current" badge and "PRESENT"
+      — `cmd/server/e2e_test.go`, `internal/service/resume_service_test.go`'s
+      `TestDateRange`.
+* [x] `**bold**` spans in summary paragraphs render as `<b>`; a literal `<`
+      or `&` in seeded content renders escaped, not interpreted as HTML —
+      `TestBoldMarkup`, including a simulated raw-`<script>` case.
+* [ ] Print button triggers the browser print dialog — verified (`e2e/
+      resume.spec.js` spies on `window.print`) — **but** the print
+      stylesheet's actual page-break-avoidance behavior is not automated
+      (no headless print-preview check); only manually inspectable.
 * [ ] DB fetch failure renders the generic content-error state, no stack
-      trace or raw error string.
+      trace or raw error string. Not covered by an automated test (would
+      need a way to fail the DB mid-request in the e2e harness); the code
+      path exists (`ResumeHandler.Index`'s error branch) but is unverified.
 * [ ] A malformed-but-valid-JSON content field (e.g. a `stats` entry missing
       `num`) decodes safely into the Error state rather than a partial or
-      blank render.
-* [ ] An unrecognized/malformed `contact_links[].icon` key renders the
-      contact item with no icon, rather than failing the request.
+      blank render. Same gap as above — not automated.
+* [x] An unrecognized/malformed `contact_links[].icon` key renders the
+      contact item with no icon, rather than failing the request —
+      `TestResolveIcon`.
 * [ ] Dark mode: banner, sidebar cards, and timeline all have correct `dark:`
-      colors — not just the shell's pre-existing chrome.
+      colors — not just the shell's pre-existing chrome. The toggle
+      mechanism and its persistence are tested (`e2e/resume.spec.js`); a
+      full visual pass confirming every component's dark-mode colors is not.
 * [ ] Migration's `Down` cleanly drops both tables (including seeded rows);
       re-running `Up` after `Down` recreates a working, fully-seeded schema.
-* [ ] Empty featured-projects list renders no empty card shell, only the
-      "See all projects" link.
-* [ ] `/resume` renders correctly via `ResumeHandler.Index` after
+      Not automated — `goose`'s `Up`/`Down` were exercised manually, not in
+      a repeatable test.
+* [x] Empty featured-projects list renders no empty card shell, only the
+      "See all projects" link — `internal/handler/template_test.go`'s
+      `TestRenderFullPage` fixture sets `FeaturedProjects: nil`.
+* [x] `/resume` renders correctly via `ResumeHandler.Index` after
       `PagesHandler.Resume`'s placeholder registration is removed from
       `cmd/server/main.go`; every other placeholder-backed route
       (`/projects`, `/blogs`, `/settings/*`) is unaffected by the
-      `ContentTemplate` change.
-* [ ] `GET /healthz` reports unhealthy when the DB is unreachable, healthy
-      otherwise, and its response body never contains the driver error,
-      connection string, or DB host in either case.
-* [ ] `**bold**` rendering is verified via the actual `template.HTML`
+      `ContentTemplate` change — `cmd/server/e2e_test.go`,
+      `internal/handler/template_test.go`.
+* [ ] `GET /healthz` reports unhealthy when the DB is unreachable, and its
+      response body never contains the driver error, connection string, or
+      DB host in that case. Only the *healthy* path is tested
+      (`cmd/server/e2e_test.go`) — the unreachable-DB branch is unverified.
+* [x] `**bold**` rendering is verified via the actual `template.HTML`
       output (not just visual inspection) — confirms escape-then-wrap
-      ordering, not tag-then-escape.
+      ordering, not tag-then-escape — `TestBoldMarkup`.
 * [ ] A `contact_links[].href` value with a `javascript:` scheme (simulated
       bad data) renders neutralized, not as a clickable `javascript:` link —
-      confirms no `template.URL` wrapper was added around it.
+      confirms no `template.URL` wrapper was added around it. Not tested;
+      relies on `html/template`'s built-in contextual auto-escaping, which
+      is well-established behavior but unverified specifically for this
+      field.
 
 ---
 
@@ -529,32 +595,52 @@ Considerations).
   boot is meaningfully riskier on a serverless-style host (e.g. Vercel),
   where concurrent cold starts could race the same migration; a discrete
   deploy-time step is safer there. Revisit once hosting is chosen.
+* Splitting the single `DATABASE_URL`/`postgres`-superuser connection into
+  two roles (a migration role with DDL rights, a `SELECT`-only runtime role)
+  is designed (Security Considerations) but not implemented — today's
+  `runMigrations` and `newMux`'s repository both use the same `*sql.DB`,
+  connected as `postgres`. Worth doing before any real deployment, alongside
+  the migration-execution-mechanism question above, since both depend on
+  what the eventual hosting/DB provider actually supports (e.g. whether it
+  offers an easy way to provision a second, restricted role).
 
 ---
 
 ## Definition of Done
 
-* [ ] User flow works end-to-end, including edge cases above.
-* [ ] All states in the UI table are implemented (loading/empty/error/print).
-* [ ] `Renderer`/`PageData`/`LoadTemplates` support a per-route
+* [x] User flow works end-to-end, including edge cases above.
+* [x] All states in the UI table are implemented (loading/empty/error/print).
+* [x] `Renderer`/`PageData`/`LoadTemplates` support a per-route
       `ContentTemplate`, per Template Rendering, with every existing
       placeholder-backed route still working unchanged.
-* [ ] `PagesHandler.Resume` removed; `cmd/server/main.go` registers
+* [x] `PagesHandler.Resume` removed; `cmd/server/main.go` registers
       `ResumeHandler.Index` for `GET /resume`.
-* [ ] Migration written, reviewed, includes a working `Down`, and transcribes
+* [x] Migration written, reviewed, includes a working `Down`, and transcribes
       the actual resume content in its `Up`.
 * [ ] A JSONB decode failure surfaces as the Error state, never a blank or
-      partially-rendered page.
-* [ ] Icon keys resolve through the Go allowlist; an unrecognized key
+      partially-rendered page. Code path exists; not exercised by a test —
+      see Testing Plan.
+* [x] Icon keys resolve through the Go allowlist; an unrecognized key
       degrades to no icon, not a failed request.
 * [ ] `GET /healthz` verifies DB connectivity without leaking driver/connection
-      details in its response.
-* [ ] Runtime app DB role holds only `SELECT` on `resume_profile`/
-      `resume_roles`; migrations run under a separate, more privileged role.
-* [ ] Handler/service/repository boundaries followed (`go-backend`).
-* [ ] Postgres connection pool, config, and `goose` setup established
+      details in its response. Implemented; only the healthy path is
+      test-verified — see Testing Plan.
+* [ ] **Not done.** Runtime app DB role holds only `SELECT` on
+      `resume_profile`/`resume_roles`; migrations run under a separate, more
+      privileged role. Dev currently connects as the `postgres` superuser for
+      both — see Security Considerations and Open Questions.
+* [x] Handler/service/repository boundaries followed (`go-backend`).
+* [x] Postgres connection pool, config, and `goose` setup established
       per `postgres`.
-* [ ] Accessibility checked (keyboard, focus, contrast, semantic HTML).
-* [ ] Tests cover the behavior in the Testing Plan above.
-* [ ] `go vet`/`go test` pass.
-* [ ] No open questions remain unresolved, or are explicitly deferred as above.
+* [ ] Accessibility checked (keyboard, focus, contrast, semantic HTML) —
+      keyboard operability and focus behavior were checked incidentally
+      while fixing the dropdown/Escape bugs (`home.md`'s Business Rules), but
+      no dedicated contrast/screen-reader pass has been done on this page.
+* [x] Tests cover the behavior in the Testing Plan above, where marked `[x]`
+      there — several gaps remain, tracked in that section rather than
+      silently dropped.
+* [x] `go vet`/`go test` pass.
+* [ ] Open questions remain — the migration-execution-mechanism and
+      least-privilege-DB-role items are real, tracked gaps, not resolved
+      ones; this feature is shipped with them explicitly deferred, not
+      because they don't matter.

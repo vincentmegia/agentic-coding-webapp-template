@@ -1,0 +1,56 @@
+{{/* /resume page: composes the banner, sidebar, summary, and timeline
+     components from .Resume. Defines "resume-content", not "content" —
+     reusing "content" would silently take over the shared placeholder
+     every other route (/projects, /blogs, /settings/*) still renders. See
+     docs/features/resume.md's Template Rendering and
+     internal/handler/template.go's PageData.ContentTemplate/LoadTemplates.
+     Dot is the full PageData, so this template pulls .Resume itself and
+     passes it down to each sub-component. resume-print.js is loaded here
+     (inside this page's own content block), not in base.html, since it's
+     only needed on /resume — unlike header-scroll.js/theme-toggle.js
+     which base.html loads on every page.
+
+     This template supplies its own <main id="main-content"> wrapper
+     rather than relying on base.html for it — required because
+     hx-swap="outerHTML" (home.md's HTMX Interactions) replaces the
+     *entire* #main-content element with whatever this template renders.
+     If the fragment were just the inner content (as it used to be), the
+     swap would destroy #main-content's own mx-auto/max-w-5xl/padding
+     classes along with it, leaving the new content full-bleed with no
+     container — exactly the bug this fixes. base.html now renders
+     .RenderedContent directly with no wrapper of its own, so there's
+     never a double #main-content on the full-page path either. */}}
+{{define "resume-content"}}
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<div class="space-y-6">
+		{{/* Plain button, no hx-* attributes: printing has no server round
+		     trip (docs/features/resume.md's HTMX Interactions). Outside the
+		     banner per the spec. resume-print.js (owned by a parallel agent)
+		     binds the click handler that calls window.print(). */}}
+		<div class="flex justify-end">
+			<button
+				type="button"
+				id="resume-print-button"
+				class="inline-flex items-center gap-2 rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-sm transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true">
+					<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" />
+				</svg>
+				<span>Print / Save as PDF</span>
+			</button>
+		</div>
+
+		{{template "resume-banner" .Resume}}
+
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[20rem_1fr] lg:items-start">
+			{{template "resume-sidebar" .Resume}}
+			<div class="min-w-0 space-y-6">
+				{{template "resume-summary" .Resume}}
+				{{template "resume-timeline" .Resume}}
+			</div>
+		</div>
+	</div>
+</main>
+
+<script src="/static/js/resume-print.js" defer></script>
+{{end}}

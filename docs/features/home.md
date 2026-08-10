@@ -119,7 +119,9 @@ without excess) — the decisions below are the specifics for this shell:
 ```text
 web/templates/
 ├── layouts/
-│   └── base.html            # header + {{block "content"}} + footer; reads theme cookie server-side (see dark-mode.md)
+│   └── base.html            # header + {{.RenderedContent}} + footer; reads theme cookie server-side (see dark-mode.md)
+├── pages/
+│   └── <page>.html          # each defines its own <main id="main-content" class="mx-auto max-w-5xl px-4 py-8"> wrapper — see below
 └── components/
     ├── header.html          # identity + nav-menu twice (left/right) + theme-toggle slot + mobile-nav-trigger; accepts a "transparent-over-hero" flag
     ├── nav-identity.html    # avatar + name, with initials fallback, links to /
@@ -162,6 +164,29 @@ States this feature's UI must handle:
 
 Selecting a nav item swaps only the content area — header and footer are not
 re-rendered. See `htmx-ui` for fragment-vs-full-page rendering and ID conventions.
+
+**`outerHTML` swap means every content template owns its own `#main-content`
+wrapper — this was shipped wrong once already, worth stating explicitly.**
+`hx-swap="outerHTML"` (table below) replaces the *entire* `#main-content`
+element with the server's response, not just its children. Every page
+template (`placeholder.html`'s `{{define "content"}}`, `resume.html`'s
+`{{define "resume-content"}}`, and any future page) must therefore render
+its own `<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">...
+</main>` wrapper — `base.html` does *not* supply one (it just outputs
+`{{.RenderedContent}}`). Getting this backwards — relying on `base.html`
+to wrap bare inner content, which is how this shipped originally — means a
+direct page load (`base.html`'s own render) looks correct, but every HTMX
+nav swap destroys `#main-content`'s container classes along with the old
+content, leaving the new page full-bleed with no `max-w-5xl`/padding. This
+went undetected on the plain placeholder page (a heading and one line of
+text doesn't look obviously broken without a container) until the resume
+page's richer layout made it unmistakable. Regression coverage:
+`internal/handler/template_test.go`'s `assertMainContentContainer` (both
+the full-page and fragment render paths) and `e2e/nav.spec.js`'s "container
+survives an HTMX nav swap" tests, which specifically navigate via the
+dropdown rather than a direct page load — a direct load alone can't catch
+this class of bug, since it only ever exercises `base.html`'s own
+(correct) wrapping.
 
 Every `GET` row uses `hx-push-url="true"`. Without it the address bar would never
 change on nav clicks, which would break refresh, the back/forward buttons, and
@@ -272,7 +297,29 @@ it shouldn't be assumed safe just because it wasn't previously.
   refresh and browser back/forward.
 * Dropdowns open on click and are keyboard-operable (`Enter`/`Space` to open,
   arrow keys to move between items, `Escape` to close, focus returns to the
-  trigger on close).
+  trigger on close). Selecting an item closes its own dropdown immediately,
+  the same as any other close path — a click on a menu item is *inside* the
+  menu, so it doesn't trigger the separate "close on outside click" handler;
+  `nav-menu.js` closes on item click directly rather than relying on that.
+* `Escape`-to-close is handled by a single `document`-level keydown listener,
+  not listeners scoped to the trigger/list elements — WebKit/Safari (unlike
+  Chromium/Firefox) does not move keyboard focus to a `<button>` on click, so
+  a mouse-opened menu never puts focus on the trigger or inside the list
+  there, and a scoped listener would silently never fire. This was caught by
+  running `e2e/nav.spec.js` against Playwright's `webkit` project, not just
+  `chromium` — worth doing for any nav/keyboard-interaction change on this
+  shell, since this class of engine-specific behavior difference doesn't show
+  up any other way.
+* Every GET nav item's clickable area is the full row (`w-full` on the
+  `<a>`), matching the Logout button's own `w-full` — not just the width of
+  its icon/label content — so there's no dead zone between the visible
+  highlighted row and the actual click target.
+* `/static/*` responses always carry `Cache-Control: no-cache`, forcing
+  revalidation on every load rather than trusting a browser's heuristic
+  freshness guess for JS/CSS with no explicit cache header. Needed because a
+  browser (Safari in particular) can keep serving an already-fixed script
+  from cache for a while otherwise, which makes a real fix look like it
+  didn't take effect.
 * External links (LinkedIn, GitHub) open in a new tab with `rel="noopener noreferrer"`.
 * Avatar image includes descriptive `alt` text (the site owner's name); on load
   failure, an initials fallback renders in its place rather than a broken image.
@@ -310,6 +357,14 @@ it shouldn't be assumed safe just because it wasn't previously.
   any other shell script are external files. Keeps the page compatible with a
   strict CSP with no `'unsafe-inline'` needed for scripts, per `go-backend`'s
   Security Headers.
+* **htmx's own auto-injected `<style>` tag** for `.htmx-indicator`'s default
+  opacity transition is disabled via `base.html`'s `<meta name="htmx-config"
+  content='{"includeIndicatorStyles":false}'>` — that injection is a CSP
+  violation under the same strict policy (no `style-src` is set, so
+  `default-src 'self'` blocks it) and was firing on every page load. It's
+  also redundant: `app.css` already defines `.htmx-indicator`'s visibility
+  itself. The meta tag is htmx's own documented configuration mechanism, not
+  an inline script or style, so it doesn't reopen the exception above.
 * **Error messages**: the Content error state must follow `htmx-ui`'s "never
   expose internal errors" rule — a generic "couldn't load this page" message,
   never a stack trace or raw error string.
@@ -323,11 +378,17 @@ it shouldn't be assumed safe just because it wasn't previously.
 
 ## Testing Plan
 
+* [x] Every content template's `#main-content` wrapper (classes and all)
+      survives an HTMX nav swap, not just a direct page load — verified for
+      both `/resume` and a placeholder route (`e2e/nav.spec.js`,
+      `internal/handler/template_test.go`).
 * [ ] Header renders on every page with both menus present (Settings only when authenticated).
 * [ ] Home ▾ shows Resume, Projects, Blogs with correct icons and links.
 * [ ] Settings ▾ shows Profile, Security, Logout with correct icons and links.
 * [ ] Active nav item reflects the current route.
 * [ ] Dropdowns are operable via keyboard only.
+* [ ] Selecting a dropdown item closes that dropdown (not just outside-click/Escape) — regression coverage in `e2e/nav.spec.js`.
+* [ ] No console errors (including no CSP violations) on initial load of `/` or `/resume` — `e2e/nav.spec.js`.
 * [ ] Nav selection swaps `#main-content` without reloading header/footer.
 * [ ] Nav clicks update the URL bar (`hx-push-url`); refreshing on `/projects` (or
       any nav destination) loads that page directly, not the landing page.

@@ -3,10 +3,22 @@
      Projects, Blogs, Profile, and Security each get real content from
      their own not-yet-built feature, which will replace this file's
      {{define "content"}} with their own (or split into per-page files) —
-     see docs/features/home.md's Scope. */}}
+     see docs/features/home.md's Scope.
+
+     Supplies its own <main id="main-content"> wrapper rather than relying
+     on base.html for it — required because hx-swap="outerHTML" (home.md's
+     HTMX Interactions) replaces the *entire* #main-content element with
+     whatever this template renders. Without this wrapper here, an HTMX
+     nav swap onto this placeholder would destroy #main-content's own
+     mx-auto/max-w-5xl/padding classes, leaving the swapped-in content
+     full-bleed with no container. base.html renders .RenderedContent
+     directly with no wrapper of its own, so there's never a double
+     #main-content on the full-page path either. */}}
 {{define "content"}}
-<section class="space-y-4">
-	<h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">{{.ContentTitle}}</h1>
-	<p class="text-slate-600 dark:text-slate-400">{{.ContentMessage}}</p>
-</section>
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<section class="space-y-4">
+		<h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">{{.ContentTitle}}</h1>
+		<p class="text-slate-600 dark:text-slate-400">{{.ContentMessage}}</p>
+	</section>
+</main>
 {{end}}

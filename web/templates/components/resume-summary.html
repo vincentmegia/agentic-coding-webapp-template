@@ -1,0 +1,28 @@
+{{/* Professional summary paragraphs + stat row. Dot is .Resume
+     (service.ResumeView). SummaryParagraphs are already escaped and
+     bold-markup-converted template.HTML from internal/service (see
+     resume_service.go's boldMarkup) — render each with plain {{.}},
+     never re-escaped or passed through any other helper. */}}
+{{define "resume-summary"}}
+<section aria-label="Professional summary" class="rounded-card border border-line bg-surface p-6 shadow-sm sm:p-8">
+	{{if .SummaryParagraphs}}
+	<div class="space-y-4 text-sm leading-relaxed text-ink sm:text-base">
+		{{range .SummaryParagraphs}}
+		<p>{{.}}</p>
+		{{end}}
+	</div>
+	{{end}}
+
+	{{if .Stats}}
+	<dl class="mt-6 grid grid-cols-2 gap-4 border-t border-line pt-6 sm:grid-cols-4">
+		{{range .Stats}}
+		<div>
+			<dt class="sr-only">{{.Label}}</dt>
+			<dd class="text-2xl font-semibold text-primary">{{.Num}}</dd>
+			<dd class="mt-1 text-xs text-muted">{{.Label}}</dd>
+		</div>
+		{{end}}
+	</dl>
+	{{end}}
+</section>
+{{end}}

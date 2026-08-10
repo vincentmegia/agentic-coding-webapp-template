@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Planning stage — no code has been written yet. This file is a brief to align on scope and architecture before implementation starts. Update it as decisions are made or change.
+Active development. The site shell (header/nav/footer, dropdown + mobile nav,
+dark mode) and the Resume feature (Postgres-backed `/resume` page) are
+implemented and covered by tests — see `docs/features/home.md` and
+`docs/features/resume.md`. Projects, Blogs, and the landing page's hero
+content are still placeholders. Update this file as decisions are made or
+change.
 
 ## What this is
 
@@ -40,9 +45,42 @@ definition of done. Create one before implementing a new feature.
 
 ## Architecture plan
 
-Server-rendered Go application: Go handlers render HTML (likely via `html/template` or a templating library), HTMX handles partial page updates/interactivity without a client-side framework, Tailwind provides styling, Postgres stores structured content (e.g. projects, resume entries) so it can be edited without redeploying static content.
+Server-rendered Go application: Go handlers render HTML via `html/template`,
+HTMX handles partial page updates/interactivity without a client-side
+framework, Tailwind provides styling, Postgres stores structured content
+(e.g. resume entries — see `docs/features/resume.md`'s Data Model) so it can
+be edited without redeploying static content.
 
-Exact package layout, routing approach, and templating choice are not yet decided — establish these when implementation starts and document them here.
+Decided and in place:
+
+- **Package layout**: `cmd/server` (entrypoint), `internal/{handler,service,
+  repository,model,config,db}`, `web/{templates,static}`, `migrations/` — see
+  `docs/skills/go-backend/SKILL.md`'s Project Structure.
+- **Routing**: standard library `net/http.ServeMux` (Go 1.22+ method+pattern
+  routing), registered in `cmd/server/main.go`'s `newMux`.
+- **Templating**: `html/template`, one shared `base.html` shell + per-route
+  content templates, each owning its own `<main id="main-content">` wrapper
+  (required by `hx-swap="outerHTML"` — see `docs/features/home.md`'s HTMX
+  Interactions). A route with real content beyond the shared placeholder sets
+  `PageData.ContentTemplate`; see `docs/features/resume.md`'s Template
+  Rendering section for why that dispatch happens in Go code, not the
+  template itself.
+- **Configuration**: layered defaults → optional `config.yaml` → optional
+  `.env` → real environment variables, the last always winning. See
+  `docs/skills/go-backend/SKILL.md`'s Configuration section,
+  `config.example.yaml`, `.env.example`.
+- **Migrations**: `goose`, embedded via `migrations/embed.go` and run
+  automatically at server startup — see `docs/features/resume.md`'s Open
+  Questions for why that's flagged as worth revisiting once Hosting is
+  decided.
+- **Build/dev tooling**: `Makefile` (`make help` lists targets) wraps Go and
+  npm (Tailwind CLI) commands consistently — see
+  `docs/skills/go-backend/SKILL.md`'s Code Quality section.
+- **Testing**: `go test ./...` (includes a DB-gated end-to-end test in
+  `cmd/server/e2e_test.go`, skipped without `DATABASE_URL`) plus a Playwright
+  frontend suite in `e2e/` (`make test-e2e`), run against both Chromium and
+  WebKit — the latter matters concretely, since it's already caught a real
+  Safari-only bug (`docs/features/home.md`'s Business Rules).
 
 ## Open decisions
 

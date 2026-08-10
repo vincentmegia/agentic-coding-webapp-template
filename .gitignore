@@ -1,1 +1,23 @@
 node_modules/
+
+# make build output (see Makefile).
+/bin/
+
+# Playwright end-to-end test output (see e2e/).
+/test-results/
+/playwright-report/
+
+# Local config overrides — see config.example.yaml. Ignores any
+# config*.yaml variant (config.yaml, config.dev.yaml, config.local.yaml,
+# ...), not just the exact CONFIG_FILE default — a differently-named local
+# config file is exactly as capable of holding an accidentally-committed
+# secret as config.yaml itself, even though Load() won't recognize a
+# database_url key in it. config.example.yaml is the one intentionally
+# committed exception.
+config*.yaml
+!config.example.yaml
+
+# Local secrets/overrides — see .env.example. Unlike config.yaml, .env is
+# meant to hold secrets (DATABASE_URL, etc.) for local dev, so this one
+# genuinely matters to keep out of version control.
+.env

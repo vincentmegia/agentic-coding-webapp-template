@@ -20,22 +20,49 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{{if .Title}}{{.Title}} · Vincent Megia{{else}}Vincent Megia{{end}}</title>
 	<link rel="stylesheet" href="/static/css/output.css">
+	{{/* htmx auto-injects a <style> tag for .htmx-indicator's default
+	     opacity transition unless told not to — that injection is a CSP
+	     violation under go-backend's strict style-src-less
+	     Content-Security-Policy (default-src 'self' blocks it), and it's
+	     redundant besides: app.css already defines .htmx-indicator's
+	     visibility itself (see "HTMX loading-indicator visibility" there).
+	     This meta tag is htmx's own documented, non-inline-script way to
+	     configure it — read before htmx.min.js runs since it must precede
+	     the script tag in document order. */}}
+	<meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
 	{{/* Self-hosted, not a CDN — see web/static/js/htmx.min.js. */}}
 	<script src="/static/js/htmx.min.js"></script>
 </head>
 <body class="min-h-screen bg-surface text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-	<a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-card focus:bg-brand focus:px-4 focus:py-2 focus:text-white">Skip to content</a>
+	<a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-card focus:bg-primary focus:px-4 focus:py-2 focus:text-white">Skip to content</a>
 
 	{{/* Local loading indicator for nav swaps (docs/features/home.md's
 	     HTMX Interactions: every GET nav row uses hx-indicator="#nav-loading").
 	     See docs/skills/htmx-ui/SKILL.md "CSS for Swaps" / "Loading States". */}}
-	<div id="nav-loading" class="htmx-indicator fixed inset-x-0 top-0 z-50 h-0.5 bg-brand" aria-hidden="true"></div>
+	<div id="nav-loading" class="htmx-indicator fixed inset-x-0 top-0 z-50 h-0.5 bg-primary" aria-hidden="true"></div>
 
 	{{template "header" .}}
 
-	<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
-		{{block "content" .}}{{end}}
-	</main>
+	{{/* docs/features/resume.md's Template Rendering: a route with its own
+	     real content sets PageData.ContentTemplate (e.g. "resume-content")
+	     so it doesn't collide with the shared "content" placeholder every
+	     other route still uses. html/template's {{template}} action
+	     requires a fixed string name — it can't dispatch on a dynamic
+	     field from inside this template — so Renderer.Render resolves
+	     ContentTemplate (defaulting to "content") in Go code and
+	     pre-renders it into .RenderedContent before executing "base" at
+	     all. This just outputs that already-rendered HTML.
+
+	     No <main id="main-content"> wrapper here — every content template
+	     (placeholder.html's "content", resume.html's "resume-content")
+	     supplies its own now, since hx-swap="outerHTML" (home.md's HTMX
+	     Interactions) replaces the *entire* #main-content element on every
+	     nav swap. If base.html wrapped it too, the fragment response
+	     wouldn't carry #main-content's own classes, and an HTMX swap would
+	     destroy them — leaving the new content full-bleed with no
+	     container/padding. See resume.html's doc comment for the full
+	     explanation; this was a real, previously-shipped bug. */}}
+	{{.RenderedContent}}
 
 	{{template "footer" .}}
 

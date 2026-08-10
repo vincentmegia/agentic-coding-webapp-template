@@ -18,16 +18,80 @@
 	}
 }
 
-/* Starter semantic design tokens. Placeholder values — refine when the real
-   visual design lands. See docs/skills/tailwind-ui/SKILL.md
-   "Defining tokens": use semantic names in templates, not raw palette
-   colors. */
+/* Semantic design tokens, refined per docs/features/resume.md's "Visual
+   Direction" — a dark navy banner with a warm gold accent, "modern, calm,
+   personal, clean, slightly cozy, premium without being excessive" per
+   docs/skills/tailwind-ui/SKILL.md "Visual Style". See that skill's
+   "Defining tokens": use these semantic names in templates, never raw
+   Tailwind palette colors (`blue-600`, `amber-500`, etc.).
+
+   Light-mode values live here as the @theme defaults; dark-mode values for
+   the same token names are redefined below via the site's existing
+   class-based `dark:` custom variant (docs/features/dark-mode.md), not a
+   second ad hoc `prefers-color-scheme` mechanism. Banner tokens are the
+   exception — the resume banner is a fixed dark surface in both site
+   themes (it doesn't invert), so they're defined once, below, outside the
+   dark-mode override block. */
 @theme {
+	/* Neutrals: text/border/background scale. */
+	--color-ink: oklch(0.23 0.015 255); /* primary body text */
+	--color-muted: oklch(0.48 0.015 255); /* secondary/metadata text */
+	--color-line: oklch(0.9 0.008 255); /* borders, dividers */
+	--color-paper: oklch(0.99 0.004 85); /* page background, warm white */
+	--color-surface: oklch(0.975 0.006 85); /* card background */
+	--color-surface-2: oklch(0.945 0.008 85); /* nested/alt surface, e.g. stat tiles */
+
+	/* Brand accents. */
+	--color-primary: oklch(0.38 0.09 255); /* navy ~#1F3A5F — links, company names, stat numbers */
+	--color-accent: oklch(0.6 0.14 68); /* gold ~#B8863B — bullet markers, badges, highlights */
+
+	/* Banner tokens — fixed dark surface, same in both site themes. */
+	--color-banner-bg: oklch(0.24 0.06 254); /* ~#16283F */
+	--color-banner-ink: oklch(0.97 0.01 85); /* warm off-white text on the banner */
+	--color-banner-muted: oklch(0.72 0.03 250); /* secondary text on the banner (tenure line) */
+	--color-banner-accent: oklch(0.78 0.12 75); /* brightened gold for links/icons on the banner */
+
+	/* --color-brand is deprecated in favor of --color-primary/--color-accent
+	   above (docs/features/resume.md). Its value is left unchanged and it
+	   stays defined, rather than being deleted, because the existing shell
+	   (header.html, nav-menu.html, mobile-nav-panel.html,
+	   nav-theme-toggle.html) still references `bg-brand`/`outline-brand` in
+	   several places beyond the single base.html usage this feature's brief
+	   called out — deleting the token outright would silently drop their
+	   focus-ring color and the header avatar background, files this
+	   feature is not touching. New code should reach for --color-primary/
+	   --color-accent; a follow-up can migrate the remaining --color-brand
+	   call sites and remove this token then. */
 	--color-brand: oklch(0.55 0.15 250);
-	--color-surface: oklch(0.98 0 0);
+
 	--color-danger: oklch(0.58 0.22 27);
 
 	--radius-card: 0.75rem;
+}
+
+/* Dark-mode values for the tokens above that must invert with the site's
+   light/dark theme (banner tokens excluded — see comment above). Uses the
+   `@variant dark` at-rule so this expands through the same custom `dark:`
+   variant every utility class already uses, rather than a parallel
+   mechanism. Card shadows built against --color-surface/-2 should stay a
+   subtle 1-2px treatment per tailwind-ui's "avoid huge shadows" guidance —
+   no new tokens are needed for that, it's a property of how far the
+   surface/surface-2 pair sits apart, not a separate shadow token. */
+:root {
+	@variant dark {
+		--color-ink: oklch(0.94 0.006 255);
+		--color-muted: oklch(0.68 0.012 255);
+		--color-line: oklch(0.32 0.015 255);
+		--color-paper: oklch(0.16 0.014 255);
+		--color-surface: oklch(0.2 0.014 255);
+		--color-surface-2: oklch(0.25 0.016 255);
+
+		/* Brightened relative to their light-mode values so links/stat
+		   numbers (primary) and bullet markers/badges (accent) keep
+		   sufficient contrast against the darker surface/paper above. */
+		--color-primary: oklch(0.74 0.09 250);
+		--color-accent: oklch(0.78 0.12 75);
+	}
 }
 
 /* Ensure Tailwind's content scanner can see class usage in Go templates. */
@@ -65,4 +129,79 @@
 .header--transparent {
 }
 .header--solid {
+}
+
+/* Print stylesheet for /resume (docs/features/resume.md's "Print / Save as
+   PDF" button, web/static/js/resume-print.js). Adapted from the reviewed
+   design artifact's print treatment: A4 page size, the shared site chrome
+   trimmed away so the PDF is just the resume, the on-screen sidebar/main
+   split flattened to a single stacked column, and role/sub-project blocks
+   protected from splitting across a page break.
+
+   The resume templates are being written in parallel and aren't visible
+   here, so these rules target only the class/id contract documented in
+   resume.md's UI section — `#resume-role-{id}` on each role card's root
+   (attribute-prefix selector, since the numeric id isn't known here),
+   `.resume-subproject` on nested sub-project blocks, and
+   `#resume-print-button` — plus generic, structure-agnostic techniques
+   (matching on the "grid-cols-"/"flex-row" substring Tailwind's own layout
+   utilities always contain) for flattening whatever container the
+   sidebar/main split ends up using. */
+@media print {
+	@page {
+		size: A4;
+		margin: 12mm 14mm;
+	}
+
+	/* Only the resume itself belongs on the printed page — the sticky
+	   header, its nav-swap loading bar, the footer, and the print button
+	   are shared site chrome / interactive-only, not resume content. */
+	#site-header,
+	#nav-loading,
+	footer,
+	#resume-print-button {
+		display: none !important;
+	}
+
+	/* Force the light-mode palette regardless of the site's current
+	   dark/light theme: a printed résumé (or a PDF saved from one) should
+	   always read as a crisp light document, not waste toner/ink on a dark
+	   background. Values match the light-mode @theme defaults above. */
+	:root {
+		--color-ink: oklch(0.23 0.015 255);
+		--color-muted: oklch(0.48 0.015 255);
+		--color-line: oklch(0.9 0.008 255);
+		--color-paper: oklch(0.99 0.004 85);
+		--color-surface: oklch(0.975 0.006 85);
+		--color-surface-2: oklch(0.945 0.008 85);
+		--color-primary: oklch(0.38 0.09 255);
+		--color-accent: oklch(0.6 0.14 68);
+	}
+
+	/* Flatten the on-screen sidebar/main-column split (resume.md's Visual
+	   Direction: "sidebar chrome flattened to a simpler layout") into a
+	   single stacked column on paper, whatever the exact grid/flex classes
+	   the resume templates use turn out to be. */
+	#main-content [class*="grid-cols-"],
+	#main-content [class*="flex-row"] {
+		display: block !important;
+	}
+
+	/* Never split a role card or a nested sub-project across a page break
+	   — nor a bullet list item inside them, so a bullet doesn't tear
+	   mid-line either. `page-break-inside` is the older-engine fallback
+	   for `break-inside`. */
+	[id^="resume-role-"],
+	.resume-subproject,
+	li {
+		break-inside: avoid;
+		page-break-inside: avoid;
+	}
+
+	/* Cards print best flat — a subtle on-screen shadow is a screen
+	   affordance that doesn't render reliably across print engines. */
+	[id^="resume-role-"],
+	.resume-subproject {
+		box-shadow: none !important;
+	}
 }

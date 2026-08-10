@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+
+	"github.com/vincentmegia/vincentmegia/internal/service"
 )
 
 // PageData is the single view-model every page renders from. It carries
@@ -55,18 +57,54 @@ type PageData struct {
 	// own not-yet-built feature that will replace this with real content.
 	ContentTitle   string
 	ContentMessage string
+
+	// ContentTemplate names the content template Renderer.Render should
+	// execute. Empty means "content" — the shared placeholder — so every
+	// existing PagesHandler route needs no changes. A route with its own
+	// real content (e.g. ResumeHandler) sets this to its own template
+	// name (e.g. "resume-content") so it doesn't collide with the shared
+	// placeholder definition. See docs/features/resume.md's Template
+	// Rendering section.
+	ContentTemplate string
+
+	// RenderedContent holds the content fragment's already-executed HTML,
+	// set by Renderer.Render's full-page path before it executes "base".
+	// This exists because html/template's {{template}} action requires a
+	// fixed string name — it cannot dispatch on a dynamic field like
+	// ContentTemplate from within base.html itself. So the dispatch
+	// happens in Go code instead: Render executes ContentTemplate (or its
+	// "content" default) into a buffer first, stores the result here, and
+	// base.html just outputs {{.RenderedContent}} directly. Callers never
+	// set this themselves — Render overwrites it unconditionally on the
+	// full-page path.
+	RenderedContent template.HTML
+
+	// Resume is nil for every route except ResumeHandler.Index, which is
+	// the only page that needs it. A dedicated field (rather than a
+	// generic any) keeps resume.html's templates type-checked at parse
+	// time against a well-defined view-model, per htmx-ui's Component
+	// Boundaries.
+	Resume *service.ResumeView
 }
 
 // LoadTemplates parses the shared shell (layouts/base.html), its
-// components, and the single generic placeholder content page into one
-// *template.Template, so "base" (full page) and "content" (HTMX fragment)
-// can both be executed from the same parsed set without duplicating
-// rendering logic. See docs/skills/htmx-ui/SKILL.md "Layout Architecture"
-// and "Fragment vs Full-Page Rendering".
+// components, and every page's content template into one *template.Template,
+// so "base" (full page) and each content template (HTMX fragment) can all be
+// executed from the same parsed set without duplicating rendering logic.
+// See docs/skills/htmx-ui/SKILL.md "Layout Architecture" and "Fragment vs
+// Full-Page Rendering".
 //
-// Parse order matters: layouts/base.html defines "content" first (as an
-// empty {{block}}), and pages/placeholder.html is parsed last so its real
-// {{define "content"}} is the one that wins in the shared namespace.
+// base.html no longer declares "content" itself (see Renderer.Render /
+// PageData.RenderedContent for why) — pages/placeholder.html is the sole
+// definition of "content". resume.html defines a differently-named
+// "resume-content" instead (see docs/features/resume.md's Template
+// Rendering section), so it doesn't collide with "content" — every route
+// not setting PageData.ContentTemplate is unaffected by resume.html's
+// presence in this list.
+//
+// This list is explicit, not a directory glob: a new page/component file
+// must be added here, or it fails fast at startup as a template
+// parse/lookup error rather than silently missing at render time.
 func LoadTemplates(templatesDir string) (*template.Template, error) {
 	files := []string{
 		filepath.Join(templatesDir, "layouts", "base.html"),
@@ -80,6 +118,12 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "nav-theme-toggle.html"),
 		filepath.Join(templatesDir, "components", "footer.html"),
 		filepath.Join(templatesDir, "pages", "placeholder.html"),
+		filepath.Join(templatesDir, "components", "resume-banner.html"),
+		filepath.Join(templatesDir, "components", "resume-sidebar.html"),
+		filepath.Join(templatesDir, "components", "resume-summary.html"),
+		filepath.Join(templatesDir, "components", "resume-timeline.html"),
+		filepath.Join(templatesDir, "components", "resume-role.html"),
+		filepath.Join(templatesDir, "pages", "resume.html"),
 	}
 	return template.ParseFiles(files...)
 }
@@ -99,27 +143,61 @@ func NewRenderer(tmpl *template.Template) *Renderer {
 	return &Renderer{tmpl: tmpl}
 }
 
-// Render writes data through "content" (HTMX fragment) or "base" (full
-// page), depending on the HX-Request header. It executes into a buffer
-// first, so a template execution failure produces a clean error response
-// instead of a partially written page followed by a superfluous
-// WriteHeader call.
+// Render writes data through data.ContentTemplate (HTMX fragment, default
+// "content" — see PageData) or "base" (full page, with the content
+// fragment pre-rendered into PageData.RenderedContent first — see its doc
+// comment for why), depending on the HX-Request header. Every execution
+// happens into a buffer first, so a template failure produces a clean
+// error response instead of a partially written page followed by a
+// superfluous WriteHeader call.
 func (ren *Renderer) Render(w http.ResponseWriter, r *http.Request, data PageData) {
-	name := "base"
-	if r.Header.Get("HX-Request") == "true" {
-		name = "content"
+	contentName := data.ContentTemplate
+	if contentName == "" {
+		contentName = "content"
 	}
 
-	var buf bytes.Buffer
-	if err := ren.tmpl.ExecuteTemplate(&buf, name, data); err != nil {
-		// Never expose the raw error to the client, per
-		// docs/skills/go-backend/SKILL.md "Errors" and
-		// docs/skills/htmx-ui/SKILL.md "Error States".
-		slog.Error("render template", "error", err, "template", name)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+	if r.Header.Get("HX-Request") == "true" {
+		ren.execute(w, contentName, data)
 		return
 	}
 
+	contentHTML, err := ren.renderToString(contentName, data)
+	if err != nil {
+		ren.renderError(w, contentName, err)
+		return
+	}
+	data.RenderedContent = template.HTML(contentHTML)
+
+	ren.execute(w, "base", data)
+}
+
+// renderToString executes a named template into a string, for the
+// pre-render step Render's full-page path needs (see
+// PageData.RenderedContent).
+func (ren *Renderer) renderToString(name string, data PageData) (string, error) {
+	var buf bytes.Buffer
+	if err := ren.tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// execute writes a named template's output directly to the response.
+func (ren *Renderer) execute(w http.ResponseWriter, name string, data PageData) {
+	var buf bytes.Buffer
+	if err := ren.tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		ren.renderError(w, name, err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(buf.Bytes())
+}
+
+// renderError logs the real error and returns a generic response — never
+// expose the raw error to the client, per
+// docs/skills/go-backend/SKILL.md "Errors" and
+// docs/skills/htmx-ui/SKILL.md "Error States".
+func (ren *Renderer) renderError(w http.ResponseWriter, name string, err error) {
+	slog.Error("render template", "error", err, "template", name)
+	http.Error(w, "internal server error", http.StatusInternalServerError)
 }

@@ -64,19 +64,29 @@
 			if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
 				e.preventDefault();
 				openMenu(menu, true);
-			} else if (e.key === 'Escape' && isOpen(menu)) {
-				closeMenu(menu, true);
 			}
+			// Escape is handled by the document-level listener below, not
+			// here — see its comment for why.
+		});
+
+		// Selecting an item closes its own menu immediately. Without this,
+		// the "outside click" handler below never fires for it — a click on
+		// a menu item is inside `menu`, not outside it — so the dropdown
+		// was staying open after navigating (both the HTMX GET links and
+		// the Logout POST button hit this).
+		p.items.forEach(function (item) {
+			item.addEventListener('click', function () {
+				closeMenu(menu, false);
+			});
 		});
 
 		p.list.addEventListener('keydown', function (e) {
 			var items = parts(menu).items;
 			var currentIndex = items.indexOf(document.activeElement);
 
-			if (e.key === 'Escape') {
-				e.preventDefault();
-				closeMenu(menu, true);
-			} else if (e.key === 'ArrowDown') {
+			// Escape is handled by the document-level listener below, not
+			// here — see its comment for why.
+			if (e.key === 'ArrowDown') {
 				e.preventDefault();
 				var next = items[(currentIndex + 1) % items.length];
 				if (next) next.focus();
@@ -98,6 +108,21 @@
 			if (isOpen(menu) && !menu.contains(e.target)) {
 				closeMenu(menu, false);
 			}
+		});
+	});
+
+	// Close on Escape, handled once here rather than on the trigger/list
+	// elements individually. WebKit/Safari — unlike Chromium/Firefox —
+	// does not move keyboard focus to a <button> on click (a real,
+	// long-standing WebKit behavior difference, not a bug in this code).
+	// A menu opened with the mouse therefore never puts focus on the
+	// trigger or inside the list in Safari, so keydown listeners scoped
+	// to those elements never fire there. A document-level listener works
+	// regardless of where focus actually landed.
+	document.addEventListener('keydown', function (e) {
+		if (e.key !== 'Escape') return;
+		menus.forEach(function (menu) {
+			if (isOpen(menu)) closeMenu(menu, true);
 		});
 	});
 

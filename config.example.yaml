@@ -1,0 +1,12 @@
+# Copy this file to config.yaml to override local defaults. config.yaml is
+# gitignored — never commit it, and never add a secret key here even
+# locally (see docs/skills/go-backend/SKILL.md "Configuration"). Every key
+# is optional; environment variables always override whatever this file
+# sets, and DATABASE_URL has no config-file equivalent at all — it belongs
+# in .env instead (see .env.example).
+
+port: "8080"
+log_level: INFO # DEBUG | INFO | WARN | ERROR
+
+db:
+  max_open_conns: 10

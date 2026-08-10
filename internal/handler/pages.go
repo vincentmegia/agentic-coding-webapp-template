@@ -26,17 +26,28 @@ func NewPagesHandler(renderer *Renderer, version string) *PagesHandler {
 // page builds the PageData shared by every route: shell fields
 // (auth/version/nav/copyright) plus this route's own content.
 func (h *PagesHandler) page(r *http.Request, title string, transparentOverHero bool, contentTitle, contentMessage string) PageData {
+	data := shellPageData(r, h.Version, title, transparentOverHero)
+	data.ContentTitle = contentTitle
+	data.ContentMessage = contentMessage
+	return data
+}
+
+// shellPageData builds the PageData fields owned by the shared shell
+// (docs/features/home.md) — auth, theme, footer version, nav — common to
+// every route regardless of which handler serves it. Callers with their
+// own real content (e.g. ResumeHandler) fill in the rest (ContentTemplate,
+// Resume, ...) themselves rather than going through PagesHandler.page,
+// which is specific to the generic placeholder content fields.
+func shellPageData(r *http.Request, version, title string, transparentOverHero bool) PageData {
 	return PageData{
 		Title:               title,
 		TransparentOverHero: transparentOverHero,
 		IsAuthenticated:     IsAuthenticated(r),
 		Theme:               themeFromRequest(r),
-		VersionLabel:        versionLabel(h.Version),
+		VersionLabel:        versionLabel(version),
 		CopyrightYear:       time.Now().Year(),
 		HomeMenu:            homeMenu,
 		SettingsMenu:        settingsMenu,
-		ContentTitle:        contentTitle,
-		ContentMessage:      contentMessage,
 	}
 }
 
@@ -55,11 +66,6 @@ func versionLabel(version string) string {
 // implemented yet; this only passes the flag through correctly.
 func (h *PagesHandler) Home(w http.ResponseWriter, r *http.Request) {
 	h.Renderer.Render(w, r, h.page(r, "", true, "Welcome", "Landing page content coming soon."))
-}
-
-// Resume renders GET /resume. Real content is a separate feature.
-func (h *PagesHandler) Resume(w http.ResponseWriter, r *http.Request) {
-	h.Renderer.Render(w, r, h.page(r, "Resume", false, "Resume", "Resume content coming soon."))
 }
 
 // Projects renders GET /projects. Real content is a separate feature.
