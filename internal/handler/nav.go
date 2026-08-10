@@ -72,6 +72,11 @@ var homeMenu = NavMenu{
 			Href:  "/blogs",
 			Icon:  icon("h-4 w-4", `<path d="M4 20h4L18.5 9.5a2.121 2.121 0 0 0-3-3L5 17v3z"/>`),
 		},
+		{
+			Label: "Fishing Game",
+			Href:  "/fishing-game",
+			Icon:  icon("h-4 w-4", `<path d="M21 12c-2-3-6-5-10-5S3 9 3 12s4 5 8 5 8-2 10-5z"/><path d="M21 12l3-4v8z"/><path d="M7 10.5v.01"/>`),
+		},
 	},
 }
 
