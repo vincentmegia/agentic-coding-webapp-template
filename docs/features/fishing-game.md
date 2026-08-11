@@ -13,9 +13,9 @@ Questions — nothing in that tuning blocks calling this Shipped.
 ## Summary
 
 A playable arcade mini-game at `/fishing-game`, reachable from a new "Fishing
-Game" entry in the Home dropdown: the player steers a diver descending
-through the ocean, catching increasingly valuable fish the deeper they go
-without taking a hit from a hazard. Rounds earn fishing tokens, spent between
+Game" entry in the Home dropdown: the player casts a line from a boat and
+steers it down through the ocean, catching increasingly valuable fish the
+deeper they go without taking a hit from a hazard. Rounds earn fishing tokens, spent between
 rounds on gear upgrades that make deeper, higher-scoring runs survivable. A
 small public leaderboard shows the best runs across all visitors.
 
@@ -60,7 +60,7 @@ read-mostly structured-content use case.
   name, visible to everyone.
 * Nav integration: "Fishing Game" added as a fourth item in the existing Home
   dropdown, alongside Resume/Projects/Blogs (`docs/features/home.md`).
-* Hand-authored SVG illustrations for the diver, fish varieties, and hazards,
+* Hand-authored SVG illustrations for the fish varieties and hazards,
   matching the placeholder-illustration approach already used for the landing
   carousel (`docs/features/landing-carousel.md`).
 
@@ -89,22 +89,34 @@ read-mostly structured-content use case.
    Page loads: a start screen shows current tokens, best depth/score (read
    from localStorage), the gear shop, and a "Start Dive" button, plus the
    public leaderboard fragment loaded alongside it.
-2. User clicks "Start Dive". The canvas game begins: the diver auto-descends;
-   arrow keys / WASD (or on-screen touch controls on mobile) steer left/right.
-   A HUD overlays the canvas: current depth (miles), score, lives remaining,
-   tokens balance, and the current streak multiplier.
-3. Fish drift across the screen; touching one with the diver is the catch —
-   no separate cast/hook input — and adds its point value (times the current
-   streak multiplier) to the score. Which fish varieties can appear is gated
-   by current depth and, on top of that, by the no-hit streak multiplier
-   (see Business Rules): the longer the player has gone without a hit, the
+2. User clicks "Start Dive". A boat/rod sprite, anchored near the top of the
+   canvas, casts a line with a hook at its end; the line stays out for the
+   whole round (see Business Rules — one continuous descent, not repeated
+   cast/reel cycles). Arrow keys / WASD **or the mouse** move the boat, line,
+   and hook left/right together as one rigid unit — there is no separate
+   "swing" for the hook independent of the boat. Descent itself is conveyed
+   visually: the water/background and every fish/hazard sprite scroll
+   *upward* past the fixed boat position at a rate tied to the current
+   descent speed, the same illusion any vertical scroller uses to read as
+   "the player is moving down" without the boat's own screen position ever
+   changing. A HUD overlays the canvas: current depth (miles), score, lives
+   remaining, tokens balance, and the current streak multiplier.
+3. Fish scroll up from the bottom of the screen toward the boat; touching one
+   with the hook is the catch — no separate cast/reel input beyond the
+   initial throw — and adds its point value (times the current streak
+   multiplier) to the score. Which fish varieties can appear is gated by
+   current depth and, on top of that, by the no-hit streak multiplier (see
+   Business Rules): the longer the player has gone without a hit, the
    higher-value fish start appearing and are worth more.
-4. Hazards also drift across the screen; colliding with one costs a life,
+4. Hazards also scroll up toward the boat; colliding with one costs a life,
    resets the streak multiplier back to its base, and grants a brief
    invulnerability window before another hit can register. Losing all lives
    ends the round immediately ("You were caught!"). Descent speed gradually
-   ramps up both with depth and with how long the round has run, so later
-   parts of a long, deep dive are harder to navigate than the opening seconds.
+   ramps up both with depth and with how long the round has run — the same
+   speed value that drives both the scoring math (unchanged) and how fast
+   the world scrolls past the boat, so a visually faster descent and a
+   harder round are always the same moment, not two separate systems that
+   could drift out of sync.
 5. Reaching 1000 miles depth ends the round in a success state ("You reached
    the abyss!") instead, awarding a completion bonus.
 6. Round-over screen shows: fish caught, final score, depth reached, tokens
@@ -126,18 +138,29 @@ read-mostly structured-content use case.
 
 Follows `tailwind-ui`'s Visual Style principles; specifics for this feature:
 
-* The canvas game scene (ocean, diver, fish, hazards) uses its own fixed
-  dark-ocean palette regardless of the site's light/dark mode toggle — a
-  bright, light-mode ocean would undercut the setting, and every other site
+* The canvas game scene (ocean, boat/line/hook, fish, hazards) uses its own
+  fixed dark-ocean palette regardless of the site's light/dark mode toggle —
+  a bright, light-mode ocean would undercut the setting, and every other site
   using this pattern (e.g. games with a night sky, a stage) commits to one
   scene palette rather than skinning the play area itself. The HUD, start
   screen, shop, and leaderboard chrome *around* the canvas still fully follow
   the site's dark mode like every other page (`tailwind-ui`'s Dark Mode).
+* **The boat/rod is the only screen-fixed element.** It sits anchored near
+  the top of the canvas and never moves vertically — its horizontal position
+  is the one thing the player directly controls (arrows/WASD/mouse), and the
+  line + hook hang from it and move with it as a single rigid unit (no
+  independent hook "swing"). Depth is communicated entirely by the world
+  scrolling upward past this fixed anchor, not by the boat itself descending
+  — see Client-side Behavior's "World scroll" note for why a screen-fixed
+  anchor plus a scrolling world reads as continuous descent without an
+  unbounded canvas.
 * Fish and hazard sprites are hand-authored SVGs (not photos), in the same
   illustrative style as the landing carousel's placeholder art
   (`docs/features/landing-carousel.md`) — simple, flat, readable at small
   size, one silhouette-recognizable shape per creature so players can tell
-  fish from hazards at a glance without reading anything.
+  fish from hazards at a glance without reading anything. They scroll
+  upward with the rest of the world (spawning off the bottom edge, despawning
+  once they exit the top) rather than drifting in place.
 * Higher-value fish read as visually "richer" (e.g. warmer/brighter accent
   color, slightly larger) so a player can eyeball that a catch was worth more
   without checking the score number.
@@ -158,11 +181,21 @@ web/templates/
 
 web/static/
 ├── images/fishing/
-│   ├── diver.svg
 │   ├── fish-*.svg                # one per variety, see Business Rules
 │   └── hazard-*.svg              # one per hazard type
+│                                  # (diver.svg is superseded — the boat/rod
+│                                  #  + line + hook are drawn with canvas
+│                                  #  primitives, not a loaded image, the same
+│                                  #  way fish/hazard sprites already render
+│                                  #  as placeholder shapes rather than the
+│                                  #  SVGs above — see Open Questions)
 └── js/
-    └── fishing-game.js           # canvas game loop, input, localStorage progress
+    ├── fishing-game.js           # canvas game loop, input, localStorage progress
+    └── fishing/
+        ├── rules.js               # unchanged by this revision — pure scoring/spawn/speed/token math
+        ├── engine-state.js        # unchanged by this revision — pure round-state (lives/streak/depth-cap)
+        └── world-scroll.js        # pure: converts descent speed into a per-frame scroll offset,
+                                    # spawn-from-bottom / despawn-past-top sprite positioning
 ```
 
 States this feature's UI must handle:
@@ -221,16 +254,32 @@ Confirmation required for destructive actions:
 `fishing-game.js` (one external file, no inline `<script>` tags, consistent
 with `docs/features/home.md`'s CSP rule) owns everything HTMX cannot model:
 
-* **Game loop**: `requestAnimationFrame`-driven canvas rendering — diver
-  position, auto-scroll/depth increase (ramping with depth and elapsed
-  time), fish/hazard spawning and movement, collision detection (including
-  the post-hit invulnerability window and streak-multiplier tracking), HUD
-  updates. Pauses automatically when the tab loses focus
-  (`visibilitychange`) so a backgrounded tab doesn't burn a life pool the
-  player never saw coming.
-* **Input**: arrow keys / WASD on desktop; on-screen touch buttons (or
-  drag-to-steer) on mobile/touch viewports, since a canvas game has no
-  natural HTMX or keyboard-only equivalent for touch devices.
+* **Game loop**: `requestAnimationFrame`-driven canvas rendering — boat/
+  line/hook position, world-scroll offset (ramping with depth and elapsed
+  time, via the same `descentSpeed()` value the scoring math already uses —
+  see "World scroll" below), fish/hazard spawning and movement, collision
+  detection (including the post-hit invulnerability window and
+  streak-multiplier tracking), HUD updates. Pauses automatically when the
+  tab loses focus (`visibilitychange`) so a backgrounded tab doesn't burn a
+  life pool the player never saw coming.
+* **World scroll**: the boat's on-screen position never changes vertically —
+  depth is communicated by scrolling the water/background and every fish/
+  hazard sprite *upward* past the fixed boat at a rate derived from
+  `descentSpeed()`, the standard illusion vertical scrollers use ("you're
+  moving down relative to the world" reads identically to "the world is
+  moving up relative to you"). This avoids needing an unbounded canvas or a
+  camera that follows the boat down forever. Fish/hazards spawn just past
+  the bottom edge and are removed once they scroll past the top edge, rather
+  than the previous behavior of drifting/bouncing within a fixed box — see
+  `world-scroll.js`, a pure module (no DOM/canvas access) so this
+  spawn/scroll/despawn math is unit-testable the same way `rules.js` and
+  `engine-state.js` already are.
+* **Input**: arrow keys / WASD, **or the mouse** (moving the mouse over the
+  canvas sets the boat's target horizontal position) on desktop; on-screen
+  touch buttons (or drag-to-steer) on mobile/touch viewports, since a canvas
+  game has no natural HTMX or keyboard-only equivalent for touch devices. All
+  three input methods drive the same single horizontal position — the boat,
+  line, and hook always move together as one unit, never independently.
 * **Progress persistence**: reads/writes a single `localStorage` key (e.g.
   `fishing-game:v1`) holding `{tokens, gear: {...levels}, bestScore,
   bestDepth}`. Versioned key name so a future save-format change can migrate
@@ -338,13 +387,23 @@ holds only voluntarily-submitted, already-finished round results.
   | 0–200                 | Jellyfish         | Slow drift, small hitbox |
   | 200–500                | Rock / mine        | Stationary or slow, larger hitbox |
   | 500–800                | Eel                | Fast, erratic movement |
-  | 800–1000               | Shark              | Fast, actively steers toward the diver's current position |
+  | 800–1000               | Shark              | Fast, actively steers horizontally toward the boat's current x-position |
 
-  Movement is free 2D positioning (continuous left/right *and* the diver's
-  vertical position within its on-screen band), not a discrete-lane system —
+  Horizontal movement is free/continuous (not a discrete-lane system) —
   stated explicitly here since gear like Magnetic Lure's catch radius and
-  Ballast Thrusters' steering speed only make sense against continuous
-  positions, not lane slots.
+  Ballast Thrusters' steering speed only make sense against a continuous
+  position, not lane slots. There is no vertical positioning to speak of:
+  the boat/line/hook's on-screen vertical position never changes (see
+  Visual Direction and Client-side Behavior's "World scroll") — only the
+  world scrolls, so "movement" for every sprite in this table is a
+  horizontal-only component layered on top of the shared upward scroll.
+* **One continuous cast per round, not repeated cast/reel cycles**: the line
+  goes out once, at the start of the round, and stays out until the round
+  ends (a hit-based "caught" or the depth-cap "reached the abyss") — there is
+  no manual reel-in/re-cast action mid-round. The boat, line, and hook always
+  move together as a single rigid horizontal unit under arrow/WASD/mouse
+  control; the hook has no independent movement relative to the boat (no
+  swing/pendulum/trailing behavior).
 
 * **Lives and hit recovery**: default 3 lives (Hull Plating gear level 0);
   each hazard collision costs exactly one life regardless of hazard type and
@@ -356,7 +415,7 @@ holds only voluntarily-submitted, already-finished round results.
   started. Zero lives ends the round immediately in the "caught" state.
 * **Fish/hazard overlap**: a fish catch and a hazard hit are evaluated
   independently each frame — if a fish and a hazard sprite happen to overlap
-  the diver in the same frame, both resolve (the fish is caught *and* the
+  the hook in the same frame, both resolve (the fish is caught *and* the
   hit registers). No special-cased priority between them; this keeps
   collision handling simple and avoids an exploit where hovering into a
   hazard's exact position would otherwise block an otherwise-legitimate
@@ -376,8 +435,9 @@ holds only voluntarily-submitted, already-finished round results.
   without bound, so an extremely long/deep run gets harder without ever
   becoming literally unplayable or glitching past what collision detection
   can handle at a given frame rate.
-* **Catching a fish** is passive: the diver's hitbox touching a fish sprite
-  is the catch, with no separate cast/hook input. Consistent with hazard
+* **Catching a fish** is passive: the hook's hitbox touching a fish sprite
+  is the catch, with no separate cast/hook input beyond the round's single
+  initial throw. Consistent with hazard
   collision using the same touch-based model, so the player only has one
   input concept (steer to touch what you want, avoid what you don't) rather
   than two different interaction styles for fish vs. hazards.
@@ -394,7 +454,7 @@ holds only voluntarily-submitted, already-finished round results.
   | ------------------ | -------------------------------------------- |
   | Hull Plating        | +1 max life                                    |
   | Ballast Thrusters    | Faster lateral steering (easier hazard dodges) |
-  | Magnetic Lure        | Wider catch radius around the diver            |
+  | Magnetic Lure        | Wider catch radius around the hook             |
   | Sonar Range           | Fish/hazards become visible farther ahead      |
   | Golden Bait            | Shifts spawn weight further toward higher-value fish for the current depth |
   | Emergency Ballast       | Once per round, automatically absorbs a hit — no life lost, streak not reset — then must recharge (available again next round) |
@@ -466,6 +526,16 @@ holds only voluntarily-submitted, already-finished round results.
       one doesn't cost a life either.
 * [ ] Descent speed approaches its documented maximum as depth/time increase
       but never exceeds it, at extreme (near-max-depth, long-duration) inputs.
+* [ ] `world-scroll.js`: a sprite spawned near the bottom edge moves upward
+      (never downward) as the scroll offset accumulates, and is reported as
+      off-screen once it passes the top edge — unit-tested independent of
+      canvas rendering, the same way the other pure modules are.
+* [ ] The boat/line/hook's on-screen vertical position never changes during
+      play, regardless of depth/elapsed time — only its horizontal position
+      moves, and only in response to input.
+* [ ] All three input methods (arrow keys, WASD, mouse) move the same single
+      horizontal position — never two independently-tracked positions that
+      could drift apart.
 * [ ] Round-end token calculation matches the documented formula for a few
       representative (score, depth) pairs.
 * [ ] Gear level effects apply starting the next round, not mid-round.
@@ -502,6 +572,14 @@ holds only voluntarily-submitted, already-finished round results.
   level — worth a playtesting pass to confirm low-tier fish don't become
   effectively extinct at depth for a fully-geared player, rather than
   assuming the combination is automatically fine.
+* `diver.svg` (the earlier diver-character art) is superseded by the boat/
+  rod + line + hook, which render via canvas primitives rather than a loaded
+  image — consistent with fish/hazard sprites, which have real SVGs
+  (`fish-*.svg`/`hazard-*.svg`) but also still render as placeholder shapes,
+  since wiring real `<img>`/`Image()` drawing into the canvas was already a
+  known, not-yet-done follow-up before this revision. Whether `diver.svg` is
+  deleted, kept unused, or repurposed (e.g. a "caught!" splash animation) is
+  left open rather than decided as part of this revision.
 
 ---
 
