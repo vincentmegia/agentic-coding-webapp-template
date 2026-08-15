@@ -586,10 +586,23 @@ export function init(canvas, elements) {
     return ((clientX - rect.left) / rect.width) * world.width;
   }
 
+  // Pointer Events unify mouse/touch/pen — 'pointerdown'/'pointermove'
+  // fire for a plain desktop mouse click too, not just touch. Drag-to-steer
+  // is documented as a touch/mobile mechanic (desktop already has instant
+  // hover-tracking via onMouseMove below); without this guard, so much as
+  // clicking the canvas — or holding the button while moving, a very
+  // natural instinct — silently switched a mouse user onto this branch's
+  // speed-capped easing instead of onMouseMove's instant tracking, which is
+  // exactly what kept mouse steering feeling laggy even after mouseTargetX
+  // itself was made instant. `e.pointerType` is `undefined` (not `'mouse'`)
+  // for the legacy TouchEvents these two also handle via the
+  // touchstart/touchmove listeners below, so touch drag is unaffected.
   function onPointerDown(e) {
+    if (e.pointerType === 'mouse') return;
     input.dragTargetX = canvasXFromEvent(e);
   }
   function onPointerMove(e) {
+    if (e.pointerType === 'mouse') return;
     if (input.dragTargetX === null) return;
     input.dragTargetX = canvasXFromEvent(e);
   }

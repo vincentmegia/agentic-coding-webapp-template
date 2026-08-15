@@ -384,7 +384,19 @@ with `docs/features/home.md`'s CSP rule) owns everything HTMX cannot model:
   sets the target position" reads as 1:1 tracking, not a slower directional
   nudge toward it (capping it to the same speed as keyboard/drag made mouse
   steering visibly lag behind normal cursor movement — a real, discovered
-  defect, not a documented design choice). Priority when more than one
+  defect, not a documented design choice). This distinction only holds if a
+  desktop mouse actually reaches `onMouseMove`'s instant-tracking path
+  rather than the drag-to-steer one: `pointerdown`/`pointermove` (the
+  handlers backing drag-to-steer) fire for a plain mouse click too, not
+  just touch, since Pointer Events unify mouse/touch/pen — so both handlers
+  explicitly ignore `e.pointerType === 'mouse'`, letting a click-and-hold
+  (or even a stray click) fall through to `onMouseMove` instead of
+  re-engaging the capped drag easing. Without that guard, clicking or
+  holding the button while moving — an easy, natural instinct — silently
+  put a desktop mouse user back on the slow, capped path even after the
+  hover-only case above was already instant; this was a real, initially-
+  missed second instance of the same lag, not a separate design decision.
+  Priority when more than one
   method has a live input is keyboard > drag > mouse, resolved once per
   frame in `updateBoat()`; critically, pressing a movement key also clears
   any in-flight `mouseTargetX` (not just outranks it while held) so a stale
@@ -732,7 +744,10 @@ holds only voluntarily-submitted, already-finished round results.
       unmoved) position the instant the key is released. Mouse steering only
       resumes once the cursor genuinely moves again. Mouse movement itself
       tracks the cursor's canvas x with no perceptible lag (instant, not
-      rate-limited like keyboard/drag).
+      rate-limited like keyboard/drag) — including while the mouse button is
+      held down and moved (a desktop mouse click/hold must not fall onto the
+      drag-to-steer path and reintroduce the capped-speed lag; only a real
+      touch pointer should engage that path).
 * [ ] The boat's fade-opacity-from-depth calculation is a small pure
       function (not inlined in the draw call) so it's unit-testable
       independent of canvas rendering: opacity is 1.0 at depth 0, decreases
