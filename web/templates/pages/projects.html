@@ -1,10 +1,11 @@
 {{/* /projects page: a page heading + subhead, and a grid of project cards.
-     Pulled from a claude.ai/design "Personal website and portfolio"
-     project's Projects.dc.html (see DesignSync) — see docs/features/
-     projects.md and the Project type's doc comment in
-     internal/handler/template.go for the full contract (four of the five
-     cards are still that mockup's own placeholder content; the Fishing
-     Game card is real). LiveURL's link branches on External: an internal
+     Card markup/styling pulled from a claude.ai/design "Personal website
+     and portfolio" project's Projects.dc.html (see DesignSync) — see
+     docs/features/projects.md and the Project type's doc comment in
+     internal/handler/template.go for the full contract. That mockup's own
+     fictional sample cards were removed once a real project (Fishing
+     Game) existed — currently the grid's only entry. LiveURL's link
+     branches on External: an internal
      route (External: false, e.g. the Fishing Game's /fishing-game) renders
      as a same-tab "Play now" HTMX nav link using the same swap mechanism
      #primary-nav's links use (components/header.html); an off-site URL

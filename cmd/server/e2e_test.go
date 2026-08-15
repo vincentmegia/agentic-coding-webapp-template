@@ -259,7 +259,7 @@ func TestEndToEnd(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d, want 200", resp.StatusCode)
 		}
-		for _, want := range []string{`id="projects-grid"`, "Fieldnotes", "Tidewatch"} {
+		for _, want := range []string{`id="projects-grid"`, "Fishing Game", "Play now"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("/projects missing %q", want)
 			}

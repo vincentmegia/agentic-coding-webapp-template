@@ -150,42 +150,19 @@ func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
 }
 
 // projectItems is the hand-authored card list for /projects (docs/features/
-// projects.md). The Fishing Game entry is real (this site's own shipped
-// mini-game, docs/features/fishing-game.md) and leads the list; the other
-// four are the pulled-in design's own sample entries from Projects.dc.html
-// (see Project's doc comment), placeholder until real projects replace
-// them. TagTint alternates per card, matching the mockup.
+// projects.md). Fishing Game is the only entry — this site's own shipped
+// mini-game (docs/features/fishing-game.md) — after the pulled-in design's
+// four fictional sample entries (Fieldnotes/Tidewatch/Loom UI/Nightlight,
+// from Projects.dc.html) were removed rather than left sitting next to the
+// one genuine project; see Open Questions in projects.md for that call.
 var projectItems = []Project{
 	{
 		Title:       "Fishing Game",
-		Description: "A canvas arcade mini-game — cast a line, dive for fish, and dodge hazards on the way down, with a public leaderboard for the best runs. The one project here that isn't placeholder data.",
+		Description: "A canvas arcade mini-game — cast a line, dive for fish, and dodge hazards on the way down, with a public leaderboard for the best runs.",
 		Tags:        []string{"Go", "Canvas", "PostgreSQL"},
 		TagTint:     "accent",
 		LiveURL:     "/fishing-game",
-	},
-	{
-		Title:       "Fieldnotes",
-		Description: "A minimal journaling app for capturing ideas on the move, synced offline-first.",
-		Tags:        []string{"React", "PWA", "IndexedDB"},
-		TagTint:     "primary",
-	},
-	{
-		Title:       "Tidewatch",
-		Description: "A real-time surf and tide dashboard for local breaks, built for quick morning checks.",
-		Tags:        []string{"Next.js", "D3"},
-		TagTint:     "accent",
-	},
-	{
-		Title:       "Loom UI",
-		Description: "A small open-source component kit for fast, honest prototypes.",
-		Tags:        []string{"TypeScript", "Storybook"},
-		TagTint:     "primary",
-	},
-	{
-		Title:       "Nightlight",
-		Description: "A sleep and focus timer with ambient soundscapes, built for quiet evenings.",
-		Tags:        []string{"Swift", "iOS"},
-		TagTint:     "accent",
+		ImagePath:   "/static/images/fishing/screenshot.png",
 	},
 }
 

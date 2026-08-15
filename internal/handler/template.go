@@ -114,24 +114,24 @@ type PageData struct {
 	SelectedWork []SelectedWorkItem
 
 	// Projects backs the /projects page (pages/projects.html), set only by
-	// PagesHandler.Projects. Hand-authored placeholder entries, same
-	// pattern as CarouselSlides/SelectedWork — no DB, no admin editing yet.
-	// Nil/empty for every other route.
+	// PagesHandler.Projects. Hand-authored Go data, same pattern as
+	// CarouselSlides/SelectedWork — no DB, no admin editing yet. Nil/empty
+	// for every other route.
 	Projects []Project
 }
 
-// Project is one card in the /projects grid — pulled from a claude.ai/design
-// "Personal website and portfolio" project's Projects.dc.html (see
-// DesignSync), which shows four sample entries (Fieldnotes/Tidewatch/Loom
-// UI/Nightlight) as placeholder content until real projects replace them
-// (docs/features/projects.md). A fifth, real entry (the Fishing Game,
-// docs/features/fishing-game.md) leads the list. ImagePath/LiveURL are
-// optional ("" if none) — the card renders a placeholder tile in place of
-// a screenshot, and omits the link, exactly like the mockup's own unfilled
-// image-slot and "#" hrefs. TagTint selects which token-tinted pill style
-// the card's tag chips use ("primary" or "accent") — the mockup alternates
-// tint per card rather than deriving it from the tags' content, so this is
-// data, not a template-computed value.
+// Project is one card in the /projects grid. Card markup/styling (image
+// area, tag pills, "Live demo"/"Play now" link) was pulled from a
+// claude.ai/design "Personal website and portfolio" project's
+// Projects.dc.html (see DesignSync), but that mockup's four fictional
+// sample entries (Fieldnotes/Tidewatch/Loom UI/Nightlight) were removed
+// once implemented — see Open Questions in docs/features/projects.md — so
+// the Fishing Game (docs/features/fishing-game.md) is currently the only
+// real entry. ImagePath/LiveURL are optional ("" if none) — the card
+// renders a placeholder tile in place of a screenshot, and omits the link,
+// exactly like the mockup's own unfilled image-slot and "#" hrefs. TagTint
+// selects which token-tinted pill style the card's tag chips use ("primary"
+// or "accent") — authored per card rather than template-computed.
 //
 // External mirrors CarouselSlide's own field below (same pattern, same
 // name): LiveURL either points at an internal route (External: false, the

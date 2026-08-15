@@ -3,17 +3,21 @@
 ## Status
 
 `Shipped` — the page, route, template, and data model are implemented and
-visually verified in both light and dark mode, including a fifth card: a
-real, playable link into the Fishing Game (`docs/features/fishing-game.md`)
-at `/fishing-game`, added via the `Project.External` field (see Data
-Model). `e2e/projects.spec.js` covers all five cards, including the Fishing
-Game's "Play now" link and its HTMX navigation into the real game — see
-Testing Plan. The gap: the other four cards are still the pulled-in
-design's own placeholder sample projects (Fieldnotes, Tidewatch, Loom UI,
-Nightlight), not Vincent's real work, and none of them set `LiveURL` or
-`ImagePath` yet — see Open Questions. `internal/handler/template_test.go`'s
-Go-side placeholder-route test still doesn't exercise the real
-`projects-content` template directly (see Testing Plan), mirroring
+visually verified in both light and dark mode. The grid currently has one
+card: a real, playable link into the Fishing Game
+(`docs/features/fishing-game.md`) at `/fishing-game`, via the
+`Project.External` field (see Data Model), with a real screenshot
+(`ImagePath: "/static/images/fishing/screenshot.png"`) — a live capture of
+an actual round in progress (boat, line, a fish, and a jellyfish hazard),
+not a mockup or a placeholder tile. The four fictional sample cards the
+pulled-in design mockup originally shipped with (Fieldnotes, Tidewatch,
+Loom UI, Nightlight) were deliberately removed rather than left sitting
+next to the one genuine project — see Open Questions for the reasoning and
+what replaces them over time. `e2e/projects.spec.js` covers the Fishing
+Game card, including its "Play now" link and HTMX navigation into the real
+game — see Testing Plan. `internal/handler/template_test.go`'s Go-side
+placeholder-route test still doesn't exercise the real `projects-content`
+template directly (see Testing Plan), mirroring
 `docs/features/landing-carousel.md`'s same gap for its own hand-authored
 placeholder content.
 
@@ -32,9 +36,12 @@ Linked from the primary nav
 ("Projects content coming soon."). Projects is one of CLAUDE.md's named
 Planned Content sections, and `docs/features/resume.md`'s sidebar already
 links out to it as "See all projects" — without real content that link led
-to an empty placeholder. This feature gives the page an actual card grid,
-even though the cards themselves are still sample data pending real project
-write-ups.
+to an empty placeholder. This feature gives the page an actual card grid.
+It shipped in two steps: first with four fictional sample cards pulled
+from the design mockup plus none of Vincent's real work, then — once the
+Fishing Game gave the page one genuine entry — the four fictional cards
+were removed rather than left in place until real replacements existed
+(see Open Questions).
 
 ## Scope
 
@@ -44,8 +51,8 @@ write-ups.
   cards.
 * A `Project` data shape (title, description, tags, tag tint, optional live
   URL, an `External` flag distinguishing an internal route from an off-site
-  link, and optional image) and a hardcoded list of five entries: one real
-  (the Fishing Game) leading four placeholder samples.
+  link, and optional image) and a hardcoded list — currently one real entry
+  (the Fishing Game).
 * Responsive card grid: 1 column on mobile, 2 on `sm`, 3 on `lg`.
 * Per-card: an image area (real screenshot if `ImagePath` is set, otherwise
   a "Screenshot coming soon" placeholder tile), title, description, tag
@@ -58,9 +65,9 @@ write-ups.
 
 **Out of scope:**
 
-* Real project content — copy, screenshots, and live links for Vincent's
-  actual projects still need to replace the four sample cards (see Open
-  Questions).
+* Real project content — copy, screenshots, and live links for more of
+  Vincent's actual work, to grow the grid beyond the one Fishing Game card
+  (see Open Questions).
 * Postgres-backed / admin-editable project data — same as
   `docs/features/landing-carousel.md`'s Data Model stance, this is static,
   hand-authored Go data for now.
@@ -80,17 +87,16 @@ write-ups.
 ```text
 1. User navigates to /projects (via the primary nav "Projects" link, the
    Resume sidebar's "See all projects" link, or a direct URL).
-2. Page renders: a "Projects" heading and subhead, then a grid of five
-   cards — the real Fishing Game entry first, followed by four hardcoded
-   placeholder Project entries.
-3. Each card shows a placeholder "Screenshot coming soon" tile (no card
-   currently has ImagePath set, including the Fishing Game's), a title, a
-   description, and its tag pills.
-4. The Fishing Game card is the only one with LiveURL set, and it's
-   internal (External: false), so it renders a "Play now" link rather than
-   a "Live demo" link; the four placeholder cards have no LiveURL, so none
-   of them render any link — a "Live demo" link activates automatically
-   once a placeholder card sets LiveURL with External: true.
+2. Page renders: a "Projects" heading and subhead, then a grid with one
+   card — the real Fishing Game entry. More real projects append here as
+   they're written up (see Open Questions); the grid isn't padded with
+   placeholder cards in the meantime.
+3. The card shows a real screenshot (a live capture of the game mid-round),
+   a title, a description, and its tag pills.
+4. The Fishing Game card has LiveURL set and it's internal (External:
+   false), so it renders a "Play now" link rather than a "Live demo" link
+   — a "Live demo" link would render instead for a future card whose
+   LiveURL is off-site (External: true).
 5. Clicking "Play now" navigates to /fishing-game via the same HTMX swap
    every other in-site nav link uses (hx-get/hx-target="#main-content"/
    hx-swap="outerHTML"/hx-push-url="true"), dropping the visitor straight
@@ -124,6 +130,19 @@ the two.
   between projects with and without a screenshot; `object-cover` on a real
   `<img>` when `ImagePath` is set, otherwise a centered "Screenshot coming
   soon" placeholder in muted text against `bg-surface-2`.
+* **The Fishing Game's screenshot** (`web/static/images/fishing/
+  screenshot.png`) is a real capture of the live game, not generated or
+  hand-drawn art — no image-generation tool was available, and a genuine
+  screenshot is the more literal fulfillment of "Screenshot coming soon"
+  besides. Captured via Playwright driving an actual round (started a
+  dive, let the boat descend and fish/hazards spawn, then clipped the
+  screenshot to the `#fishing-canvas` element's own bounding box at exactly
+  the 16:10 card aspect, anchored to the canvas's top edge) rather than a
+  full-page screenshot cropped after the fact — this way the source file's
+  aspect already matches the card's `aspect-[16/10]` exactly, so
+  `object-cover` scales it without any further cropping deciding the
+  composition. The canvas itself renders portrait (480×640,
+  `web/templates/pages/fishing-game.html`), so only its top band is used.
 * **Tag pills**: small rounded-full chips, alternating tint per card via
   `TagTint` — `primary` cards use `bg-primary/10 text-primary`, `accent`
   cards use `bg-accent/15 text-accent`. The mockup alternates tint by card
@@ -135,7 +154,7 @@ the two.
 
   | `External` | Label | Behavior |
   | --- | --- | --- |
-  | `true` | "Live demo" | `target="_blank" rel="noopener noreferrer"`, inline external-link icon, `text-primary` — the original design's only case, still the default for the four placeholder cards (though none of them set `LiveURL`, so it's currently unexercised). |
+  | `true` | "Live demo" | `target="_blank" rel="noopener noreferrer"`, inline external-link icon, `text-primary` — the original design's only case; not currently exercised by any entry in `projectItems`. |
   | `false` (default/zero value) | "Play now" | `hx-get="{{.LiveURL}}" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#nav-loading" data-nav-link`, same tab, same swap mechanism `#primary-nav`'s links already use (`components/header.html`), `text-primary`, with a play-triangle icon instead of the external-link icon — the Fishing Game card's case, the only entry currently exercising this branch. |
 
 ---
@@ -161,10 +180,11 @@ States this feature's UI must handle:
 | State                          | Behavior |
 | -------------------------------- | -------- |
 | Default                          | Grid renders all entries in `projectItems`. |
-| Card with no `ImagePath`          | Renders the "Screenshot coming soon" placeholder tile instead of an `<img>`. |
+| Card with `ImagePath` set         | Renders a real `<img>`, `object-cover`'d into the `aspect-[16/10]` tile — the Fishing Game card's current state. |
+| Card with no `ImagePath`          | Renders the "Screenshot coming soon" placeholder tile instead of an `<img>` — not currently exercised by any entry in `projectItems`. |
 | Card with no `LiveURL`            | Omits the "Live demo"/"Play now" link entirely — no disabled/greyed-out link. |
 | Loading                          | Nav swap into `/projects` uses the shell's existing `#nav-loading` indicator — no new indicator needed. |
-| Empty (`projectItems` has zero entries) | Not currently exercised — `projectItems` always has 5 hardcoded entries; the template's `{{range}}` would simply render nothing, no empty-state message. |
+| Empty (`projectItems` has zero entries) | Not currently exercised — `projectItems` always has at least one hardcoded entry; the template's `{{range}}` would simply render nothing, no empty-state message. |
 | Error                            | A render failure falls through to the shell's generic "couldn't load this page" content-error state, same as every other route — nothing project-specific. |
 
 ---
@@ -239,16 +259,20 @@ type Project struct {
 }
 ```
 
-The five current entries (`internal/handler/pages.go`'s `projectItems`):
-Fishing Game leads the list — the one real entry, `LiveURL: "/fishing-game"`,
-`External: false` (so it renders the "Play now" link), tags `Go`/`Canvas`/
-`PostgreSQL`, `TagTint: "accent"` — followed by Fieldnotes, Tidewatch, Loom
-UI, Nightlight, the pulled-in design mockup's own sample projects, matching
-the same three names (minus Nightlight, Projects' fourth card) used as the
-landing page's "Selected work" section placeholders (`SelectedWorkItem`,
-`docs/features/landing-page.md`). None of the four placeholder entries set
-`LiveURL` or `ImagePath`; the Fishing Game entry sets `LiveURL` but not
-`ImagePath` either (see Open Questions).
+The one current entry (`internal/handler/pages.go`'s `projectItems`): the
+Fishing Game — `LiveURL: "/fishing-game"`, `External: false` (so it renders
+the "Play now" link), tags `Go`/`Canvas`/`PostgreSQL`, `TagTint: "accent"`,
+`ImagePath: "/static/images/fishing/screenshot.png"` — a real screenshot,
+captured live (Playwright, clipped to the canvas at 16:10 mid-round: boat,
+line, a fish, and a jellyfish hazard), not AI-generated or hand-drawn; see
+Visual Direction. `projectItems` originally also had
+four fictional sample projects (Fieldnotes/Tidewatch/Loom UI/Nightlight,
+the pulled-in design mockup's own placeholder content — three of those
+names are still used as the landing page's "Selected work" section
+placeholders, `SelectedWorkItem`, `docs/features/landing-page.md`, which is
+separate data and wasn't affected by this); they were removed once the
+Fishing Game gave the page a real entry, rather than left in place — see
+Open Questions.
 
 ---
 
@@ -262,9 +286,8 @@ landing page's "Selected work" section placeholders (`SelectedWorkItem`,
 * `LiveURL` set and `External: true` → the link reads "Live demo", opens in
   a new tab with `rel="noopener noreferrer"`, and shows an external-link
   icon, consistent with the external-link convention established in
-  `docs/features/home.md` — the original design's only case; none of the
-  four placeholder cards currently set `LiveURL`, so this branch is
-  currently unexercised.
+  `docs/features/home.md` — the original design's only case; not currently
+  exercised by any entry in `projectItems`.
 * `LiveURL` set and `External: false` (the default/zero value) → the link
   reads "Play now", stays in the same tab, and uses the same HTMX swap
   every `#primary-nav` link uses (`hx-get`/`hx-target="#main-content"`/
@@ -303,21 +326,22 @@ landing page's "Selected work" section placeholders (`SelectedWorkItem`,
 
 ## Testing Plan
 
-* [x] `GET /projects` renders all five cards with correct titles,
-      descriptions, and tag pills — `e2e/projects.spec.js`'s `PROJECTS`
-      fixture includes the Fishing Game alongside the four placeholders, and
-      `cards.toHaveCount(PROJECTS.length)` asserts the real 5-card grid.
+* [x] `GET /projects` renders the Fishing Game card with correct title,
+      description, and tag pills — `e2e/projects.spec.js`'s `PROJECTS`
+      fixture and `cards.toHaveCount(PROJECTS.length)` assertion cover the
+      current single-card grid.
 * [ ] A card with `ImagePath` set renders a real `<img>`; a card without it
-      renders the "Screenshot coming soon" placeholder tile — covered for the
-      no-`ImagePath` case (still true of all five cards today, Fishing Game
-      included); the real-`<img>` branch remains untested since no card sets
-      `ImagePath` yet.
+      renders the "Screenshot coming soon" placeholder tile — visually
+      verified (the Fishing Game card now has `ImagePath` set and renders
+      its real screenshot in both themes), but neither branch has automated
+      coverage yet; the no-`ImagePath` placeholder-tile branch is currently
+      unexercised by any entry in `projectItems`.
 * [x] A card with `LiveURL` set and `External: true` renders a "Live demo"
       link that opens in a new tab with `rel="noopener noreferrer"`; a card
       without `LiveURL` renders no such link — `e2e/projects.spec.js` asserts
-      zero "Live demo" links exist (still true, since none of the five
-      current entries set `External: true`) and separately asserts the
-      Fishing Game card specifically has no "Live demo" link.
+      zero "Live demo" links exist (still true, since the Fishing Game is
+      the only entry and it sets `External: false`) and separately asserts
+      the Fishing Game card specifically has no "Live demo" link.
 * [x] A card with `LiveURL` set and `External: false` (the Fishing Game)
       renders a "Play now" link that navigates to `/fishing-game` via the
       same HTMX swap `#primary-nav` uses, not a full page reload —
@@ -356,10 +380,16 @@ landing page's "Selected work" section placeholders (`SelectedWorkItem`,
 
 ## Open Questions
 
-* Real project content — actual copy, screenshots (`ImagePath`), and live
-  links (`LiveURL`) still need to replace the four sample cards
-  (Fieldnotes/Tidewatch/Loom UI/Nightlight) before this page represents
-  Vincent's real work rather than the design mockup's placeholder data.
+* **Resolved**: whether the four fictional placeholder cards (Fieldnotes/
+  Tidewatch/Loom UI/Nightlight) should stay next to the Fishing Game's one
+  genuine entry until real replacements were written, or be trimmed —
+  trimmed. They read as mostly fake work sitting next to the one real
+  project, so they were removed from `projectItems` outright rather than
+  kept as placeholders; the page currently has exactly one card. Real
+  projects get added here as they're written up, not restored placeholder
+  content.
+* Real project content — more of Vincent's actual work (copy, screenshots,
+  live links) to grow the grid beyond the one Fishing Game card.
 * Should `projectItems` move to Postgres, following the same path
   `docs/features/resume.md` took for resume content, once there's a
   concrete reason (e.g. an admin/CMS UI, or wanting to edit project content
@@ -371,17 +401,10 @@ landing page's "Selected work" section placeholders (`SelectedWorkItem`,
   `Project` list into one shared, "featured"-flagged data source instead of
   two independently hand-authored lists — flagged but not decided in
   `docs/features/resume.md`'s Open Questions; still undecided here too.
-* A real screenshot for the Fishing Game card's thumbnail —
-  `web/static/images/fishing/` has only individual sprite assets today
-  (fish, hazards, diver), nothing composed enough to use as-is, so the card
-  falls back to the "Screenshot coming soon" placeholder tile like the
-  other four.
-* Now that one *real* project (the Fishing Game) exists on this page,
-  should the four fictional placeholder cards (Fieldnotes/Tidewatch/Loom
-  UI/Nightlight) stay until real replacements are written, or should some
-  be trimmed/hidden so the page doesn't read as mostly fake work sitting
-  next to the one genuine entry? Left to product judgment, not decided
-  here.
+* **Resolved**: a real screenshot for the Fishing Game card's thumbnail —
+  `web/static/images/fishing/screenshot.png`, a live Playwright capture of
+  an actual round (see Visual Direction), not the individual sprite assets
+  `web/static/images/fishing/` otherwise holds.
 
 ---
 
@@ -398,7 +421,8 @@ landing page's "Selected work" section placeholders (`SelectedWorkItem`,
       done yet.
 * [ ] Tests cover the behavior in the Testing Plan above — several items
       remain unchecked; tracked there rather than silently dropped.
-* [ ] No open questions remain unresolved — five remain, explicitly deferred
-      (real content, Postgres migration, Resume-list reconciliation, a real
-      Fishing Game screenshot, and whether to trim the placeholder cards)
-      rather than blocking this page's initial ship.
+* [ ] No open questions remain unresolved — three remain, explicitly
+      deferred (real content, Postgres migration, Resume-list
+      reconciliation) rather than blocking this page's initial ship; the
+      other two (whether to trim the placeholder cards, and the Fishing
+      Game screenshot) are resolved.

@@ -1,9 +1,10 @@
 // /projects page: heading + subhead, and a grid of project cards
 // (internal/handler/pages.go's projectItems). The Fishing Game card is real
 // (this site's own shipped mini-game, linked via an internal "Play now" HTMX
-// nav link); the other four (Fieldnotes/Tidewatch/Loom UI/Nightlight) are
-// hand-authored placeholders pulled from a claude.ai/design "Personal
-// website and portfolio" project's Projects.dc.html. See
+// nav link) — the pulled-in design mockup's four fictional sample cards
+// (Fieldnotes/Tidewatch/Loom UI/Nightlight, from a claude.ai/design
+// "Personal website and portfolio" project's Projects.dc.html) were removed
+// once a real project existed, so it's currently the grid's only entry. See
 // web/templates/pages/projects.html and internal/handler/template.go's
 // Project struct for the full contract.
 const { test, expect } = require('@playwright/test');
@@ -11,28 +12,8 @@ const { test, expect } = require('@playwright/test');
 const PROJECTS = [
 	{
 		title: 'Fishing Game',
-		description: "A canvas arcade mini-game — cast a line, dive for fish, and dodge hazards on the way down, with a public leaderboard for the best runs. The one project here that isn't placeholder data.",
+		description: 'A canvas arcade mini-game — cast a line, dive for fish, and dodge hazards on the way down, with a public leaderboard for the best runs.',
 		tags: ['Go', 'Canvas', 'PostgreSQL'],
-	},
-	{
-		title: 'Fieldnotes',
-		description: 'A minimal journaling app for capturing ideas on the move, synced offline-first.',
-		tags: ['React', 'PWA', 'IndexedDB'],
-	},
-	{
-		title: 'Tidewatch',
-		description: 'A real-time surf and tide dashboard for local breaks, built for quick morning checks.',
-		tags: ['Next.js', 'D3'],
-	},
-	{
-		title: 'Loom UI',
-		description: 'A small open-source component kit for fast, honest prototypes.',
-		tags: ['TypeScript', 'Storybook'],
-	},
-	{
-		title: 'Nightlight',
-		description: 'A sleep and focus timer with ambient soundscapes, built for quiet evenings.',
-		tags: ['Swift', 'iOS'],
 	},
 ];
 
@@ -58,14 +39,14 @@ test('direct page load renders heading, subhead, and all project cards', async (
 	}
 });
 
-// None of the 5 projects (internal/handler/pages.go's projectItems) set
+// The only project (internal/handler/pages.go's projectItems) doesn't set
 // External: true, so projects.html's `{{if .External}}` "Live demo" branch
 // never renders — the Fishing Game's LiveURL instead takes the `{{else}}`
 // "Play now" branch (tested separately below). Asserting the absence of
 // "Live demo" (rather than no test at all) still guards the conditional
 // itself — a future regression that renders it unconditionally would be
 // caught here.
-test('no "Live demo" link renders — no project sets External: true', async ({ page }) => {
+test('no "Live demo" link renders — the only project doesn\'t set External: true', async ({ page }) => {
 	await page.goto('/projects');
 	await expect(page.getByRole('link', { name: 'Live demo' })).toHaveCount(0);
 });

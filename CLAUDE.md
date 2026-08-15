@@ -29,9 +29,10 @@ and nav are pulled from that same claude.ai/design workspace's "Personal
 website and portfolio" project; a from-scratch restyle of page-specific
 components (resume, fishing game, carousel) to the new tokens is still
 open. The `/projects` page now renders a card grid too (same "Personal
-website and portfolio" pull — see `docs/features/projects.md`), led by a
-real card linking into the Fishing Game, followed by four hand-authored
-placeholder projects. Blogs and About are still placeholders.
+website and portfolio" pull — see `docs/features/projects.md`), currently
+just one real card linking into the Fishing Game — the design mockup's
+four fictional placeholder projects were removed rather than left sitting
+next to it. Blogs and About are still placeholders.
 Update this file as decisions are made or change.
 
 ## What this is
