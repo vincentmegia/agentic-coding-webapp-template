@@ -34,6 +34,7 @@
 import { fishSpawnPool, streakMultiplier, roundTokens, descentSpeed, DEPTH_CAP_MILES } from './fishing/rules.js';
 import { createInitialState, applyHazardHit, applyFishCatch, advance, DEFAULT_LIVES } from './fishing/engine-state.js';
 import { scrollOffsetForFrame, spawnY, scrollSprite, isOffScreen } from './fishing/world-scroll.js';
+import { castProgress, boatOpacityForDepth } from './fishing/boat-visuals.js';
 
 // ---------------------------------------------------------------------------
 // localStorage progress (doc: "reads/writes a single localStorage key")
@@ -726,14 +727,35 @@ export function init(canvas, elements) {
     }
   }
 
-  // Boat/rod + line + hook, drawn with canvas primitives (no image asset —
-  // matches how fish/hazard sprites already render as placeholder shapes;
-  // see the doc's Open Questions on diver.svg being superseded). The line
-  // runs straight from the rod tip to the fixed hook position: no
-  // independent swing, since the whole assembly only ever moves as one
-  // rigid unit via `boat.x`.
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  // Boat/rod/fisherman + line + hook, drawn with canvas primitives (no image
+  // asset — matches how fish/hazard sprites already render as placeholder
+  // shapes; see the doc's Open Questions on diver.svg being superseded). The
+  // line runs straight from the rod tip to the (cast-animated) hook
+  // position: no independent swing, since the whole assembly only ever
+  // moves horizontally as one rigid unit via `boat.x`.
+  //
+  // Purely cosmetic per the doc's Business Rules callout: `cast` and
+  // `boatOpacity` below only ever change what's drawn and how transparent it
+  // is. handleCollisions() elsewhere uses the real, constant `boat.x`/
+  // `HOOK_Y` regardless of either value.
   function drawBoat() {
     const x = boat.x;
+    const cast = castProgress(state.elapsedSeconds);
+    const boatOpacity = boatOpacityForDepth(state.depthMiles);
+
+    const rodTipX = x + 22;
+    const rodTipY = BOAT_Y - 20;
+
+    // Hull, rod, and fisherman fade together with depth (doc's Visual
+    // Direction: "the boat/fisherman/rod group gradually fades"). Scoped
+    // with save()/restore() rather than resetting globalAlpha manually so
+    // canvas state can't leak into whatever draws next.
+    ctx.save();
+    ctx.globalAlpha = boatOpacity;
 
     // Hull.
     ctx.beginPath();
@@ -749,8 +771,6 @@ export function init(canvas, elements) {
     ctx.stroke();
 
     // Rod.
-    const rodTipX = x + 22;
-    const rodTipY = BOAT_Y - 20;
     ctx.beginPath();
     ctx.moveTo(x + 8, BOAT_Y);
     ctx.lineTo(rodTipX, rodTipY);
@@ -758,18 +778,58 @@ export function init(canvas, elements) {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Line, from the rod tip straight down to the hook.
+    // Fisherman — a small flat silhouette (body + head) standing in the
+    // hull near the rod's base, holding the rod (doc's Visual Direction: "A
+    // fisherman figure stands in the boat"). Same solid-fill-plus-stroke,
+    // no-gradient style as the hull above and the fish/hazard sprites in
+    // render().
+    const fishermanX = x + 6;
+    const feetY = BOAT_Y;
+    const bodyTopY = BOAT_Y - 20;
+    const headRadius = 5;
+    const headCenterY = bodyTopY - headRadius;
+    ctx.fillStyle = '#2b2118';
+    ctx.strokeStyle = '#150f0a';
+    ctx.lineWidth = 1.5;
+    // Body: a small trapezoid (narrower at the shoulders, wider at the feet).
+    ctx.beginPath();
+    ctx.moveTo(fishermanX - 5, feetY);
+    ctx.lineTo(fishermanX - 3, bodyTopY);
+    ctx.lineTo(fishermanX + 3, bodyTopY);
+    ctx.lineTo(fishermanX + 5, feetY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Head.
+    ctx.beginPath();
+    ctx.arc(fishermanX, headCenterY, headRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Line + hook: always drawn at full opacity, in a separate pass after
+    // restoring alpha, so they're never affected by boatOpacity (doc: "the
+    // line and hook stay fully visible throughout"). The drawn endpoint is
+    // interpolated from the rod tip (cast=0, start of round) to the real
+    // hook position (cast=1, ~CAST_ANIMATION_SECONDS in) — the cast
+    // animation only changes where this is drawn, never the real hook
+    // position handleCollisions() uses.
+    const drawnHookX = lerp(rodTipX, x, cast);
+    const drawnHookY = lerp(rodTipY, HOOK_Y, cast);
+
+    // Line, from the rod tip to the (possibly still-casting) hook position.
     ctx.beginPath();
     ctx.moveTo(rodTipX, rodTipY);
-    ctx.lineTo(x, HOOK_Y);
+    ctx.lineTo(drawnHookX, drawnHookY);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Hook — the functional collision anchor (handleCollisions uses
-    // boat.x/HOOK_Y directly, independent of this drawing).
+    // Hook. Note this is only the drawn position — handleCollisions() uses
+    // boat.x/HOOK_Y directly, independent of `cast`.
     ctx.beginPath();
-    ctx.arc(x, HOOK_Y, 6, 0.3, Math.PI * 1.7);
+    ctx.arc(drawnHookX, drawnHookY, 6, 0.3, Math.PI * 1.7);
     ctx.strokeStyle = '#e8e8e8';
     ctx.lineWidth = 2.5;
     ctx.stroke();
