@@ -560,6 +560,18 @@ export function init(canvas, elements) {
   // -- Input ------------------------------------------------------------
 
   function onKeyDown(e) {
+    const isMovementKey = e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A'
+      || e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D';
+    // A stale mouseTargetX (the cursor's last position over the canvas,
+    // possibly from well before this keypress — e.g. wherever it sat when
+    // "Start Dive" was clicked) must not silently regain control the
+    // instant this key is released. Invalidate it here so keyboard fully
+    // owns boat.x until the mouse actually moves again (which sets a fresh
+    // mouseTargetX via onMouseMove) — otherwise updateBoat()'s keyboard >
+    // drag > mouse priority order only holds while a key is *held*, and the
+    // boat visibly snaps/eases back toward the old mouse position on
+    // release.
+    if (isMovementKey) input.mouseTargetX = null;
     if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = true;
     if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = true;
   }
@@ -624,11 +636,13 @@ export function init(canvas, elements) {
       const dx = input.dragTargetX - boat.x;
       boat.x += Math.max(-steeringSpeed * deltaSeconds, Math.min(steeringSpeed * deltaSeconds, dx));
     } else if (input.mouseTargetX !== null) {
-      // Eased toward the cursor at the same speed cap keyboard steering
-      // uses, so mouse isn't an "unfair" faster control (doc's Input
-      // section).
-      const dx = input.mouseTargetX - boat.x;
-      boat.x += Math.max(-steeringSpeed * deltaSeconds, Math.min(steeringSpeed * deltaSeconds, dx));
+      // Instant 1:1 tracking, not rate-limited like keyboard/drag: the
+      // mouse "sets the boat's target horizontal position" (doc's Input
+      // section) rather than a direction to steer in, so the boat's x
+      // should just *be* the cursor's x every frame. Capping this to
+      // steeringSpeed (as keyboard/drag do) made the boat visibly lag
+      // behind any normal-speed mouse movement across the canvas.
+      boat.x = input.mouseTargetX;
     }
     boat.x = Math.max(16, Math.min(world.width - 16, boat.x));
   }

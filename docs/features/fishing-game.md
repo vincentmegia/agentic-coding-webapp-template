@@ -377,6 +377,21 @@ with `docs/features/home.md`'s CSP rule) owns everything HTMX cannot model:
   game has no natural HTMX or keyboard-only equivalent for touch devices. All
   three input methods drive the same single horizontal position — the boat,
   line, and hook always move together as one unit, never independently.
+  Keyboard and drag are *directional* — `boat.x` moves at a capped
+  `steeringSpeed` (px/s, boosted by Ballast Thrusters) toward wherever
+  they're steering — but the mouse is *positional*: `boat.x` snaps directly
+  to the cursor's canvas x every frame, uncapped, since "moving the mouse
+  sets the target position" reads as 1:1 tracking, not a slower directional
+  nudge toward it (capping it to the same speed as keyboard/drag made mouse
+  steering visibly lag behind normal cursor movement — a real, discovered
+  defect, not a documented design choice). Priority when more than one
+  method has a live input is keyboard > drag > mouse, resolved once per
+  frame in `updateBoat()`; critically, pressing a movement key also clears
+  any in-flight `mouseTargetX` (not just outranks it while held) so a stale
+  cursor position — e.g. wherever the mouse was resting when "Start Dive"
+  was clicked — can't silently reassert control the instant the key is
+  released and visibly snap/ease the boat back. Mouse regains control only
+  once the cursor actually moves again after that.
 * **Progress persistence**: reads/writes a single `localStorage` key (e.g.
   `fishing-game:v1`) holding `{tokens, gear: {...levels}, bestScore,
   bestDepth}`. Versioned key name so a future save-format change can migrate
@@ -711,6 +726,13 @@ holds only voluntarily-submitted, already-finished round results.
 * [ ] All three input methods (arrow keys, WASD, mouse) move the same single
       horizontal position — never two independently-tracked positions that
       could drift apart.
+* [ ] Pressing and releasing a keyboard movement key while the mouse sits
+      stationary over the canvas leaves the boat exactly where the keyboard
+      left it — it must not snap or ease back toward the mouse's (stale,
+      unmoved) position the instant the key is released. Mouse steering only
+      resumes once the cursor genuinely moves again. Mouse movement itself
+      tracks the cursor's canvas x with no perceptible lag (instant, not
+      rate-limited like keyboard/drag).
 * [ ] The boat's fade-opacity-from-depth calculation is a small pure
       function (not inlined in the draw call) so it's unit-testable
       independent of canvas rendering: opacity is 1.0 at depth 0, decreases
