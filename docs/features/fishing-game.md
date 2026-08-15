@@ -697,6 +697,20 @@ holds only voluntarily-submitted, already-finished round results.
 * **Abuse / spam**: `POST /fishing-game/score` should be rate-limited (e.g.
   per-IP) to prevent a script from flooding the leaderboard with junk
   entries — the concern here is nuisance/pollution, not high-value fraud.
+* **The project's own e2e suite is a pollution source too**: this repo has
+  no separate test database (`docs/skills/postgres/SKILL.md`) — `e2e/`
+  runs against the same `DATABASE_URL` real local development uses (see
+  `e2e/playwright.config.js`'s `webServer`). `e2e/fishing-game.spec.js`'s
+  leaderboard-submission test therefore deletes its own row (by exact
+  `player_name`, in a `finally` block so it runs even on assertion
+  failure) immediately after asserting against it, the same discipline
+  `cmd/server/e2e_test.go`'s equivalent subtest already had via `t.Cleanup`.
+  This was a real, previously-shipped gap: the Playwright test had no such
+  cleanup for a while, and every full suite run (Chromium + WebKit) quietly
+  left 2 junk `e2e-*` rows on the real leaderboard — 18 accumulated across
+  one development session before a user noticed "garbage data" on
+  `/fishing-game` and it was traced back here. Any new e2e test that
+  submits a real score must clean up after itself the same way.
 * **CSRF**: `POST /fishing-game/score` must be covered by the app's CSRF
   protection, same as `POST /logout`.
 * **Secrets**: none introduced by this feature.

@@ -14,13 +14,58 @@
 // endRound() real play uses — nothing about the round-over path itself is
 // faked, only the wait for a random hit/depth-cap is skipped.
 const { test, expect } = require('@playwright/test');
+const { Client } = require('pg');
+const fs = require('fs');
+const path = require('path');
+
+// Resolves DATABASE_URL the same way internal/config/config.go does (see
+// docs/skills/go-backend/SKILL.md "Configuration"): a real process env var
+// wins if set; otherwise fall back to the repo-root .env file. Needed
+// because config.go deliberately does NOT os.Setenv .env's values into the
+// process environment (to keep its own reads pure) — so unlike the Go
+// server/tests, this Node process never has DATABASE_URL just by .env
+// existing, and has to parse the same file itself.
+function databaseURL() {
+	if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+	const envPath = path.join(__dirname, '..', '.env');
+	if (!fs.existsSync(envPath)) return undefined;
+	for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+		const match = line.match(/^\s*DATABASE_URL\s*=\s*(.*?)\s*$/);
+		if (match) return match[1];
+	}
+	return undefined;
+}
 
 // Matches cmd/server/e2e_test.go's fishing-game subtest naming
-// (`e2e-<UnixNano()%1_000_000>`): short, timestamp-derived, safe to re-run
-// against the shared dev leaderboard without meaningfully polluting it, and
-// well within player_name's 20-char bound.
+// (`e2e-<UnixNano()%1_000_000>`), well within player_name's 20-char bound.
+// Every test that submits one of these to the real leaderboard MUST delete
+// it afterward (see deleteTestScore below) — this repo's dev Postgres has
+// no separate test database, so an uncleaned row here is a real row on a
+// real public leaderboard, not a throwaway fixture. This was a real,
+// previously-shipped bug: this file's own score-submission test had no
+// cleanup, unlike cmd/server/e2e_test.go's equivalent (which t.Cleanup()s
+// its row), so every full suite run (x2 browser projects) left 2 junk rows
+// behind — 18 accumulated across one session before it was caught. See
+// docs/features/fishing-game.md's Security Considerations.
 function testPlayerName() {
 	return `e2e-${Date.now() % 1_000_000}`;
+}
+
+// Deletes one test-submitted row by its exact player_name — never a LIKE
+// pattern here, so a bug in this cleanup can't ever reach beyond the single
+// row the test itself just created.
+async function deleteTestScore(playerName) {
+	const connectionString = databaseURL();
+	if (!connectionString) {
+		throw new Error('DATABASE_URL not found (checked process.env and repo-root .env) — cannot clean up test leaderboard row');
+	}
+	const client = new Client({ connectionString });
+	await client.connect();
+	try {
+		await client.query('DELETE FROM fishing_scores WHERE player_name = $1', [playerName]);
+	} finally {
+		await client.end();
+	}
 }
 
 async function startDive(page) {
@@ -201,21 +246,29 @@ test.describe('round-over (via the deterministic test hook)', () => {
 	});
 
 	test('submitting the leaderboard form adds the new entry, a real POST /fishing-game/score round trip', async ({ page }) => {
-		await page.goto('/fishing-game');
-		await forceRoundOver(page, 'reached-abyss');
-
 		const playerName = testPlayerName();
-		await page.locator('#fishing-round-over-name-input').fill(playerName);
+		// try/finally, not just a trailing call: the row must be deleted even
+		// if an assertion below throws — this is the real public leaderboard,
+		// not a fixture, so a failed test must not leave junk behind any more
+		// than a passing one would (see deleteTestScore's doc comment).
+		try {
+			await page.goto('/fishing-game');
+			await forceRoundOver(page, 'reached-abyss');
 
-		const [response] = await Promise.all([
-			page.waitForResponse((r) => r.url().includes('/fishing-game/score') && r.request().method() === 'POST'),
-			page.locator('#fishing-round-over-submit-button').click(),
-		]);
-		expect(response.ok()).toBeTruthy();
+			await page.locator('#fishing-round-over-name-input').fill(playerName);
 
-		// Tolerant of leftover rows from previous runs — only asserts the new
-		// entry is present, never exact leaderboard length/order.
-		await expect(page.locator('#fishing-leaderboard')).toContainText(playerName);
+			const [response] = await Promise.all([
+				page.waitForResponse((r) => r.url().includes('/fishing-game/score') && r.request().method() === 'POST'),
+				page.locator('#fishing-round-over-submit-button').click(),
+			]);
+			expect(response.ok()).toBeTruthy();
+
+			// Tolerant of leftover rows from previous runs — only asserts the new
+			// entry is present, never exact leaderboard length/order.
+			await expect(page.locator('#fishing-leaderboard')).toContainText(playerName);
+		} finally {
+			await deleteTestScore(playerName);
+		}
 	});
 
 	test('"Dive Again" starts a fresh round: screens hidden, HUD reset', async ({ page }) => {
