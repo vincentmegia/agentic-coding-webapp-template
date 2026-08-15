@@ -265,14 +265,16 @@ the "Play now" link), tags `Go`/`Canvas`/`PostgreSQL`, `TagTint: "accent"`,
 `ImagePath: "/static/images/fishing/screenshot.png"` — a real screenshot,
 captured live (Playwright, clipped to the canvas at 16:10 mid-round: boat,
 line, a fish, and a jellyfish hazard), not AI-generated or hand-drawn; see
-Visual Direction. `projectItems` originally also had
-four fictional sample projects (Fieldnotes/Tidewatch/Loom UI/Nightlight,
-the pulled-in design mockup's own placeholder content — three of those
-names are still used as the landing page's "Selected work" section
-placeholders, `SelectedWorkItem`, `docs/features/landing-page.md`, which is
-separate data and wasn't affected by this); they were removed once the
-Fishing Game gave the page a real entry, rather than left in place — see
-Open Questions.
+Visual Direction. `projectItems` originally also had four fictional sample
+projects (Fieldnotes/Tidewatch/Loom UI/Nightlight, the pulled-in design
+mockup's own placeholder content); they were removed once the Fishing Game
+gave the page a real entry, rather than left in place — see Open
+Questions. The landing page's "Selected work" section
+(`SelectedWorkItem`, `docs/features/landing-page.md`) is separate data
+that originally used three of the same fictional names as its own
+placeholder content, and was trimmed to the same single Fishing Game
+entry at the same time, so the two sections never show different projects
+from each other.
 
 ---
 

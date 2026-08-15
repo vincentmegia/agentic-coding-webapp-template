@@ -109,8 +109,8 @@ type PageData struct {
 
 	// SelectedWork backs the landing page's "Selected work" section
 	// (components/selected-work.html), set only by PagesHandler.Home.
-	// Hand-authored placeholder entries, same pattern as CarouselSlides —
-	// no DB, no admin editing yet. Nil/empty for every other route.
+	// Hand-authored Go data, same pattern as CarouselSlides/Projects — no
+	// DB, no admin editing yet. Nil/empty for every other route.
 	SelectedWork []SelectedWorkItem
 
 	// Projects backs the /projects page (pages/projects.html), set only by
@@ -151,14 +151,24 @@ type Project struct {
 }
 
 // SelectedWorkItem is one card in the landing page's "Selected work"
-// section — pulled from a claude.ai/design "Personal website and
-// portfolio" project's Home.dc.html (see DesignSync), which shows three
-// sample entries (Fieldnotes/Tidewatch/Loom UI) as placeholder content
-// until real projects replace them (docs/features/landing-page.md).
+// section — card markup/styling pulled from a claude.ai/design "Personal
+// website and portfolio" project's Home.dc.html (see DesignSync), whose
+// three fictional sample entries (Fieldnotes/Tidewatch/Loom UI) were
+// removed once real work existed to feature here instead, for the same
+// reason and at the same time as /projects' own placeholder cards (see
+// docs/features/projects.md's Open Questions) — also so this teaser never
+// promises projects that aren't on the /projects page it links to.
+//
+// LiveURL/External are optional and mirror Project's own fields (same
+// names, same internal-route/off-site-URL meaning) — "" omits the card's
+// link entirely, matching a plain teaser card with nothing to click
+// through to yet.
 type SelectedWorkItem struct {
-	Kicker      string // small uppercase label, e.g. "Web app"
+	Kicker      string // small uppercase label, e.g. "Game"
 	Title       string
 	Description string
+	LiveURL     string // optional, "" if none
+	External    bool   // true if LiveURL is off-site; false means an internal route
 }
 
 // CarouselSlide is one slide of the landing-page carousel. This shape is a

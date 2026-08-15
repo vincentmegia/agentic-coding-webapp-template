@@ -12,12 +12,13 @@ link row plus a Résumé button (not a dropdown) — see `internal/handler/
 nav.go`'s `primaryNavItems` doc comment; Settings is still a dropdown,
 auth-gated. Blogs is reachable only at its URL (`/blogs`), not linked from
 anywhere; Fishing Game is no longer linked from the header but is linked
-from the `/projects` grid (see below) as well as its own URL
-(`/fishing-game`). The
+from the `/projects` grid (see below), the landing page's "Selected work"
+section, and its own URL (`/fishing-game`). The
 landing page (`/`) renders an image carousel below its hero (hand-authored
 placeholder illustrations — see `docs/features/landing-carousel.md`;
 automated test coverage for it is still pending), then a "Selected work"
-card grid with placeholder entries (`docs/features/landing-page.md`). A
+card grid — currently just the Fishing Game, clickable straight into the
+game (`docs/features/landing-page.md`). A
 Fishing Game mini-game (canvas-based, Postgres-backed public leaderboard,
 gear upgrades via `localStorage`-persisted fishing tokens) is implemented
 and covered by tests at `/fishing-game` — see `docs/features/fishing-game.md`.

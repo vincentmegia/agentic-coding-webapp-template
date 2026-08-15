@@ -84,24 +84,18 @@ func (h *PagesHandler) Home(w http.ResponseWriter, r *http.Request) {
 }
 
 // selectedWorkItems is the hand-authored card list for the landing page's
-// "Selected work" section (docs/features/landing-page.md) — the same three
-// sample entries as the pulled-in design's Home.dc.html (see SelectedWorkItem
-// doc comment), placeholder until real projects replace them.
+// "Selected work" section (docs/features/landing-page.md). Fishing Game is
+// the only entry, same as /projects' own projectItems (docs/features/
+// projects.md) — this teaser and the page its "See all projects" link
+// leads to always show the same real work, never a different set (see
+// SelectedWorkItem's doc comment for why the design mockup's three
+// fictional sample entries were removed).
 var selectedWorkItems = []SelectedWorkItem{
 	{
-		Kicker:      "Web app",
-		Title:       "Fieldnotes",
-		Description: "A minimal journaling app for capturing ideas on the move, offline-first.",
-	},
-	{
-		Kicker:      "Dashboard",
-		Title:       "Tidewatch",
-		Description: "A real-time surf and tide dashboard for local breaks.",
-	},
-	{
-		Kicker:      "Open source",
-		Title:       "Loom UI",
-		Description: "A small component kit built for fast, honest prototypes.",
+		Kicker:      "Game",
+		Title:       "Fishing Game",
+		Description: "A canvas arcade mini-game — cast a line, dive for fish, and dodge hazards on the way down, with a public leaderboard for the best runs.",
+		LiveURL:     "/fishing-game",
 	},
 }
 

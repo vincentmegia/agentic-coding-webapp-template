@@ -48,9 +48,13 @@ which is why it's worth the added implementation complexity documented below.
   grid (`web/templates/components/selected-work.html`), pulled from a
   claude.ai/design "Personal website and portfolio" project's Home.dc.html
   (see DesignSync and `internal/handler/nav.go`'s `primaryNavItems` doc
-  comment for the same project's header/nav pull). Its three cards are
-  still that mockup's own placeholder content (Fieldnotes/Tidewatch/Loom
-  UI) — see `SelectedWorkItem`'s doc comment.
+  comment for the same project's header/nav pull). Its one card is the
+  real Fishing Game (`docs/features/fishing-game.md`), clickable straight
+  into `/fishing-game` via the same "Play now" HTMX link `/projects` uses
+  — the mockup's three fictional placeholder cards (Fieldnotes/Tidewatch/
+  Loom UI) were removed so this teaser always matches what `/projects`'
+  "See all projects" link actually leads to; see `SelectedWorkItem`'s doc
+  comment.
 * Anything about what actually renders inside `#main-content` on this route,
   **except** a decorative page background: a full-bleed layer behind
   `#main-content` (not confined to its `max-w-5xl` column — see
@@ -237,8 +241,11 @@ database-driven and needs escaping consideration).
 * Hero imagery — headline/subhead/CTA are decided and implemented (see
   Scope); a photograph or illustration alongside the copy is still open.
 * What sections, if any, follow the hero/carousel/Selected work on this
-  page — real project data still needs to replace Selected work's
-  placeholder cards once the Projects feature exists.
+  page. **Resolved**: Selected work's placeholder cards were replaced with
+  the one real project (see Scope) once the Projects feature existed —
+  more real work gets added here as it's written up, mirroring
+  `docs/features/projects.md`'s Open Questions taking the same stance for
+  `/projects` itself.
 * Does any of this content need to be database-driven/editable (revisit Data
   Model), or is it static in the template for now?
 
