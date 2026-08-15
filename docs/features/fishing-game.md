@@ -422,8 +422,12 @@ holds only voluntarily-submitted, already-finished round results.
 
 ## Business Rules / Validation
 
-* **Fish varieties, gated by depth** (illustrative point values — tune during
-  build):
+* **Fish varieties, gated by depth** (point values are final, not
+  illustrative — locked in and matching `rules.js`'s `FISH_BANDS` exactly.
+  Roughly 1.3-2x apart within a band and 2-3x apart across bands, so a catch
+  visibly "feels" like a tier-up rather than a marginal difference, with
+  Golden Koi's 750 as a deliberate, disproportionate jackpot for the single
+  rarest catch in the game rather than a smooth continuation of the curve):
 
   | Depth range (mi)  | Fish            | Points |
   | -------------------- | ----------------- | -------- |
@@ -446,8 +450,12 @@ holds only voluntarily-submitted, already-finished round results.
   a streak counter tracks depth descended (miles) since the last hit — the
   same unit as the depth bonus and fish-gating, not raw on-screen path
   length, so weaving side-to-side doesn't build streak faster than
-  descending in a straight line — and drives a multiplier, e.g. starting at
-  1.0x and gaining +0.05x per 10 miles hit-free, capped around 2.5x. While the streak is elevated it (a) biases
+  descending in a straight line — and drives a multiplier, final (not
+  illustrative): starting at 1.0x and gaining +0.05x per 10 miles hit-free,
+  capped at 2.5x (matching `rules.js`'s `STREAK_MULTIPLIER_STEP`/`_MAX`) —
+  chosen so the cap takes 300 hit-free miles to reach, comfortably achievable
+  within a single strong band-3/band-4 run without trivializing the risk of
+  a hit resetting it. While the streak is elevated it (a) biases
   spawn weighting further toward the top of the currently-reachable pool —
   including letting the *next* depth band's lowest-tier fish start appearing
   a little early — and (b) directly multiplies the point value of each fish
@@ -528,27 +536,64 @@ holds only voluntarily-submitted, already-finished round results.
   input concept (steer to touch what you want, avoid what you don't) rather
   than two different interaction styles for fish vs. hazards.
 * **Scoring**: round score = sum of (caught-fish point value × streak
-  multiplier at the moment of catch) + a depth bonus (e.g. +1 point per
-  whole mile descended), so purely surviving deep without many catches still
-  rewards something.
+  multiplier at the moment of catch) + a depth bonus of +1 point per whole
+  mile descended (final, not illustrative — matches `rules.js`), so purely
+  surviving deep without many catches still rewards something, though it's
+  deliberately a minor contributor next to actual catches (a full 1000-mile
+  dive is worth 1000 points from depth alone — roughly one Golden Koi
+  catch's worth, and still well short of what a handful of real catches
+  along the way would add — so catching fish, not just surviving, stays the
+  dominant scoring lever).
 * **Tokens**: awarded at round end only (no partial credit for an abandoned
-  round — see User Flow step 8), converted from the round's final score plus
-  a milestone bonus for each 100-mile depth band reached that round.
-* **Gear upgrades** (illustrative — tune costs/effects during build):
+  round — see User Flow step 8). Final formula (matching `rules.js`'s
+  `roundTokens`): `floor(score / 20) + 5 × ⌊depth reached / 100⌋` — a flat
+  20:1 score-to-token rate plus a flat 5-token bonus per full 100-mile band
+  reached that round, chosen so depth milestones stay meaningfully rewarding
+  even on a low-catch run (surviving to 900mi alone is worth 45 tokens
+  before any fish are counted), without letting the milestone bonus dwarf
+  score-driven tokens on a genuinely good run.
+* **Gear upgrades** — costs and magnitudes are final, not illustrative,
+  matching `GEAR_DEFS`/the gear-effect functions in `fishing-game.js`. Every
+  cost curve is `round(baseCost × costGrowth ^ currentLevel)`, 5 levels
+  except Emergency Ballast (a single 0/1 unlock, per its own note below).
+  Sonar Range is deliberately not in the table below — see the callout right
+  after it for why:
 
-  | Gear             | Effect per level                          |
-  | ------------------ | -------------------------------------------- |
-  | Hull Plating        | +1 max life                                    |
-  | Ballast Thrusters    | Faster lateral steering (easier hazard dodges) |
-  | Magnetic Lure        | Wider catch radius around the hook             |
-  | Sonar Range           | Fish/hazards become visible farther ahead      |
-  | Golden Bait            | Shifts spawn weight further toward higher-value fish for the current depth |
-  | Emergency Ballast       | Once per round, automatically absorbs a hit — no life lost, streak not reset — then must recharge (available again next round) |
+  | Gear             | Effect per level                              | Base cost | Growth ×/level |
+  | ------------------ | ------------------------------------------------ | ----------- | ----------------- |
+  | Hull Plating        | +1 max life                                        | 40          | 1.6                |
+  | Ballast Thrusters    | +15% lateral steering speed (easier hazard dodges) | 35          | 1.6                |
+  | Magnetic Lure        | +6px catch radius around the hook                  | 35          | 1.6                |
+  | Golden Bait            | Shifts spawn weight further toward higher-value fish for the current depth | 45 | 1.7 |
+  | Emergency Ballast       | Once per round, automatically absorbs a hit — no life lost, streak not reset — then must recharge (available again next round) | 60 | n/a (single level) |
+
+  Maxing any one 5-level line costs roughly 550-850 tokens total across its
+  5 levels (the exact total varies by base cost/growth rate above) — by
+  design a multi-run investment, not a first-round purchase, so the shop
+  stays a meaningful long-term goal rather than something a single good dive
+  clears out.
 
   Emergency Ballast is deliberately not just another flat number: it's a
   once-per-round safety net rather than a permanent stat increase, giving
   the shop a second kind of decision (raw survivability/speed/reward vs. a
-  one-shot mistake-forgiveness tool) instead of five parallel sliders.
+  one-shot mistake-forgiveness tool) instead of parallel sliders.
+
+  **Sonar Range is purchasable but currently has no effect** — a real,
+  discovered defect, not a documented design decision. `fishing-game.js`
+  computes a `visibilityRangeForSave` multiplier for it, but nothing in the
+  game loop ever reads that value, so a player can spend real tokens on it
+  for literally nothing. Its originally-intended effect ("fish/hazards
+  become visible farther ahead") doesn't have an obvious implementation in
+  this game's fixed-canvas/world-scroll architecture: a sprite already
+  becomes visible at the exact same on-screen moment (crossing the bottom
+  edge) regardless of how far below the canvas it originally spawned, so
+  simply increasing its spawn margin has no effect on when the player can
+  actually see it — genuinely "seeing farther ahead" would need a new
+  mechanism (e.g. a HUD callout naming the next hazard shortly before it
+  spawns, or relaxing the strict canvas-edge clip) that hasn't been decided
+  yet. Left as an open item (see Open Questions) rather than assigning it a
+  number here, since assigning a magnitude to an effect that doesn't exist
+  wouldn't actually fix anything.
 
   Each gear item has its own level track and token cost curve; levels only
   ever go up (no sell-back/refund) and apply starting the *next* round, not
@@ -671,9 +716,21 @@ holds only voluntarily-submitted, already-finished round results.
 
 ## Open Questions
 
-* Exact point values, token costs, and gear effect magnitudes above are
-  illustrative — real balancing happens during implementation/playtesting,
-  not locked in this doc.
+* **Resolved**: fish point values, the streak multiplier curve, the
+  score-to-token conversion, and gear costs/magnitudes are now final,
+  locked-in numbers (Business Rules), not illustrative placeholders —
+  matching what's already live in `rules.js`/`fishing-game.js`.
+* **Sonar Range has no working effect** (a real defect, found while
+  finalizing gear magnitudes above, not a design gap): it's purchasable and
+  costs tokens like every other gear item, but nothing in the game loop
+  reads the multiplier `fishing-game.js` already computes for it. Its
+  originally-intended effect doesn't have an obvious implementation in this
+  game's fixed-canvas/world-scroll architecture (see the Gear upgrades note
+  above for why). Needs an actual design decision — a redefined effect that
+  *is* implementable (e.g. a HUD callout naming the next hazard shortly
+  before it spawns) or a decision to retire/replace this gear item entirely
+  — before it can be implemented; assigning it a number wouldn't fix
+  anything on its own.
 * Whether the leaderboard needs any abuse moderation beyond rate limiting
   (e.g. a profanity filter on `player_name`) if it turns out to attract spam
   once live.
