@@ -244,6 +244,32 @@ function nextSpriteId() {
   return spriteIdCounter;
 }
 
+// Sprite images (doc's Client-side Behavior "Sprite image rendering"): real
+// fish-*.svg/hazard-*.svg art (web/static/images/fishing/) in place of the
+// flat-circle placeholder. Module-level, not per-`init()` instance, so an
+// `Image` loaded on an earlier round/page visit stays cached across "Dive
+// Again" and repeated `init()` calls rather than being re-fetched every
+// round. Keyed by "kind:imageSlug" (not just imageSlug) since fish and
+// hazard files live in separate namespaces but a slug collision between them
+// isn't otherwise ruled out. One `Image` object per distinct variety — every
+// on-screen sprite of that variety shares it, never one fetch per instance.
+const spriteImageCache = new Map();
+
+function spriteImagePath(kind, imageSlug) {
+  return `/static/images/fishing/${kind === 'fish' ? 'fish' : 'hazard'}-${imageSlug}.svg`;
+}
+
+function getSpriteImage(kind, imageSlug) {
+  const key = `${kind}:${imageSlug}`;
+  let image = spriteImageCache.get(key);
+  if (!image) {
+    image = new Image();
+    image.src = spriteImagePath(kind, imageSlug);
+    spriteImageCache.set(key, image);
+  }
+  return image;
+}
+
 // Sprites now spawn just past the bottom edge (`spawnY`, from world-scroll.js)
 // instead of off the left/right edges — their vertical motion is driven
 // entirely by the shared world-scroll offset applied in the game loop, not
@@ -878,10 +904,23 @@ export function init(canvas, elements) {
     drawScrollingBackground();
 
     sprites.forEach((sprite) => {
-      ctx.beginPath();
-      ctx.fillStyle = sprite.kind === 'fish' ? (sprite.rare ? '#ffd54a' : '#5ec8ff') : '#ff5a5a';
-      ctx.arc(sprite.x, sprite.y, sprite.hitboxRadius, 0, Math.PI * 2);
-      ctx.fill();
+      const image = getSpriteImage(sprite.kind, sprite.imageSlug);
+      // Only draw the real sprite once its Image is confirmed loaded and
+      // valid — `naturalWidth > 0` rules out a failed load that still
+      // reports `complete` (the browser's documented behavior for a broken
+      // image src). Otherwise fall back to the original flat-circle
+      // rendering, per the UI states table's "Sprite image failed/slow to
+      // load" row — never a blank gap or a broken-image glyph, and never
+      // blocking the rest of the frame while an image is still loading.
+      if (image.complete && image.naturalWidth > 0) {
+        const size = sprite.hitboxRadius * 2.2;
+        ctx.drawImage(image, sprite.x - size / 2, sprite.y - size / 2, size, size);
+      } else {
+        ctx.beginPath();
+        ctx.fillStyle = sprite.kind === 'fish' ? (sprite.rare ? '#ffd54a' : '#5ec8ff') : '#ff5a5a';
+        ctx.arc(sprite.x, sprite.y, sprite.hitboxRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
     });
 
     const invulnerable = state.elapsedSeconds < state.invulnerableUntil;
