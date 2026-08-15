@@ -1,5 +1,10 @@
-{{/* Header: identity + Home menu (left), Settings menu + theme-toggle slot
-     + mobile nav trigger (right). See docs/features/home.md.
+{{/* Header: identity + flat primary nav (left), Settings menu +
+     theme-toggle slot + Résumé button + mobile nav trigger (right). See
+     docs/features/home.md. The flat Home/Projects/About links (replacing
+     the earlier Home dropdown) and the outline-pill Résumé button are
+     pulled from a claude.ai/design "Personal website and portfolio"
+     project's Home.dc.html (see DesignSync) — nav.go's primaryNavItems
+     doc comment has the full rationale for what did/didn't carry over.
 
      TransparentOverHero renders the starting "transparent" vs "solid"
      class only — the actual transparent visual treatment (background
@@ -12,7 +17,7 @@
 {{define "header"}}
 <header
 	id="site-header"
-	class="sticky top-0 z-40 border-b border-slate-200 bg-surface transition-colors duration-150 dark:border-slate-800 dark:bg-slate-900 {{if .TransparentOverHero}}header--transparent{{else}}header--solid{{end}}"
+	class="sticky top-0 z-40 border-b border-line bg-surface transition-colors duration-150 {{if .TransparentOverHero}}header--transparent{{else}}header--solid{{end}}"
 >
 	<div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
 		<div class="flex items-center gap-6">
@@ -35,14 +40,27 @@
 				hx-swap="outerHTML"
 				hx-push-url="true"
 				hx-indicator="#nav-loading"
-				class="flex items-center gap-2 rounded-card px-1 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+				class="flex items-center gap-2 rounded-full px-1 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
 			>
-				<span role="img" aria-label="Vincent Megia" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold text-white">VM</span>
-				<span class="font-semibold text-slate-900 dark:text-slate-100">Vincent Megia</span>
+				<span role="img" aria-label="Vincent Megia" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">VM</span>
+				<span class="font-heading text-lg text-ink">Vincent Megia</span>
 			</a>
 
-			<nav aria-label="Primary" class="hidden md:block">
-				{{template "nav-menu" .HomeMenu}}
+			<nav id="primary-nav" aria-label="Primary" class="hidden items-center gap-6 md:flex">
+				{{$active := .NavActive}}
+				{{range .PrimaryNav}}
+				<a
+					href="{{.Href}}"
+					data-nav-link
+					hx-get="{{.Href}}"
+					hx-target="#main-content"
+					hx-swap="outerHTML"
+					hx-push-url="true"
+					hx-indicator="#nav-loading"
+					{{if eq $active .Href}}aria-current="page"{{end}}
+					class="rounded-full text-sm font-semibold text-ink transition-colors duration-150 hover:text-primary aria-[current=page]:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+				>{{.Label}}</a>
+				{{end}}
 			</nav>
 		</div>
 
@@ -62,6 +80,17 @@
 			{{/* Reserved for docs/features/dark-mode.md. Left genuinely
 			     empty — see nav-theme-toggle.html (not yet built). */}}
 			{{block "theme-toggle" .}}{{end}}
+
+			<a
+				href="/resume"
+				data-nav-link
+				hx-get="/resume"
+				hx-target="#main-content"
+				hx-swap="outerHTML"
+				hx-push-url="true"
+				hx-indicator="#nav-loading"
+				class="hidden items-center gap-2 rounded-full border border-line px-4 py-2 text-sm font-semibold text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary md:inline-flex"
+			>Résumé</a>
 
 			{{template "mobile-nav-panel" .}}
 		</div>

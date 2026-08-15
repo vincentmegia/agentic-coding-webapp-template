@@ -102,7 +102,7 @@ func TestRenderFullPage(t *testing.T) {
 
 	data := PageData{
 		Title:           "Resume",
-		HomeMenu:        homeMenu,
+		PrimaryNav:      primaryNavItems,
 		SettingsMenu:    settingsMenu,
 		ContentTemplate: "resume-content",
 		Resume:          fixtureResumeView(),
@@ -188,7 +188,7 @@ func TestRenderPlaceholderRoutesUnaffected(t *testing.T) {
 
 	data := PageData{
 		Title:          "Projects",
-		HomeMenu:       homeMenu,
+		PrimaryNav:     primaryNavItems,
 		SettingsMenu:   settingsMenu,
 		ContentTitle:   "Projects",
 		ContentMessage: "Projects content coming soon.",

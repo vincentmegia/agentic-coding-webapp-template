@@ -22,8 +22,9 @@ type NavItem struct {
 }
 
 // NavMenu is the view-model for components/nav-menu.html: one dropdown —
-// a trigger (icon + label) and its list of items. Used twice (Home,
-// Settings) per docs/features/home.md.
+// a trigger (icon + label) and its list of items. Used by Settings (the
+// Home dropdown this was originally shared with was replaced by the flat
+// primaryNavItems below — see that var's doc comment).
 type NavMenu struct {
 	ID          string
 	Label       string
@@ -47,37 +48,23 @@ func icon(sizeClass, inner string) template.HTML {
 	)
 }
 
-// homeMenu and settingsMenu are the Home/Settings dropdown view-models
-// from docs/features/home.md's User Flow and HTMX Interactions. They're
-// static/hardcoded (not database-driven), so they're built once as package
-// vars rather than reconstructed on every request.
-var homeMenu = NavMenu{
-	ID:          "home-menu",
-	Label:       "Home",
-	Align:       "left",
-	TriggerIcon: icon("h-4 w-4", `<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h5v-6h4v6h5V9.5"/>`),
-	Items: []NavItem{
-		{
-			Label: "Resume",
-			Href:  "/resume",
-			Icon:  icon("h-4 w-4", `<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/>`),
-		},
-		{
-			Label: "Projects",
-			Href:  "/projects",
-			Icon:  icon("h-4 w-4", `<path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>`),
-		},
-		{
-			Label: "Blogs",
-			Href:  "/blogs",
-			Icon:  icon("h-4 w-4", `<path d="M4 20h4L18.5 9.5a2.121 2.121 0 0 0-3-3L5 17v3z"/>`),
-		},
-		{
-			Label: "Fishing Game",
-			Href:  "/fishing-game",
-			Icon:  icon("h-4 w-4", `<path d="M21 12c-2-3-6-5-10-5S3 9 3 12s4 5 8 5 8-2 10-5z"/><path d="M21 12l3-4v8z"/><path d="M7 10.5v.01"/>`),
-		},
-	},
+// primaryNavItems is the flat top-level nav — Home/Projects/About, styled
+// as plain links rather than a dropdown (docs/features/home.md's "Header
+// navigation" decision, replacing the earlier Home dropdown). Résumé is
+// deliberately not in this list: it renders as its own outline-pill button
+// in header.html/mobile-nav-panel.html, matching the pulled-in design
+// (a claude.ai/design "Personal website and portfolio" project's
+// Home.dc.html — see DesignSync). Blogs and Fishing Game are intentionally
+// no longer linked from here — they stay live at their existing URLs
+// (/blogs, /fishing-game), just not in top-level nav; see home.md.
+//
+// Static/hardcoded (not database-driven), so it's built once as a package
+// var rather than reconstructed on every request. Icon/Method are unused
+// for these plain-link entries (NavItem is shared with settingsMenu below).
+var primaryNavItems = []NavItem{
+	{Label: "Home", Href: "/"},
+	{Label: "Projects", Href: "/projects"},
+	{Label: "About", Href: "/about"},
 }
 
 // settingsMenu is only rendered when PageData.IsAuthenticated is true (see

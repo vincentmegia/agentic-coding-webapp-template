@@ -101,7 +101,7 @@ func TestEndToEnd(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d, want 200", resp.StatusCode)
 		}
-		for _, want := range []string{"<!doctype html>", "Vincent Megia", `id="home-menu-trigger"`} {
+		for _, want := range []string{"<!doctype html>", "Vincent Megia", `id="primary-nav"`} {
 			if !strings.Contains(body, want) {
 				t.Errorf("home page missing %q", want)
 			}

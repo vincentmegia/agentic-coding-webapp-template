@@ -2,10 +2,13 @@
 
 ## Status
 
-`Proposed` — partial. This doc currently only specifies the landing page's use of
+`Proposed` — partial. This doc specifies the landing page's use of
 `docs/features/home.md`'s `TransparentOverHero` flag (the header-over-hero
-scroll behavior). The hero's actual content — copy, imagery, CTA, and any
-sections below it — has not been designed yet; see Open Questions.
+scroll behavior) — still unimplemented, `header-scroll.js` remains an empty
+placeholder, so the flag is currently a no-op. The hero's content (headline,
+subhead, CTA) is now decided and implemented — plain left-aligned copy and a
+pill CTA in the "Organic" voice (`docs/skills/tailwind-ui/SKILL.md`'s Visual
+Style), no imagery yet. See Open Questions for what's still undecided.
 
 ## Summary
 
@@ -37,10 +40,17 @@ which is why it's worth the added implementation complexity documented below.
 
 **Out of scope (undesigned, needs a dedicated pass):**
 
-* Hero copy, headline, imagery, and any call-to-action — still just the
-  placeholder "Welcome" / "Landing page content coming soon." text.
-* Page sections below the hero — an image carousel now exists there, see
-  `docs/features/landing-carousel.md`.
+* Hero imagery — the headline/subhead/CTA copy itself is now implemented
+  (`web/templates/pages/landing.html`, `PagesHandler.Home`), but there's no
+  photograph or illustration in the hero yet.
+* Page sections below the hero — an image carousel now exists there (see
+  `docs/features/landing-carousel.md`), followed by a "Selected work" card
+  grid (`web/templates/components/selected-work.html`), pulled from a
+  claude.ai/design "Personal website and portfolio" project's Home.dc.html
+  (see DesignSync and `internal/handler/nav.go`'s `primaryNavItems` doc
+  comment for the same project's header/nav pull). Its three cards are
+  still that mockup's own placeholder content (Fieldnotes/Tidewatch/Loom
+  UI) — see `SelectedWorkItem`'s doc comment.
 * Anything about what actually renders inside `#main-content` on this route,
   **except** a decorative page background: a full-bleed layer behind
   `#main-content` (not confined to its `max-w-5xl` column — see
@@ -224,10 +234,11 @@ database-driven and needs escaping consideration).
 
 ## Open Questions
 
-* What does the hero actually contain — headline, subhead, imagery, a CTA? This
-  needs its own dedicated design pass; nothing here should be treated as
-  decided until that happens.
-* What sections, if any, follow the hero on this page?
+* Hero imagery — headline/subhead/CTA are decided and implemented (see
+  Scope); a photograph or illustration alongside the copy is still open.
+* What sections, if any, follow the hero/carousel/Selected work on this
+  page — real project data still needs to replace Selected work's
+  placeholder cards once the Projects feature exists.
 * Does any of this content need to be database-driven/editable (revisit Data
   Model), or is it static in the template for now?
 

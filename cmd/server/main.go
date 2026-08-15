@@ -141,6 +141,7 @@ func newMux(conn *sql.DB) (*http.ServeMux, error) {
 	mux.HandleFunc("POST /fishing-game/score", fishingGame.SubmitScore)
 	mux.HandleFunc("GET /projects", pages.Projects)
 	mux.HandleFunc("GET /blogs", pages.Blogs)
+	mux.HandleFunc("GET /about", pages.About)
 	mux.HandleFunc("GET /settings/profile", pages.Profile)
 	mux.HandleFunc("GET /settings/security", pages.Security)
 	// TEMPORARY: real logout (session invalidation) is a separate,

@@ -10,10 +10,17 @@ Chromium + WebKit). Point values, token costs, and gear magnitudes remain
 illustrative/tunable, as called out throughout Business Rules and Open
 Questions — nothing in that tuning blocks calling this Shipped.
 
+**Later change**: the header nav was redesigned to a flat Home/Projects/About
+link row (`docs/features/home.md`'s Status note, `internal/handler/nav.go`'s
+`primaryNavItems`), which dropped the Home dropdown this game's "Fishing
+Game" entry lived in. The game itself is unaffected — still fully working at
+`/fishing-game` — but it's no longer linked from the header at all, desktop
+or mobile; the "Home dropdown"/"Home ▾" references below predate that change.
+
 ## Summary
 
-A playable arcade mini-game at `/fishing-game`, reachable from a new "Fishing
-Game" entry in the Home dropdown: the player casts a line from a boat and
+A playable arcade mini-game at `/fishing-game` (no longer linked from the
+header nav — see the Status note above): the player casts a line from a boat and
 steers it down through the ocean, catching increasingly valuable fish the
 deeper they go without taking a hit from a hazard. Rounds earn fishing tokens, spent between
 rounds on gear upgrades that make deeper, higher-scoring runs survivable. A
@@ -839,9 +846,10 @@ holds only voluntarily-submitted, already-finished round results.
 * [ ] User flow works end-to-end, including edge cases above (hit-based
       round-over, depth-cap round-over, abandoned round, leaderboard submit).
 * [ ] All states in the UI table are implemented.
-* [ ] "Fishing Game" appears in the Home dropdown and mobile nav panel,
-      following the existing `NavItem`/`NavMenu` pattern in
-      `internal/handler/nav.go`.
+* [x] ~~"Fishing Game" appears in the Home dropdown and mobile nav panel~~ —
+      superseded: the Home dropdown was later removed (see Status); the game
+      itself remains fully reachable at `/fishing-game` directly, just not
+      linked from the header.
 * [ ] Migration written, reviewed, and includes a working `Down`.
 * [ ] Handler/service/repository boundaries followed (`go-backend`) for the
       leaderboard routes.

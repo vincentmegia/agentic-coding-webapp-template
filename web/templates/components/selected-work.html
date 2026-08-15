@@ -1,0 +1,36 @@
+{{/* Landing-page "Selected work" section: a heading + "See all projects"
+     link, and a card grid of SelectedWorkItem entries. Pulled from a
+     claude.ai/design "Personal website and portfolio" project's
+     Home.dc.html (see DesignSync) — see SelectedWorkItem's doc comment in
+     internal/handler/template.go for why the three cards are still that
+     mockup's own placeholder content. Dot is the full PageData so it can
+     read .SelectedWork, set only by PagesHandler.Home. Renders nothing if
+     empty, same guard style as carousel.html's single-slide case. */}}
+{{define "selected-work"}}
+{{if .SelectedWork}}
+<section aria-labelledby="selected-work-heading" class="py-10">
+	<div class="mb-7 flex flex-wrap items-baseline justify-between gap-4">
+		<h2 id="selected-work-heading" class="text-2xl text-ink">Selected work</h2>
+		<a
+			href="/projects"
+			data-nav-link
+			hx-get="/projects"
+			hx-target="#main-content"
+			hx-swap="outerHTML"
+			hx-push-url="true"
+			hx-indicator="#nav-loading"
+			class="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+		>See all projects &rarr;</a>
+	</div>
+	<div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+		{{range .SelectedWork}}
+		<div class="rounded-card bg-surface p-6">
+			<span class="text-xs font-semibold uppercase tracking-wide text-primary">{{.Kicker}}</span>
+			<h3 class="mt-2 text-lg text-ink">{{.Title}}</h3>
+			<p class="mt-2 text-sm leading-relaxed text-muted">{{.Description}}</p>
+		</div>
+		{{end}}
+	</div>
+</section>
+{{end}}
+{{end}}

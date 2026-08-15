@@ -21,7 +21,7 @@
 		aria-expanded="false"
 		aria-controls="mobile-nav-panel"
 		aria-label="Open menu"
-		class="inline-flex items-center justify-center rounded-card p-2 text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand dark:text-slate-200 dark:hover:bg-slate-800"
+		class="inline-flex items-center justify-center rounded-full p-2 text-ink hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
 	>
 		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6" aria-hidden="true">
 			<path d="M4 6h16M4 12h16M4 18h16" />
@@ -37,14 +37,14 @@
 		aria-label="Site navigation"
 	>
 		<div class="absolute inset-0 bg-slate-900/40" data-mobile-nav-backdrop></div>
-		<div class="absolute right-0 top-0 h-full w-72 max-w-[85%] overflow-y-auto bg-white p-6 shadow-lg dark:bg-slate-800" data-mobile-nav-content>
+		<div class="absolute right-0 top-0 h-full w-72 max-w-[85%] overflow-y-auto bg-surface p-6 shadow-lg" data-mobile-nav-content>
 			<div class="mb-6 flex items-center justify-between">
-				<span class="font-semibold text-slate-900 dark:text-slate-100">Menu</span>
+				<span class="font-heading text-lg text-ink">Menu</span>
 				<button
 					type="button"
 					data-mobile-nav-close
 					aria-label="Close menu"
-					class="inline-flex items-center justify-center rounded-card p-2 text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand dark:text-slate-200 dark:hover:bg-slate-800"
+					class="inline-flex items-center justify-center rounded-full p-2 text-ink hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
 						<path d="M6 6l12 12M18 6L6 18" />
@@ -53,9 +53,9 @@
 			</div>
 
 			<nav aria-label="Primary">
-				<h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Home</h2>
-				<ul class="mb-6 space-y-1">
-					{{range .HomeMenu.Items}}
+				{{$active := .NavActive}}
+				<ul class="mb-2 space-y-1">
+					{{range .PrimaryNav}}
 					<li>
 						<a
 							href="{{.Href}}"
@@ -65,16 +65,27 @@
 							hx-swap="outerHTML"
 							hx-push-url="true"
 							hx-indicator="#nav-loading"
-							class="flex items-center gap-2 rounded-card px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand dark:text-slate-200 dark:hover:bg-slate-700"
-						>{{.Icon}}<span>{{.Label}}</span></a>
+							{{if eq $active .Href}}aria-current="page"{{end}}
+							class="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-2 aria-[current=page]:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>{{.Label}}</a>
 					</li>
 					{{end}}
 				</ul>
+				<a
+					href="/resume"
+					data-nav-link
+					hx-get="/resume"
+					hx-target="#main-content"
+					hx-swap="outerHTML"
+					hx-push-url="true"
+					hx-indicator="#nav-loading"
+					class="mb-6 flex items-center justify-center gap-2 rounded-full border border-line px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+				>Résumé</a>
 
 				{{/* Same hard requirement as header.html: absent entirely,
 				     not CSS-hidden, for anonymous visitors. */}}
 				{{if .IsAuthenticated}}
-				<h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Settings</h2>
+				<h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Settings</h2>
 				<ul class="mb-6 space-y-1">
 					{{range .SettingsMenu.Items}}
 					<li>
@@ -82,7 +93,7 @@
 						<form method="post" action="{{.Href}}">
 							<button
 								type="submit"
-								class="flex w-full items-center gap-2 rounded-card px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand dark:text-slate-200 dark:hover:bg-slate-700"
+								class="flex w-full items-center gap-2 rounded-full px-3 py-2 text-left text-sm text-ink hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
 							>{{.Icon}}<span>{{.Label}}</span></button>
 						</form>
 						{{else}}
@@ -94,7 +105,7 @@
 							hx-swap="outerHTML"
 							hx-push-url="true"
 							hx-indicator="#nav-loading"
-							class="flex items-center gap-2 rounded-card px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand dark:text-slate-200 dark:hover:bg-slate-700"
+							class="flex items-center gap-2 rounded-full px-3 py-2 text-sm text-ink hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
 						>{{.Icon}}<span>{{.Label}}</span></a>
 						{{end}}
 					</li>

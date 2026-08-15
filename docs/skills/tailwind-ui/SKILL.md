@@ -4,7 +4,16 @@
 
 Build a consistent, responsive, accessible, and polished UI using Tailwind CSS.
 
-The visual direction is a modern, personal home dashboard.
+The visual direction is **Organic** — a design system pulled in from a
+claude.ai/design project of the same name via the `DesignSync` tool and
+adapted into this site's Tailwind tokens (`web/static/css/app.css`). Warm,
+rounded and a little playful: a cream-and-sand ground with a terracotta
+primary accent and a sage second accent, Caprasimo display headings over
+Figtree body text, 16px radii that grow into pills and soft circular
+shapes. This replaced an earlier "modern, calm, personal, clean, premium"
+navy/gold direction — the resume banner (`--color-banner-*` tokens) is the
+one surface deliberately left on that old palette for now, since it's a
+fixed dark surface the redesign hasn't reached yet.
 
 Feature-specific UI requirements belong in:
 
@@ -165,13 +174,14 @@ Example:
 
 ## Visual Style
 
-The dashboard should feel:
+The site should feel:
 
-* Modern
-* Calm
-* Personal
-* Clean
-* Slightly cozy
+* Warm
+* Rounded, even over-rounded — containers, buttons and inputs lean toward
+  pills and soft circles, not away from them (`rounded-full` on
+  `.btn`/`.input`-equivalents, `--radius-card`/`--radius-2xl` on containers)
+* A little playful
+* Grounded / cozy, not corporate
 * Premium without being excessive
 
 Avoid:
@@ -179,13 +189,21 @@ Avoid:
 * Excessive gradients
 * Neon colors
 * Excessive glassmorphism
-* Huge shadows
-* Excessive rounded containers
+* Huge, harsh (non-ink-tinted) shadows
+* Sharp corners or hairline-only geometry
 * Dense enterprise dashboards
+* Desaturating the palette into greys — warmth is the point; reach for the
+  sage `--color-accent` as a genuine second voice, not just a highlight
 
 ---
 
 ## Typography
+
+Caprasimo (`font-heading`) for headings over Figtree (`font-body`) for body
+text — both self-hosted under `web/static/fonts/` (the site's CSP has no
+font-src exception for a CDN `@import`) and applied site-wide as the
+default `body`/`h1`-`h6` font-family in `app.css`, so templates don't need
+to add the utility classes themselves.
 
 Use a clear hierarchy:
 
@@ -230,10 +248,11 @@ Do not fill every available pixel.
 
 Cards should communicate grouping.
 
-A typical card may use:
+A typical card may use the over-rounded `--radius-card` token rather than a
+stock `rounded-xl`:
 
 ```html
-<div class="rounded-xl border p-5">
+<div class="rounded-card bg-surface p-5 shadow-sm">
 ```
 
 Cards should have:
@@ -248,6 +267,11 @@ Avoid nesting cards excessively.
 ---
 
 ## Buttons
+
+Buttons are pill-shaped (`rounded-full`), per Organic's `.btn` — this is
+one of the "over-rounded" moves called out in Visual Style, not an
+exception to it. Primary buttons fill with `bg-primary` (terracotta);
+reserve `bg-accent` (sage) for badges/highlights, not button fills.
 
 Buttons should communicate hierarchy.
 

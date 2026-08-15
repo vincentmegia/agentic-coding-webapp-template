@@ -1,18 +1,23 @@
-{{/* / (landing) page: the hero placeholder text PagesHandler.Home has
-     always rendered, plus the image carousel section below it
-     (docs/features/landing-carousel.md). Defines "landing-content", not
-     "content" — reusing "content" would silently take over the shared
-     placeholder every other still-unbuilt route (/projects, /blogs,
-     /settings/*) renders. See docs/features/resume.md's Template
-     Rendering and internal/handler/template.go's
-     PageData.ContentTemplate/LoadTemplates, the same pattern resume.html
-     established.
+{{/* / (landing) page: a real hero (docs/features/landing-page.md's Open
+     Questions — headline/subhead/CTA are now decided, in the "Organic"
+     voice docs/skills/tailwind-ui/SKILL.md's Visual Style documents), plus
+     the image carousel section below it (docs/features/landing-carousel.md).
+     Defines "landing-content", not "content" — reusing "content" would
+     silently take over the shared placeholder every other still-unbuilt
+     route (/projects, /blogs, /settings/*) renders. Below the carousel is
+     a "Selected work" section (components/selected-work.html), pulled
+     from the same claude.ai/design "Personal website and portfolio"
+     project as the header/nav (see DesignSync and nav.go's
+     primaryNavItems doc comment). See docs/features/resume.md's Template
+     Rendering and
+     internal/handler/template.go's PageData.ContentTemplate/LoadTemplates,
+     the same pattern resume.html established.
 
-     The hero itself is still undesigned/out of scope (docs/features/
-     landing-page.md's Open Questions) — this reproduces the exact
-     ContentTitle/ContentMessage copy the old shared-placeholder render
-     used for "/", not a new design, so this change is scoped to adding
-     the carousel section (and the page background below) only.
+     Still out of scope here: the transparent-over-hero header behavior
+     itself (landing-page.md's header-scroll.js/IntersectionObserver
+     mechanism) — header-scroll.js is still an empty placeholder, so
+     TransparentOverHero continues to be a no-op today; this change only
+     fills in what actually renders inside the hero.
 
      Supplies its own <main id="main-content"> wrapper rather than relying
      on base.html for it — required because hx-swap="outerHTML" (home.md's
@@ -44,11 +49,40 @@
 		aria-hidden="true"
 		class="absolute inset-y-0 left-1/2 -z-10 w-screen -translate-x-1/2 bg-[url('/static/images/landing-page-bg-light.svg')] bg-cover bg-center bg-no-repeat dark:bg-[url('/static/images/landing-page-bg-dark.svg')]"
 	></div>
-	<section class="space-y-4">
-		<h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">{{.ContentTitle}}</h1>
-		<p class="text-slate-600 dark:text-slate-400">{{.ContentMessage}}</p>
+	{{/* Hero: left-aligned per Organic's "Direction" (flush-left headings,
+	     content hugging the left edge), with a soft sage decoration circle
+	     rising past the section's edge — Organic's own "soft shapes as
+	     decoration" move (readme.md's "Do"), scaled down from the source
+	     design's landing template. pointer-events-none + aria-hidden since
+	     it's pure decoration; -z-10 keeps it behind the copy without
+	     needing z-index on the text (same technique as the full-bleed
+	     background layer above). */}}
+	<section class="relative space-y-5 py-6 sm:py-10">
+		<div aria-hidden="true" class="pointer-events-none absolute -right-12 -top-16 -z-10 h-48 w-48 rounded-full bg-accent/15 sm:-right-16 sm:-top-20 sm:h-64 sm:w-64"></div>
+		<p class="text-sm font-semibold uppercase tracking-wide text-muted">Software Engineer</p>
+		<h1 class="max-w-2xl text-4xl text-ink sm:text-5xl">{{.ContentTitle}}</h1>
+		<p class="max-w-xl text-lg text-muted">{{.ContentMessage}}</p>
+		<div class="flex flex-wrap gap-3 pt-2">
+			<a
+				href="/resume"
+				data-nav-link
+				hx-get="/resume"
+				hx-target="#main-content"
+				hx-swap="outerHTML"
+				hx-push-url="true"
+				hx-indicator="#nav-loading"
+				class="inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+			>View my résumé</a>
+			<a
+				href="https://github.com/vincentmegia"
+				target="_blank"
+				rel="noopener noreferrer"
+				class="inline-flex items-center justify-center rounded-full border border-line px-6 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+			>See my code on GitHub</a>
+		</div>
 	</section>
 
 	{{template "carousel" .}}
+	{{template "selected-work" .}}
 </main>
 {{end}}

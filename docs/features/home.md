@@ -2,7 +2,16 @@
 
 ## Status
 
-`Proposed`
+`Proposed` — the header nav was later redesigned (see the note under
+Scope): the original "Home ▾" dropdown described throughout this doc's
+User Flow/HTMX Interactions/UI sections below was replaced by a flat
+Home/Projects/About link row plus a Résumé button, pulled from a
+claude.ai/design "Personal website and portfolio" project (see
+`internal/handler/nav.go`'s `primaryNavItems` doc comment for the full
+rationale). Settings stays a dropdown, unchanged. Sections below still
+describe the dropdown-based Home menu as originally specified; treat the
+Scope note and the actual templates (`header.html`, `mobile-nav-panel.html`,
+`nav.go`) as the source of truth where they disagree with this doc's prose.
 
 ## Summary
 
@@ -29,10 +38,15 @@ instead of reinventing it.
 * Header identity: avatar photo + name, anchoring the left edge of the header
   before the nav, linking to `/` — the only way back to the landing page from
   anywhere else in the header. No-op if already on `/`.
-* Header navigation: **Home** menu (next to identity) and right-aligned
-  **Settings** menu. "Home" and "Settings" are dropdown triggers only — neither
-  navigates anywhere by itself.
-* **Home** submenu: Resume, Projects, Blogs.
+* Header navigation: originally a **Home** dropdown menu (next to identity)
+  and a right-aligned **Settings** menu, both dropdown triggers only. **This
+  changed**: Home is now a flat, always-visible link row — Home/Projects/About
+  — plus a separate outline-pill **Résumé** button, per the redesign noted
+  under Status. Settings is unchanged (still a dropdown trigger, still
+  auth-gated). Blogs and Fishing Game are no longer linked from the header at
+  all — they stay reachable at their existing URLs (`/blogs`,
+  `/fishing-game`), just not from top-level nav.
+* ~~**Home** submenu: Resume, Projects, Blogs.~~ Superseded — see above.
 * **Settings** submenu: Profile, Security, Logout. Rendered server-side only for
   an authenticated site-owner session — anonymous visitors receive no Settings
   markup at all (this is an admin-only area, not a public multi-user feature).
@@ -72,7 +86,7 @@ instead of reinventing it.
    on the left, "Home ▾" next to it, and — only if authenticated as the site
    owner — "Settings ▾" on the right. Header is solid unless the current page
    opts into `TransparentOverHero` (see `docs/features/landing-page.md`).
-2. User clicks/focuses "Home" → dropdown opens showing: Resume, Projects, Blogs (each with an icon).
+2. ~~User clicks/focuses "Home" → dropdown opens showing: Resume, Projects, Blogs (each with an icon).~~ Superseded: "Home", "Projects", and "About" are now plain links navigated to directly, sitting next to a separate "Résumé" button — no dropdown, no icons.
 3. User clicks/focuses "Settings" (only visible when authenticated) → dropdown
    opens showing: Profile, Security, Logout (each with an icon).
 4. User selects a submenu item, or clicks the identity block to return to `/` →
@@ -198,9 +212,10 @@ is marked active and for the navigation-reset path check in Client-side Behavior
 | Trigger                     | Method | Endpoint             | Target           | Swap        | `hx-push-url` | Indicator      |
 | ---------------------------- | ------ | ---------------------- | ----------------- | ----------- | -------------- | --------------- |
 | Identity (avatar + name)      | GET    | `/`                    | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
-| Home ▾ → Resume               | GET    | `/resume`              | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
-| Home ▾ → Projects             | GET    | `/projects`            | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
-| Home ▾ → Blogs                | GET    | `/blogs`               | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
+| Home (flat link)              | GET    | `/`                    | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
+| Projects (flat link)          | GET    | `/projects`            | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
+| About (flat link)             | GET    | `/about`               | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
+| Résumé (button)               | GET    | `/resume`              | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
 | Settings ▾ → Profile          | GET    | `/settings/profile`    | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
 | Settings ▾ → Security         | GET    | `/settings/security`   | `#main-content`   | `outerHTML` | `true`         | `#nav-loading`  |
 | Settings ▾ → Logout           | POST   | `/logout`              | n/a — see below   | n/a         | n/a            | —               |
@@ -382,12 +397,13 @@ it shouldn't be assumed safe just because it wasn't previously.
       survives an HTMX nav swap, not just a direct page load — verified for
       both `/resume` and a placeholder route (`e2e/nav.spec.js`,
       `internal/handler/template_test.go`).
-* [ ] Header renders on every page with both menus present (Settings only when authenticated).
-* [ ] Home ▾ shows Resume, Projects, Blogs with correct icons and links.
+* [x] Header renders on every page with the flat Home/Projects/About links,
+      the Résumé button, and Settings (only when authenticated) present.
+* [x] Flat nav links go to `/`, `/projects`, `/about`; Résumé button goes to `/resume`.
 * [ ] Settings ▾ shows Profile, Security, Logout with correct icons and links.
-* [ ] Active nav item reflects the current route.
-* [ ] Dropdowns are operable via keyboard only.
-* [ ] Selecting a dropdown item closes that dropdown (not just outside-click/Escape) — regression coverage in `e2e/nav.spec.js`.
+* [x] Active nav item reflects the current route (`aria-current="page"`, driven by `PageData.NavActive`).
+* [ ] The Settings dropdown is operable via keyboard only.
+* [ ] Selecting a Settings dropdown item closes it (not just outside-click/Escape) — regression coverage in `e2e/nav.spec.js`.
 * [ ] No console errors (including no CSP violations) on initial load of `/` or `/resume` — `e2e/nav.spec.js`.
 * [ ] Nav selection swaps `#main-content` without reloading header/footer.
 * [ ] Nav clicks update the URL bar (`hx-push-url`); refreshing on `/projects` (or

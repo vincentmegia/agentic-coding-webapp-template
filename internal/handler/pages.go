@@ -46,7 +46,7 @@ func shellPageData(r *http.Request, version, title string, transparentOverHero b
 		Theme:               themeFromRequest(r),
 		VersionLabel:        versionLabel(version),
 		CopyrightYear:       time.Now().Year(),
-		HomeMenu:            homeMenu,
+		PrimaryNav:          primaryNavItems,
 		SettingsMenu:        settingsMenu,
 	}
 }
@@ -74,11 +74,35 @@ func versionLabel(version string) string {
 // (which would silently take over every other placeholder-backed route).
 func (h *PagesHandler) Home(w http.ResponseWriter, r *http.Request) {
 	data := shellPageData(r, h.Version, "", true)
+	data.NavActive = "/"
 	data.ContentTemplate = "landing-content"
-	data.ContentTitle = "Welcome"
-	data.ContentMessage = "Landing page content coming soon."
+	data.ContentTitle = "Hi, I'm Vincent Megia."
+	data.ContentMessage = "I build things with Go, Postgres, and HTMX — practical software with sound engineering behind it. Below is a running log of what I've shipped, plus a full résumé if you want the formal version."
 	data.CarouselSlides = landingCarouselSlides
+	data.SelectedWork = selectedWorkItems
 	h.Renderer.Render(w, r, data)
+}
+
+// selectedWorkItems is the hand-authored card list for the landing page's
+// "Selected work" section (docs/features/landing-page.md) — the same three
+// sample entries as the pulled-in design's Home.dc.html (see SelectedWorkItem
+// doc comment), placeholder until real projects replace them.
+var selectedWorkItems = []SelectedWorkItem{
+	{
+		Kicker:      "Web app",
+		Title:       "Fieldnotes",
+		Description: "A minimal journaling app for capturing ideas on the move, offline-first.",
+	},
+	{
+		Kicker:      "Dashboard",
+		Title:       "Tidewatch",
+		Description: "A real-time surf and tide dashboard for local breaks.",
+	},
+	{
+		Kicker:      "Open source",
+		Title:       "Loom UI",
+		Description: "A small component kit built for fast, honest prototypes.",
+	},
 }
 
 // landingCarouselSlides is the hand-authored slide list for the landing-page
@@ -118,12 +142,26 @@ var landingCarouselSlides = []CarouselSlide{
 
 // Projects renders GET /projects. Real content is a separate feature.
 func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
-	h.Renderer.Render(w, r, h.page(r, "Projects", false, "Projects", "Projects content coming soon."))
+	data := h.page(r, "Projects", false, "Projects", "Projects content coming soon.")
+	data.NavActive = "/projects"
+	h.Renderer.Render(w, r, data)
 }
 
-// Blogs renders GET /blogs. Real content is a separate feature.
+// Blogs renders GET /blogs. Real content is a separate feature. Not linked
+// from the primary nav (nav.go's primaryNavItems doc comment) — reachable
+// directly at this URL only, so NavActive is left unset.
 func (h *PagesHandler) Blogs(w http.ResponseWriter, r *http.Request) {
 	h.Renderer.Render(w, r, h.page(r, "Blogs", false, "Blogs", "Blog posts coming soon."))
+}
+
+// About renders GET /about. Real content is a separate feature (CLAUDE.md's
+// "Planned content": Bio/About) — linked from the primary nav per the
+// pulled-in design's Home.dc.html, same not-yet-built-placeholder pattern
+// as Projects/Blogs.
+func (h *PagesHandler) About(w http.ResponseWriter, r *http.Request) {
+	data := h.page(r, "About", false, "About", "About content coming soon.")
+	data.NavActive = "/about"
+	h.Renderer.Render(w, r, data)
 }
 
 // Profile renders GET /settings/profile. Per docs/features/home.md's

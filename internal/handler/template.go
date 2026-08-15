@@ -48,7 +48,21 @@ type PageData struct {
 	// CopyrightYear is the year footer.html's copyright line displays.
 	CopyrightYear int
 
-	HomeMenu     NavMenu
+	// PrimaryNav is the flat Home/Projects/About link row header.html and
+	// mobile-nav-panel.html render (see nav.go's primaryNavItems doc
+	// comment for why this replaced the earlier Home dropdown). Every
+	// route gets the same value — set once in shellPageData, not per
+	// handler.
+	PrimaryNav []NavItem
+	// NavActive is the Href of whichever PrimaryNav entry is the current
+	// page (e.g. "/projects"), so header.html/mobile-nav-panel.html can
+	// render aria-current="page" on the matching link via a plain string
+	// equality check against each item's own .Href — no template-side
+	// lowercasing/slug logic needed. Empty for routes with no matching
+	// entry (e.g. /resume, /settings/*) — nothing gets marked current
+	// rather than guessing.
+	NavActive string
+
 	SettingsMenu NavMenu
 
 	// ContentTitle/ContentMessage back the single generic placeholder
@@ -92,6 +106,23 @@ type PageData struct {
 	// docs/features/landing-carousel.md's Data Model. Nil/empty for every
 	// other route.
 	CarouselSlides []CarouselSlide
+
+	// SelectedWork backs the landing page's "Selected work" section
+	// (components/selected-work.html), set only by PagesHandler.Home.
+	// Hand-authored placeholder entries, same pattern as CarouselSlides —
+	// no DB, no admin editing yet. Nil/empty for every other route.
+	SelectedWork []SelectedWorkItem
+}
+
+// SelectedWorkItem is one card in the landing page's "Selected work"
+// section — pulled from a claude.ai/design "Personal website and
+// portfolio" project's Home.dc.html (see DesignSync), which shows three
+// sample entries (Fieldnotes/Tidewatch/Loom UI) as placeholder content
+// until real projects replace them (docs/features/landing-page.md).
+type SelectedWorkItem struct {
+	Kicker      string // small uppercase label, e.g. "Web app"
+	Title       string
+	Description string
 }
 
 // CarouselSlide is one slide of the landing-page carousel. This shape is a
@@ -154,6 +185,7 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "resume-role.html"),
 		filepath.Join(templatesDir, "pages", "resume.html"),
 		filepath.Join(templatesDir, "components", "carousel.html"),
+		filepath.Join(templatesDir, "components", "selected-work.html"),
 		filepath.Join(templatesDir, "pages", "landing.html"),
 		filepath.Join(templatesDir, "components", "fishing-leaderboard.html"),
 		filepath.Join(templatesDir, "components", "fishing-shop.html"),

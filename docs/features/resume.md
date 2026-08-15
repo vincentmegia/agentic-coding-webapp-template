@@ -95,8 +95,13 @@ can't replace `vincentmegia.onrender.com` as CLAUDE.md's stated goal requires.
 ## Visual Direction
 
 The reviewed design artifact ("Vincent Megia — Principal Software Engineer")
-is the basis for this page's look: a dark navy banner, a warm gold accent,
-and card-based sidebar/timeline sections. `web/static/css/app.css`'s `@theme`
+is the original basis for this page's look: a dark navy banner, a warm gold
+accent, and card-based sidebar/timeline sections. The token *names* and
+structure below are still exactly what's implemented; their *values* were
+later re-themed from this artifact's navy/gold to the "Organic" design
+system's terracotta/sage (docs/skills/tailwind-ui/SKILL.md's Visual Style) —
+the banner is now a dark terracotta (`accent-900`) rather than navy, per that
+doc. `web/static/css/app.css`'s `@theme`
 block currently holds only placeholder tokens (`--color-brand`,
 `--color-surface`, `--color-danger`, with a comment saying "refine when the
 real design lands") — this feature is that refinement:

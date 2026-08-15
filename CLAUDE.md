@@ -4,18 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Active development. The site shell (header/nav/footer, dropdown + mobile nav,
-dark mode) and the Resume feature (Postgres-backed `/resume` page) are
+Active development. The site shell (header/nav/footer, mobile nav, dark
+mode) and the Resume feature (Postgres-backed `/resume` page) are
 implemented and covered by tests — see `docs/features/home.md` and
-`docs/features/resume.md`. The landing page (`/`) now also renders an image
-carousel section below its hero, with hand-authored placeholder illustrations
-— see `docs/features/landing-carousel.md`; automated test coverage for it is
-still pending (see that doc's Testing Plan). A Fishing Game mini-game
-(canvas-based, Postgres-backed public leaderboard, gear upgrades via
-`localStorage`-persisted fishing tokens) is implemented and covered by tests
-at `/fishing-game`, reachable from the Home dropdown — see
-`docs/features/fishing-game.md`. The hero itself, Projects, and Blogs are
-still placeholders. Update this file as decisions are made or change.
+`docs/features/resume.md`. The header nav is a flat Home/Projects/About
+link row plus a Résumé button (not a dropdown) — see `internal/handler/
+nav.go`'s `primaryNavItems` doc comment; Settings is still a dropdown,
+auth-gated. Blogs and Fishing Game are reachable at their URLs
+(`/blogs`, `/fishing-game`) but no longer linked from the header. The
+landing page (`/`) renders an image carousel below its hero (hand-authored
+placeholder illustrations — see `docs/features/landing-carousel.md`;
+automated test coverage for it is still pending), then a "Selected work"
+card grid with placeholder entries (`docs/features/landing-page.md`). A
+Fishing Game mini-game (canvas-based, Postgres-backed public leaderboard,
+gear upgrades via `localStorage`-persisted fishing tokens) is implemented
+and covered by tests at `/fishing-game` — see `docs/features/fishing-game.md`.
+The site's visual design system is "Organic" (warm cream ground,
+terracotta/sage accents, Caprasimo + Figtree), pulled in from a
+claude.ai/design project and adapted into Tailwind tokens — see
+`docs/skills/tailwind-ui/SKILL.md`'s Visual Style. The landing hero, header,
+and nav are pulled from that same claude.ai/design workspace's "Personal
+website and portfolio" project; a from-scratch restyle of page-specific
+components (resume, fishing game, carousel) to the new tokens is still
+open. Projects, Blogs, and About are still placeholders. Update this file
+as decisions are made or change.
 
 ## What this is
 

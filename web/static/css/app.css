@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+/* Organic design-system fonts, self-hosted rather than the Google Fonts
+   CDN @import the source design system (claude.ai/design project
+   "Organic") ships in its own styles.css — this shell's CSP is
+   `default-src 'self'` (middleware.go), which has no font-src/style-src
+   exception, so a cross-origin @import or <link> would be blocked. Files
+   fetched once from fonts.gstatic.com and vendored under web/static/fonts/,
+   same self-hosting approach as web/static/js/htmx.min.js. Figtree ships
+   as its one variable-font file spanning weights 400-700 (matching what
+   Google's own css2 API serves for this exact weight request), so a single
+   @font-face with a weight range covers regular/semibold/bold. */
+@font-face {
+	font-family: "Caprasimo";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/static/fonts/caprasimo-400.woff2") format("woff2");
+}
+@font-face {
+	font-family: "Figtree";
+	font-style: normal;
+	font-weight: 400 700;
+	font-display: swap;
+	src: url("/static/fonts/figtree-variable.woff2") format("woff2");
+}
+
 /* Class-based dark variant: an explicit `.dark` (or `.light`) ancestor,
    set server-side from the `theme` cookie (docs/features/dark-mode.md),
    always wins. When neither class is present — no cookie has been set
@@ -18,55 +43,104 @@
 	}
 }
 
-/* Semantic design tokens, refined per docs/features/resume.md's "Visual
-   Direction" — a dark navy banner with a warm gold accent, "modern, calm,
-   personal, clean, slightly cozy, premium without being excessive" per
-   docs/skills/tailwind-ui/SKILL.md "Visual Style". See that skill's
-   "Defining tokens": use these semantic names in templates, never raw
-   Tailwind palette colors (`blue-600`, `amber-500`, etc.).
+/* Semantic design tokens, sourced from the "Organic" design system (a
+   claude.ai/design project, pulled in via the DesignSync tool — see
+   docs/skills/tailwind-ui/SKILL.md "Visual Style" for the adoption
+   decision and voice this replaces). Warm cream/sand ground, a terracotta
+   primary accent and a sage second accent, 16px radii that grow into
+   pills and soft circles. See that skill's "Defining tokens": use these
+   semantic names in templates, never raw Tailwind palette colors
+   (`blue-600`, `amber-500`, etc.) or Organic's own raw hex values.
 
-   Light-mode values live here as the @theme defaults; dark-mode values for
-   the same token names are redefined below via the site's existing
-   class-based `dark:` custom variant (docs/features/dark-mode.md), not a
-   second ad hoc `prefers-color-scheme` mechanism. Banner tokens are the
+   Values are carried over byte-for-byte from Organic's theme.json/
+   styles.css (hex, not oklch, to stay exactly faithful to the source
+   design rather than risk drift from a manual oklch conversion). Organic
+   itself is a single-theme (light-only) design system with no dark-mode
+   tokens — the dark values below are this site's own derivation, built in
+   the same "brighten the accents, deepen the neutrals" pattern the
+   previous navy/gold palette already used, not something Organic
+   specifies. Light-mode values live here as the @theme defaults; dark-mode
+   values are redefined below via the site's existing class-based `dark:`
+   custom variant (docs/features/dark-mode.md). Banner tokens are the
    exception — the resume banner is a fixed dark surface in both site
    themes (it doesn't invert), so they're defined once, below, outside the
-   dark-mode override block. */
+   dark-mode override block; they're intentionally left on the old navy
+   palette for now (see SKILL.md's Visual Style note on deferred surfaces). */
 @theme {
-	/* Neutrals: text/border/background scale. */
-	--color-ink: oklch(0.23 0.015 255); /* primary body text */
-	--color-muted: oklch(0.48 0.015 255); /* secondary/metadata text */
-	--color-line: oklch(0.9 0.008 255); /* borders, dividers */
-	--color-paper: oklch(0.99 0.004 85); /* page background, warm white */
-	--color-surface: oklch(0.975 0.006 85); /* card background */
-	--color-surface-2: oklch(0.945 0.008 85); /* nested/alt surface, e.g. stat tiles */
+	/* Neutrals: text/border/background scale (Organic's cream ground and
+	   ink text, with the neutral-300/600 ramp steps standing in for
+	   surface-2/muted, which Organic's token set doesn't name directly). */
+	--color-ink: #201e1d; /* primary body text (Organic --color-text) */
+	--color-muted: #82796a; /* secondary/metadata text (neutral-600) */
+	--color-line: #dcd3c4; /* borders, dividers (neutral-300) */
+	--color-paper: #f5ead8; /* page background, warm cream (Organic --color-bg) */
+	--color-surface: #ebddc5; /* card background (Organic --color-surface) */
+	--color-surface-2: #dcd3c4; /* nested/alt surface, e.g. stat tiles (neutral-300) */
 
 	/* Brand accents. */
-	--color-primary: oklch(0.38 0.09 255); /* navy ~#1F3A5F — links, company names, stat numbers */
-	--color-accent: oklch(0.6 0.14 68); /* gold ~#B8863B — bullet markers, badges, highlights */
+	--color-primary: #c67139; /* terracotta — links, company names, stat numbers, CTAs (Organic --color-accent) */
+	--color-accent: #7a8a5e; /* sage — bullet markers, badges, highlights, second voice (Organic --color-accent-2) */
 
-	/* Banner tokens — fixed dark surface, same in both site themes. */
-	--color-banner-bg: oklch(0.24 0.06 254); /* ~#16283F */
-	--color-banner-ink: oklch(0.97 0.01 85); /* warm off-white text on the banner */
-	--color-banner-muted: oklch(0.72 0.03 250); /* secondary text on the banner (tenure line) */
-	--color-banner-accent: oklch(0.78 0.12 75); /* brightened gold for links/icons on the banner */
+	/* Banner tokens — fixed dark surface, same in both site themes (it
+	   doesn't invert with the site's light/dark toggle). Organic's deep
+	   terracotta ramp step (accent-900) rather than neutral-900, so the
+	   banner keeps its own identity instead of nearly matching
+	   --color-paper/--color-surface's dark-mode values (#2e2b25/#474238) —
+	   a resume banner that blended into the surrounding dark-mode page
+	   would read as a layout bug, not a themed surface. */
+	--color-banner-bg: #402310; /* Organic accent-900 */
+	--color-banner-ink: #f9f4ed; /* Organic neutral-100 — warm off-white text on the banner */
+	--color-banner-muted: #ffc6a5; /* Organic accent-300 — secondary text on the banner (tenure line) */
+	--color-banner-accent: #f6a06b; /* Organic accent-400 — brightened terracotta for links/icons on the banner */
 
 	/* --color-brand is deprecated in favor of --color-primary/--color-accent
-	   above (docs/features/resume.md). Its value is left unchanged and it
-	   stays defined, rather than being deleted, because the existing shell
+	   above (docs/features/resume.md), but stays defined and now tracks the
+	   new terracotta primary rather than the old navy — the existing shell
 	   (header.html, nav-menu.html, mobile-nav-panel.html,
 	   nav-theme-toggle.html) still references `bg-brand`/`outline-brand` in
-	   several places beyond the single base.html usage this feature's brief
-	   called out — deleting the token outright would silently drop their
-	   focus-ring color and the header avatar background, files this
-	   feature is not touching. New code should reach for --color-primary/
-	   --color-accent; a follow-up can migrate the remaining --color-brand
-	   call sites and remove this token then. */
-	--color-brand: oklch(0.55 0.15 250);
+	   several places, and leaving it navy while everything else went warm
+	   would read as broken, not merely deprecated. New code should reach
+	   for --color-primary/--color-accent; a follow-up can migrate the
+	   remaining --color-brand call sites and remove this token then. */
+	--color-brand: #c67139;
 
 	--color-danger: oklch(0.58 0.22 27);
 
-	--radius-card: 0.75rem;
+	/* Typography — Caprasimo display headings over Figtree body text, per
+	   Organic's readme.md "Type". Self-hosted @font-face rules above. */
+	--font-heading: "Caprasimo", system-ui, sans-serif;
+	--font-body: "Figtree", system-ui, sans-serif;
+
+	/* Radius — Organic's 16px base radius, growing to a 28px "lg" step
+	   that containers like cards/dialogs push further still (--radius-card
+	   below) and pill shapes (`rounded-full`) take past entirely. Overrides
+	   Tailwind's default rounded-sm/md/lg scale sitewide, which is what
+	   carries the "over-rounded" direction into every existing template
+	   without editing each one's classes. */
+	--radius-sm: 8px;
+	--radius-md: 16px;
+	--radius-lg: 28px;
+	--radius-2xl: 3.5rem; /* the hero image frame's "over-rounded past the token" move — 2x radius-lg */
+	--radius-card: 2rem; /* Organic's card/dialog radius: radius-lg pushed further still (~1.15x) */
+
+	/* Elevation — ink-tinted shadows tuned to Organic's cream ground,
+	   replacing Tailwind's default neutral-grey shadow-sm/md/lg. */
+	--shadow-sm: 0 1px 2px rgba(46, 43, 37, 0.14);
+	--shadow-md: 0 3px 10px rgba(46, 43, 37, 0.16);
+	--shadow-lg: 0 12px 32px rgba(46, 43, 37, 0.22);
+}
+
+/* Default typography: Figtree body copy, Caprasimo headings — Organic's
+   readme.md "Type" pairing. Kept as plain CSS rather than a `font-heading`
+   utility class on every h1-h6 in every template (tailwind-ui's "Avoid
+   Custom CSS" allows this: a reusable design primitive spanning the whole
+   template tree). */
+body {
+	font-family: var(--font-body);
+}
+h1, h2, h3, h4, h5, h6 {
+	font-family: var(--font-heading);
+	font-weight: 400;
 }
 
 /* Dark-mode values for the tokens above that must invert with the site's
@@ -76,21 +150,29 @@
    mechanism. Card shadows built against --color-surface/-2 should stay a
    subtle 1-2px treatment per tailwind-ui's "avoid huge shadows" guidance —
    no new tokens are needed for that, it's a property of how far the
-   surface/surface-2 pair sits apart, not a separate shadow token. */
+   surface/surface-2 pair sits apart, not a separate shadow token; the
+   ink-tinted --shadow-* values above are deliberately not redefined here
+   for the same reason. Organic itself defines no dark palette (see the
+   @theme block's comment) — these are this site's own warm-neutral
+   deepen/brighten derivation, built from Organic's own neutral/accent/
+   accent-2 tonal ramps rather than invented from scratch: deep steps of
+   the neutral ramp for backgrounds, light steps of the accent ramps
+   (already Organic's own "hover/pressed" steps) for brightened accents. */
 :root {
 	@variant dark {
-		--color-ink: oklch(0.94 0.006 255);
-		--color-muted: oklch(0.68 0.012 255);
-		--color-line: oklch(0.32 0.015 255);
-		--color-paper: oklch(0.16 0.014 255);
-		--color-surface: oklch(0.2 0.014 255);
-		--color-surface-2: oklch(0.25 0.016 255);
+		--color-ink: #f9f4ed; /* neutral-100 */
+		--color-muted: #c0b6a5; /* neutral-400 */
+		--color-line: #645c50; /* neutral-700 */
+		--color-paper: #2e2b25; /* neutral-900 */
+		--color-surface: #474238; /* neutral-800 */
+		--color-surface-2: #3c372f; /* between neutral-800/900 */
 
 		/* Brightened relative to their light-mode values so links/stat
 		   numbers (primary) and bullet markers/badges (accent) keep
-		   sufficient contrast against the darker surface/paper above. */
-		--color-primary: oklch(0.74 0.09 250);
-		--color-accent: oklch(0.78 0.12 75);
+		   sufficient contrast against the darker surface/paper above —
+		   Organic's own accent-400/accent-2-400 ramp steps. */
+		--color-primary: #f6a06b;
+		--color-accent: #aebf92;
 	}
 }
 
@@ -168,14 +250,14 @@
 	   always read as a crisp light document, not waste toner/ink on a dark
 	   background. Values match the light-mode @theme defaults above. */
 	:root {
-		--color-ink: oklch(0.23 0.015 255);
-		--color-muted: oklch(0.48 0.015 255);
-		--color-line: oklch(0.9 0.008 255);
-		--color-paper: oklch(0.99 0.004 85);
-		--color-surface: oklch(0.975 0.006 85);
-		--color-surface-2: oklch(0.945 0.008 85);
-		--color-primary: oklch(0.38 0.09 255);
-		--color-accent: oklch(0.6 0.14 68);
+		--color-ink: #201e1d;
+		--color-muted: #82796a;
+		--color-line: #dcd3c4;
+		--color-paper: #f5ead8;
+		--color-surface: #ebddc5;
+		--color-surface-2: #dcd3c4;
+		--color-primary: #c67139;
+		--color-accent: #7a8a5e;
 	}
 
 	/* Flatten the on-screen sidebar/main-column split (resume.md's Visual

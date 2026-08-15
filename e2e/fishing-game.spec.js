@@ -37,21 +37,11 @@ async function forceRoundOver(page, outcome) {
 	await expect(page.locator('#fishing-round-over-screen')).toBeVisible();
 }
 
-test.describe('nav → Fishing Game', () => {
-	test('Home ▾ → Fishing Game navigates and renders the real game shell, not the placeholder', async ({ page }) => {
-		await page.goto('/');
-		await page.locator('#home-menu-trigger').click();
-		await expect(page.locator('#home-menu-list')).toBeVisible();
-
-		await page.getByRole('menuitem', { name: 'Fishing Game' }).click();
-
-		await expect(page).toHaveURL(/\/fishing-game$/);
-		await expect(page.locator('#fishing-canvas')).toBeVisible();
-		await expect(page.locator('#fishing-hud-depth')).toBeVisible();
-		await expect(page.locator('#fishing-start-screen')).toBeVisible();
-	});
-});
-
+// The header nav no longer links to /fishing-game at all (docs/features/
+// fishing-game.md's Status note: the Home dropdown this used to live in was
+// replaced by a flat Home/Projects/About link row, and the game wasn't
+// carried over to it) — the game is reachable only by navigating here
+// directly, which is exactly what every test below already does.
 test.describe('/fishing-game direct page load', () => {
 	test('renders canvas, HUD, start screen, and correctly hides the other overlays', async ({ page }) => {
 		await page.goto('/fishing-game');
