@@ -89,18 +89,24 @@ read-mostly structured-content use case.
    Page loads: a start screen shows current tokens, best depth/score (read
    from localStorage), the gear shop, and a "Start Dive" button, plus the
    public leaderboard fragment loaded alongside it.
-2. User clicks "Start Dive". A boat/rod sprite, anchored near the top of the
-   canvas, casts a line with a hook at its end; the line stays out for the
-   whole round (see Business Rules — one continuous descent, not repeated
-   cast/reel cycles). Arrow keys / WASD **or the mouse** move the boat, line,
-   and hook left/right together as one rigid unit — there is no separate
-   "swing" for the hook independent of the boat. Descent itself is conveyed
-   visually: the water/background and every fish/hazard sprite scroll
-   *upward* past the fixed boat position at a rate tied to the current
-   descent speed, the same illusion any vertical scroller uses to read as
-   "the player is moving down" without the boat's own screen position ever
-   changing. A HUD overlays the canvas: current depth (miles), score, lives
-   remaining, tokens balance, and the current streak multiplier.
+2. User clicks "Start Dive". A fisherman figure standing in the boat/rod,
+   anchored near the top of the canvas, casts a line with a hook at its end
+   — a brief cast animation (the line paying out to its full length) plays
+   before normal play begins; the line then stays out for the whole round
+   (see Business Rules — one continuous descent, not repeated cast/reel
+   cycles). Arrow keys / WASD **or the mouse** move the boat, line, and hook
+   left/right together as one rigid unit — there is no separate "swing" for
+   the hook independent of the boat. Descent itself is conveyed visually:
+   the water/background and every fish/hazard sprite scroll *upward* past
+   the fixed boat position at a rate tied to the current descent speed, the
+   same illusion any vertical scroller uses to read as "the player is moving
+   down" without the boat's own screen position ever changing. As depth
+   increases, the boat (and its fisherman) gradually fades out — the line
+   and hook stay fully visible throughout, so the impression is of a boat
+   left far behind at the surface while the line keeps paying out into the
+   depths below it (see Visual Direction's "Cast animation and boat fade").
+   A HUD overlays the canvas: current depth (miles), score, lives remaining,
+   tokens balance, and the current streak multiplier.
 3. Fish scroll up from the bottom of the screen toward the boat; touching one
    with the hook is the catch — no separate cast/reel input beyond the
    initial throw — and adds its point value (times the current streak
@@ -154,6 +160,25 @@ Follows `tailwind-ui`'s Visual Style principles; specifics for this feature:
   — see Client-side Behavior's "World scroll" note for why a screen-fixed
   anchor plus a scrolling world reads as continuous descent without an
   unbounded canvas.
+* **A fisherman figure stands in the boat**, holding the rod — a small
+  silhouette (head + body, matching the flat/simple shape language used
+  throughout this feature) rather than a bare hull, so the boat reads as
+  "someone fishing" rather than an empty vessel.
+* **Cast animation and boat fade** (cosmetic only — see Business Rules'
+  explicit callout that neither of these changes the hook's collision
+  position or timing): at the start of every round, a brief cast animation
+  plays — the line visibly pays out from a short, just-cast length to its
+  normal full length over roughly the first half-second — before settling
+  into normal play. From then on, as depth increases, the boat/fisherman/rod
+  group gradually fades toward a faint, near-transparent minimum (the line
+  and hook are never affected by this fade and stay fully opaque for the
+  whole round), so the visual read over a dive is: a cast at the surface,
+  then a boat left further and further behind while the line keeps paying
+  out into the depths below it. This is pure presentation layered on top of
+  the existing fixed boat/hook positions (Client-side Behavior's "World
+  scroll" and "Cast animation and boat fade" notes) — it doesn't move the
+  hook, change collision, or pause/alter scoring or spawning while the cast
+  animation plays.
 * Fish and hazard sprites are hand-authored SVGs (not photos), in the same
   illustrative style as the landing carousel's placeholder art
   (`docs/features/landing-carousel.md`) — simple, flat, readable at small
@@ -274,6 +299,24 @@ with `docs/features/home.md`'s CSP rule) owns everything HTMX cannot model:
   `world-scroll.js`, a pure module (no DOM/canvas access) so this
   spawn/scroll/despawn math is unit-testable the same way `rules.js` and
   `engine-state.js` already are.
+* **Cast animation and boat fade**: purely presentational, computed each
+  frame alongside the rest of rendering — neither ever touches `boat.x`,
+  `HOOK_Y`, collision detection, spawning, or scoring math. A small local
+  timer (reset in `startRound()`, e.g. `castElapsedSeconds`) drives the
+  initial cast: for roughly its first 0.4-0.5s, the rendered line length is
+  interpolated from near-zero up to the normal boat-to-hook distance rather
+  than drawn at full length immediately, purely as a drawing detail — the
+  round's actual state (`engine-state.js`'s `roundStatus`, hook position,
+  collision) is already fully live from frame one, so a fish or hazard that
+  happens to spawn during this brief window still behaves normally; nothing
+  is paused or gated on the animation finishing. Once that window elapses,
+  the boat/fisherman/rod group's opacity is derived directly from
+  `state.depthMiles` — e.g. linearly interpolated from fully opaque at 0mi
+  down to a faint, non-zero minimum by some illustrative depth (tune during
+  build; not fully `0` opacity, so the boat never disappears entirely) — and
+  stays at that minimum for the rest of the round. The line and hook are
+  drawn in a separate pass at full opacity regardless of the boat's current
+  fade, so they never fade with it.
 * **Input**: arrow keys / WASD, **or the mouse** (moving the mouse over the
   canvas sets the boat's target horizontal position) on desktop; on-screen
   touch buttons (or drag-to-steer) on mobile/touch viewports, since a canvas
@@ -404,7 +447,15 @@ holds only voluntarily-submitted, already-finished round results.
   move together as a single rigid horizontal unit under arrow/WASD/mouse
   control; the hook has no independent movement relative to the boat (no
   swing/pendulum/trailing behavior).
-
+* **The cast animation and the boat's depth-based fade are purely cosmetic**:
+  neither changes the hook's fixed collision position (`HOOK_Y`), delays
+  when collision/scoring becomes active, or affects `boat.x`'s response to
+  input in any way — a fish or hazard spawning during the initial cast
+  animation, or once the boat has faded to its minimum opacity, behaves
+  exactly as it would at any other point in the round. This is stated
+  explicitly because it's the kind of thing that's easy to accidentally
+  couple to gameplay state while implementing a visual effect, and doing so
+  isn't the intent here.
 * **Lives and hit recovery**: default 3 lives (Hull Plating gear level 0);
   each hazard collision costs exactly one life regardless of hazard type and
   resets the streak multiplier. A ~1.2s invulnerability window (with a
@@ -536,6 +587,22 @@ holds only voluntarily-submitted, already-finished round results.
 * [ ] All three input methods (arrow keys, WASD, mouse) move the same single
       horizontal position — never two independently-tracked positions that
       could drift apart.
+* [ ] The boat's fade-opacity-from-depth calculation is a small pure
+      function (not inlined in the draw call) so it's unit-testable
+      independent of canvas rendering: opacity is 1.0 at depth 0, decreases
+      monotonically as depth increases, never goes below its documented
+      minimum, and never affects the line/hook's own (constant, full)
+      opacity.
+* [ ] A hazard/fish spawning during the initial cast-animation window, or
+      after the boat has fully faded, is caught/collides exactly as it
+      would at any other point in the round — the cast animation and fade
+      never gate or delay collision/scoring.
+* [ ] Manual/visual verification (real rendering can't be asserted through
+      the DOM the way element states can): the cast animation plays once at
+      the start of every round including "Dive Again," the line reaches its
+      full normal length by the time the animation ends, and the boat is
+      visibly faded (not just conceptually) by partway through a longer
+      dive.
 * [ ] Round-end token calculation matches the documented formula for a few
       representative (score, depth) pairs.
 * [ ] Gear level effects apply starting the next round, not mid-round.
