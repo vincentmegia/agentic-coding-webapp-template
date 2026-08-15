@@ -33,6 +33,7 @@
 
 import { fishSpawnPool, streakMultiplier, roundTokens, descentSpeed, DEPTH_CAP_MILES } from './fishing/rules.js';
 import { createInitialState, applyHazardHit, applyFishCatch, advance, DEFAULT_LIVES } from './fishing/engine-state.js';
+import { scrollOffsetForFrame, spawnY, scrollSprite, isOffScreen } from './fishing/world-scroll.js';
 
 // ---------------------------------------------------------------------------
 // localStorage progress (doc: "reads/writes a single localStorage key")
@@ -50,6 +51,19 @@ const STORAGE_KEY = 'fishing-game:v1';
  * proportionally faster as descentSpeed ramps toward its max (5.0).
  */
 const DEPTH_MILES_PER_SECOND_AT_BASE_SPEED = 8;
+
+/**
+ * Fixed y-positions for the boat hull and the hook hanging from it (doc's
+ * Visual Direction: "The boat/rod is the only screen-fixed element ... it
+ * sits anchored near the top of the canvas and never moves vertically").
+ * Neither value ever changes during play — only `boat.x` does, driven by
+ * input. BOAT_Y reuses the old fixed-diver y (~70px, per this task's brief).
+ * HOOK_Y sits further down (within the doc's suggested ~140-200px band) and
+ * doubles as the collision-detection anchor for fish/hazard overlap — the
+ * functional replacement for the old diver's single hitbox position.
+ */
+const BOAT_Y = 70;
+const HOOK_Y = 170;
 
 /** Gear keys and their shop definitions (doc: "Gear upgrades", illustrative costs/levels — tune during build). */
 export const GEAR_DEFS = {
@@ -151,7 +165,7 @@ function steeringSpeedForSave(save) {
 }
 
 function catchRadiusForSave(save) {
-  // Base diver hitbox radius plus a per-level Magnetic Lure bonus.
+  // Base hook hitbox radius plus a per-level Magnetic Lure bonus.
   return 18 + 6 * save.gear.magneticLure;
 }
 
@@ -229,10 +243,18 @@ function nextSpriteId() {
   return spriteIdCounter;
 }
 
-function spawnFishSprite(worldWidth, depthMiles, streak, goldenBaitLevel, random) {
+// Sprites now spawn just past the bottom edge (`spawnY`, from world-scroll.js)
+// instead of off the left/right edges — their vertical motion is driven
+// entirely by the shared world-scroll offset applied in the game loop, not
+// an independent per-sprite vertical velocity (doc's Business Rules:
+// "Horizontal movement is free/continuous ... There is no vertical
+// positioning to speak of"). `vx` here is only ever a horizontal
+// wobble/chase component layered on top of that shared scroll.
+
+function spawnFishSprite(worldWidth, worldHeight, depthMiles, streak, goldenBaitLevel, random) {
   const pool = applyGoldenBaitBias(fishSpawnPool(depthMiles, streak), goldenBaitLevel);
   const picked = weightedPick(pool, random);
-  const fromLeft = random() < 0.5;
+  const wobbleDirection = random() < 0.5 ? -1 : 1;
   return {
     id: nextSpriteId(),
     kind: 'fish',
@@ -240,26 +262,25 @@ function spawnFishSprite(worldWidth, depthMiles, streak, goldenBaitLevel, random
     points: picked.points,
     rare: !!picked.rare,
     imageSlug: slugifyFishName(picked.name),
-    x: fromLeft ? -30 : worldWidth + 30,
-    y: 40 + random() * 200,
-    vx: (fromLeft ? 1 : -1) * (40 + random() * 40),
+    x: 30 + random() * Math.max(1, worldWidth - 60),
+    y: spawnY(worldHeight),
+    vx: wobbleDirection * (20 + random() * 30),
     hitboxRadius: picked.rare ? 20 : 14,
   };
 }
 
-function spawnHazardSprite(worldWidth, depthMiles, random) {
+function spawnHazardSprite(worldWidth, worldHeight, depthMiles, random) {
   const band = hazardBandFor(depthMiles);
-  const fromLeft = random() < 0.5;
+  const wobbleDirection = random() < 0.5 ? -1 : 1;
   return {
     id: nextSpriteId(),
     kind: 'hazard',
     name: band.name,
     imageSlug: band.slug,
     behavior: band.behavior,
-    x: fromLeft ? -30 : worldWidth + 30,
-    y: 40 + random() * 200,
-    vx: (fromLeft ? 1 : -1) * band.speed,
-    vy: 0,
+    x: 30 + random() * Math.max(1, worldWidth - 60),
+    y: spawnY(worldHeight),
+    vx: wobbleDirection * band.speed,
     speed: band.speed,
     hitboxRadius: band.hitboxRadius,
   };
@@ -342,11 +363,21 @@ export function init(canvas, elements) {
   const random = Math.random;
 
   let world = { width: canvas.width, height: canvas.height };
-  let diver = { x: world.width / 2, y: 70, vx: 0 };
-  let input = { left: false, right: false, dragTargetX: null };
+  // The boat/line/hook move together as a single rigid horizontal unit
+  // (doc's Business Rules: "the hook has no independent movement relative
+  // to the boat") — `boat.x` is the one position every input method drives.
+  // Vertical position is never tracked here; BOAT_Y/HOOK_Y are fixed
+  // constants (see their doc comment above).
+  let boat = { x: world.width / 2, vx: 0 };
+  let input = { left: false, right: false, dragTargetX: null, mouseTargetX: null };
   let sprites = [];
   let timeSinceFishSpawn = 0;
   let timeSinceHazardSpawn = 0;
+  // Accumulated world-scroll distance (px), used only to phase the
+  // repeating background pattern — sprite positions themselves are moved
+  // directly via world-scroll.js's `scrollSprite` each frame, not derived
+  // from this accumulator.
+  let worldScrollOffset = 0;
   let state = null; // engine-state RoundState, set by startRound()
   let running = false;
   let rafHandle = null;
@@ -440,7 +471,8 @@ export function init(canvas, elements) {
     sprites = [];
     timeSinceFishSpawn = 0;
     timeSinceHazardSpawn = 0;
-    diver = { x: world.width / 2, y: 70, vx: 0 };
+    boat = { x: world.width / 2, vx: 0 };
+    worldScrollOffset = 0;
     submittedThisRound = false;
     fishCaughtCount = 0;
     lastTimestamp = null;
@@ -508,6 +540,19 @@ export function init(canvas, elements) {
     input.dragTargetX = null;
   }
 
+  // Desktop mouse steering (doc's Input section: "moving the mouse over the
+  // canvas sets the boat's target horizontal position") — unlike
+  // onPointerDown/Move above (a click-and-hold drag, still used for touch),
+  // this tracks the cursor continuously with no button needed. Reuses the
+  // same canvasXFromEvent CSS-vs-canvas-pixel conversion. Priority between
+  // this, drag, and keyboard is resolved in updateBoat(), not here.
+  function onMouseMove(e) {
+    input.mouseTargetX = canvasXFromEvent(e);
+  }
+  function onMouseLeave() {
+    input.mouseTargetX = null;
+  }
+
   function onVisibilityChange() {
     paused = document.hidden;
     if (!paused && running && rafHandle === null) {
@@ -518,49 +563,72 @@ export function init(canvas, elements) {
 
   // -- Simulation ---------------------------------------------------------
 
-  function updateDiver(deltaSeconds) {
+  function updateBoat(deltaSeconds) {
     const steeringSpeed = steeringSpeedForSave(save);
-    if (input.dragTargetX !== null) {
-      const dx = input.dragTargetX - diver.x;
-      diver.x += Math.max(-steeringSpeed * deltaSeconds, Math.min(steeringSpeed * deltaSeconds, dx));
-    } else {
+    // Keyboard directly sets velocity and overrides any in-flight
+    // mouse/drag target tracking while a key is held, so the three input
+    // methods never fight each other over the one shared position (doc:
+    // "All three input methods drive the same single horizontal position").
+    const keyboardActive = input.left || input.right;
+    if (keyboardActive) {
       let dx = 0;
       if (input.left) dx -= 1;
       if (input.right) dx += 1;
-      diver.x += dx * steeringSpeed * deltaSeconds;
+      boat.x += dx * steeringSpeed * deltaSeconds;
+    } else if (input.dragTargetX !== null) {
+      const dx = input.dragTargetX - boat.x;
+      boat.x += Math.max(-steeringSpeed * deltaSeconds, Math.min(steeringSpeed * deltaSeconds, dx));
+    } else if (input.mouseTargetX !== null) {
+      // Eased toward the cursor at the same speed cap keyboard steering
+      // uses, so mouse isn't an "unfair" faster control (doc's Input
+      // section).
+      const dx = input.mouseTargetX - boat.x;
+      boat.x += Math.max(-steeringSpeed * deltaSeconds, Math.min(steeringSpeed * deltaSeconds, dx));
     }
-    diver.x = Math.max(16, Math.min(world.width - 16, diver.x));
+    boat.x = Math.max(16, Math.min(world.width - 16, boat.x));
   }
 
   function updateSprite(sprite, deltaSeconds) {
+    // Vertical motion belongs entirely to the shared world scroll (applied
+    // separately in loop() via world-scroll.js's scrollSprite) — this
+    // function only ever touches `x` (doc's Business Rules: "movement" for
+    // every sprite here "is a horizontal-only component layered on top of
+    // the shared upward scroll").
     if (sprite.kind === 'hazard' && sprite.behavior === 'seek') {
-      // Shark: actively steers toward the diver's current position (doc).
-      const dx = diver.x - sprite.x;
-      const dy = diver.y - sprite.y;
-      const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-      sprite.x += (dx / distance) * sprite.speed * deltaSeconds;
-      sprite.y += (dy / distance) * sprite.speed * deltaSeconds;
+      // Shark: actively steers horizontally toward the boat/hook's current
+      // x-position (doc) — there's no vertical target to chase since the
+      // hook's y is fixed.
+      const dx = boat.x - sprite.x;
+      if (Math.abs(dx) > 0.5) {
+        sprite.x += Math.sign(dx) * sprite.speed * deltaSeconds;
+      }
       return;
     }
     if (sprite.kind === 'hazard' && sprite.behavior === 'erratic') {
-      // Eel: fast, erratic — jitter vy each frame within a band.
-      sprite.vy = (sprite.vy || 0) + (random() - 0.5) * 200 * deltaSeconds;
-      sprite.vy = Math.max(-80, Math.min(80, sprite.vy));
-      sprite.y = Math.max(20, Math.min(world.height - 20, sprite.y + sprite.vy * deltaSeconds));
+      // Eel: fast, erratic movement — now expressed purely horizontally.
+      sprite.vx = (sprite.vx || 0) + (random() - 0.5) * 240 * deltaSeconds;
+      sprite.vx = Math.max(-sprite.speed * 1.5, Math.min(sprite.speed * 1.5, sprite.vx));
     }
     sprite.x += sprite.vx * deltaSeconds;
-  }
-
-  function pruneOffscreen() {
-    sprites = sprites.filter((s) => s.x > -60 && s.x < world.width + 60);
+    // Keep horizontal wobble/chase within the play area rather than
+    // drifting off the side indefinitely (despawning is now solely a
+    // function of the vertical world scroll via isOffScreen, not horizontal
+    // position).
+    if (sprite.x < 20) {
+      sprite.x = 20;
+      sprite.vx = Math.abs(sprite.vx);
+    } else if (sprite.x > world.width - 20) {
+      sprite.x = world.width - 20;
+      sprite.vx = -Math.abs(sprite.vx);
+    }
   }
 
   function handleCollisions() {
     const catchRadius = catchRadiusForSave(save);
     const remaining = [];
     for (const sprite of sprites) {
-      const diverRadius = sprite.kind === 'fish' ? catchRadius : 18;
-      const overlapping = circlesOverlap(diver.x, diver.y, diverRadius, sprite.x, sprite.y, sprite.hitboxRadius);
+      const hookRadius = sprite.kind === 'fish' ? catchRadius : 18;
+      const overlapping = circlesOverlap(boat.x, HOOK_Y, hookRadius, sprite.x, sprite.y, sprite.hitboxRadius);
       if (!overlapping) {
         remaining.push(sprite);
         continue;
@@ -588,7 +656,7 @@ export function init(canvas, elements) {
     const deltaSeconds = Math.min(0.1, (timestamp - lastTimestamp) / 1000);
     lastTimestamp = timestamp;
 
-    updateDiver(deltaSeconds);
+    updateBoat(deltaSeconds);
 
     const streak = streakMultiplier(state.milesSinceLastHit);
     const speed = descentSpeed(state.depthMiles, state.elapsedSeconds);
@@ -596,19 +664,30 @@ export function init(canvas, elements) {
     const { state: advanced } = advance(state, deltaMiles, deltaSeconds);
     state = advanced;
 
+    // World scroll: feed the *same* `speed` value used for the depth-miles
+    // conversion above into world-scroll.js, per the doc's explicit
+    // requirement that visual scroll rate and scoring-relevant descent
+    // speed never diverge (see world-scroll.js's module doc comment).
+    const scrollOffsetPx = scrollOffsetForFrame(speed, deltaSeconds);
+    worldScrollOffset += scrollOffsetPx;
+
     timeSinceFishSpawn += deltaSeconds;
     timeSinceHazardSpawn += deltaSeconds;
     if (timeSinceFishSpawn >= fishSpawnIntervalSeconds()) {
       timeSinceFishSpawn = 0;
-      sprites.push(spawnFishSprite(world.width, state.depthMiles, streak, save.gear.goldenBait, random));
+      sprites.push(spawnFishSprite(world.width, world.height, state.depthMiles, streak, save.gear.goldenBait, random));
     }
     if (timeSinceHazardSpawn >= hazardSpawnIntervalSeconds(state.depthMiles)) {
       timeSinceHazardSpawn = 0;
-      sprites.push(spawnHazardSprite(world.width, state.depthMiles, random));
+      sprites.push(spawnHazardSprite(world.width, world.height, state.depthMiles, random));
     }
 
+    // Horizontal wobble/chase first (mutates in place, existing
+    // convention), then the shared vertical scroll (pure — returns new
+    // sprite objects per world-scroll.js's contract), then drop anything
+    // that has scrolled past the top edge.
     sprites.forEach((s) => updateSprite(s, deltaSeconds));
-    pruneOffscreen();
+    sprites = sprites.map((s) => scrollSprite(s, scrollOffsetPx)).filter((s) => !isOffScreen(s));
     handleCollisions();
     renderHud();
     render();
@@ -626,12 +705,84 @@ export function init(canvas, elements) {
   const OCEAN_TOP = '#0b3d59';
   const OCEAN_BOTTOM = '#01111f';
 
+  // Tile size (px) for the scrolling water background — a simple repeating
+  // horizontal-line pattern, phased by `worldScrollOffset` so it reads as
+  // continuously flowing water (doc's World scroll note: the actual visual
+  // fix for "I don't see it going down"). Purely decorative; no collision
+  // relevance.
+  const BG_TILE_SIZE = 90;
+
+  function drawScrollingBackground() {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    const shift = worldScrollOffset % BG_TILE_SIZE;
+    const rowCount = Math.ceil(world.height / BG_TILE_SIZE) + 2;
+    for (let i = -1; i <= rowCount; i += 1) {
+      const y = i * BG_TILE_SIZE - shift;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(world.width, y);
+      ctx.stroke();
+    }
+  }
+
+  // Boat/rod + line + hook, drawn with canvas primitives (no image asset —
+  // matches how fish/hazard sprites already render as placeholder shapes;
+  // see the doc's Open Questions on diver.svg being superseded). The line
+  // runs straight from the rod tip to the fixed hook position: no
+  // independent swing, since the whole assembly only ever moves as one
+  // rigid unit via `boat.x`.
+  function drawBoat() {
+    const x = boat.x;
+
+    // Hull.
+    ctx.beginPath();
+    ctx.moveTo(x - 26, BOAT_Y);
+    ctx.lineTo(x + 26, BOAT_Y);
+    ctx.lineTo(x + 18, BOAT_Y + 14);
+    ctx.lineTo(x - 18, BOAT_Y + 14);
+    ctx.closePath();
+    ctx.fillStyle = '#6b4423';
+    ctx.fill();
+    ctx.strokeStyle = '#3d2814';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Rod.
+    const rodTipX = x + 22;
+    const rodTipY = BOAT_Y - 20;
+    ctx.beginPath();
+    ctx.moveTo(x + 8, BOAT_Y);
+    ctx.lineTo(rodTipX, rodTipY);
+    ctx.strokeStyle = '#c9a063';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Line, from the rod tip straight down to the hook.
+    ctx.beginPath();
+    ctx.moveTo(rodTipX, rodTipY);
+    ctx.lineTo(x, HOOK_Y);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Hook — the functional collision anchor (handleCollisions uses
+    // boat.x/HOOK_Y directly, independent of this drawing).
+    ctx.beginPath();
+    ctx.arc(x, HOOK_Y, 6, 0.3, Math.PI * 1.7);
+    ctx.strokeStyle = '#e8e8e8';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
   function render() {
     const gradient = ctx.createLinearGradient(0, 0, 0, world.height);
     gradient.addColorStop(0, OCEAN_TOP);
     gradient.addColorStop(1, OCEAN_BOTTOM);
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, world.width, world.height);
+
+    drawScrollingBackground();
 
     sprites.forEach((sprite) => {
       ctx.beginPath();
@@ -645,13 +796,7 @@ export function init(canvas, elements) {
     // "Brief visual/knockback feedback with a flicker").
     const flickerVisible = !invulnerable || Math.floor(state.elapsedSeconds * 10) % 2 === 0;
     if (flickerVisible) {
-      // Drawn at the same radius used for fish-catch collision so this
-      // placeholder circle honestly reflects the diver's actual hitbox
-      // until the hand-authored diver.svg (a separate task) replaces it.
-      ctx.beginPath();
-      ctx.fillStyle = '#f2f2f2';
-      ctx.arc(diver.x, diver.y, catchRadiusForSave(save), 0, Math.PI * 2);
-      ctx.fill();
+      drawBoat();
     }
   }
 
@@ -673,6 +818,8 @@ export function init(canvas, elements) {
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('mouseleave', onMouseLeave);
   canvas.addEventListener('touchstart', onPointerDown, { passive: true });
   canvas.addEventListener('touchmove', onPointerMove, { passive: true });
   canvas.addEventListener('touchend', onPointerUp, { passive: true });
@@ -720,6 +867,8 @@ export function init(canvas, elements) {
     canvas.removeEventListener('pointerdown', onPointerDown);
     canvas.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
+    canvas.removeEventListener('mousemove', onMouseMove);
+    canvas.removeEventListener('mouseleave', onMouseLeave);
     canvas.removeEventListener('touchstart', onPointerDown);
     canvas.removeEventListener('touchmove', onPointerMove);
     canvas.removeEventListener('touchend', onPointerUp);
@@ -731,7 +880,22 @@ export function init(canvas, elements) {
   // Doc's Cleanup requirement: tear down on HTMX nav-away, not just full
   // page unload, so a backgrounded loop from a previous /fishing-game visit
   // doesn't keep running after #main-content is swapped for another page.
-  document.body.addEventListener('htmx:beforeSwap', teardown);
+  //
+  // htmx:beforeSwap bubbles to document.body for EVERY htmx swap anywhere on
+  // the page, not just page-level navigation — including this very page's
+  // own #fishing-leaderboard fragment refreshing itself (its hx-trigger="load"
+  // self-swap, and every later leaderboard-submit swap). Without the target
+  // check below, that unrelated local refresh was mistaken for "navigating
+  // away," tearing down every input listener (keyboard/mouse/touch) moments
+  // after page load while the render loop itself kept running — depth,
+  // scoring, and spawning all looked completely normal, only steering was
+  // silently dead, which is why this needed real interactive testing to
+  // catch rather than the existing automated suite (none of which drives
+  // actual keyboard/mouse input). Only tear down for the real page-level
+  // swap, identified by its target being #main-content itself.
+  document.body.addEventListener('htmx:beforeSwap', (e) => {
+    if (e.target && e.target.id === 'main-content') teardown();
+  });
 
   teardownActiveInstance = teardown;
 
