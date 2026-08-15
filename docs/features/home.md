@@ -45,7 +45,9 @@ instead of reinventing it.
   under Status. Settings is unchanged (still a dropdown trigger, still
   auth-gated). Blogs and Fishing Game are no longer linked from the header at
   all — they stay reachable at their existing URLs (`/blogs`,
-  `/fishing-game`), just not from top-level nav.
+  `/fishing-game`), just not from top-level nav. Fishing Game later gained a
+  second entry point outside the header, though: `/projects` links to it
+  directly (`docs/features/projects.md`'s `Project.External` field).
 * ~~**Home** submenu: Resume, Projects, Blogs.~~ Superseded — see above.
 * **Settings** submenu: Profile, Security, Logout. Rendered server-side only for
   an authenticated site-owner session — anonymous visitors receive no Settings

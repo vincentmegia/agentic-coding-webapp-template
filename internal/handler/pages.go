@@ -150,10 +150,19 @@ func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
 }
 
 // projectItems is the hand-authored card list for /projects (docs/features/
-// projects.md) — the same four sample entries as the pulled-in design's
-// Projects.dc.html (see Project's doc comment), placeholder until real
-// projects replace them. TagTint alternates per card, matching the mockup.
+// projects.md). The Fishing Game entry is real (this site's own shipped
+// mini-game, docs/features/fishing-game.md) and leads the list; the other
+// four are the pulled-in design's own sample entries from Projects.dc.html
+// (see Project's doc comment), placeholder until real projects replace
+// them. TagTint alternates per card, matching the mockup.
 var projectItems = []Project{
+	{
+		Title:       "Fishing Game",
+		Description: "A canvas arcade mini-game — cast a line, dive for fish, and dodge hazards on the way down, with a public leaderboard for the best runs. The one project here that isn't placeholder data.",
+		Tags:        []string{"Go", "Canvas", "PostgreSQL"},
+		TagTint:     "accent",
+		LiveURL:     "/fishing-game",
+	},
 	{
 		Title:       "Fieldnotes",
 		Description: "A minimal journaling app for capturing ideas on the move, synced offline-first.",

@@ -2,8 +2,15 @@
      Pulled from a claude.ai/design "Personal website and portfolio"
      project's Projects.dc.html (see DesignSync) — see docs/features/
      projects.md and the Project type's doc comment in
-     internal/handler/template.go for the full contract (the four cards are
-     still that mockup's own placeholder content).
+     internal/handler/template.go for the full contract (four of the five
+     cards are still that mockup's own placeholder content; the Fishing
+     Game card is real). LiveURL's link branches on External: an internal
+     route (External: false, e.g. the Fishing Game's /fishing-game) renders
+     as a same-tab "Play now" HTMX nav link using the same swap mechanism
+     #primary-nav's links use (components/header.html); an off-site URL
+     (External: true) renders as today's new-tab "Live demo" link. See
+     docs/features/projects.md's Visual Direction and Business Rules
+     sections for the full "Live demo"/"Play now" contract.
 
      Defines "projects-content", not "content" — reusing "content" would
      silently take over the shared placeholder every other still-unbuilt
@@ -48,6 +55,7 @@
 				</div>
 				{{end}}
 				{{if .LiveURL}}
+				{{if .External}}
 				<a
 					href="{{.LiveURL}}"
 					target="_blank"
@@ -60,6 +68,23 @@
 						<path d="M7 17 17 7" />
 					</svg>
 				</a>
+				{{else}}
+				<a
+					href="{{.LiveURL}}"
+					data-nav-link
+					hx-get="{{.LiveURL}}"
+					hx-target="#main-content"
+					hx-swap="outerHTML"
+					hx-push-url="true"
+					hx-indicator="#nav-loading"
+					class="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+				>
+					Play now
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-3.5 w-3.5" aria-hidden="true">
+						<path d="M8 5v14l11-7z" />
+					</svg>
+				</a>
+				{{end}}
 				{{end}}
 			</div>
 		</article>

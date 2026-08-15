@@ -16,6 +16,10 @@ link row (`docs/features/home.md`'s Status note, `internal/handler/nav.go`'s
 Game" entry lived in. The game itself is unaffected — still fully working at
 `/fishing-game` — but it's no longer linked from the header at all, desktop
 or mobile; the "Home dropdown"/"Home ▾" references below predate that change.
+It's since been re-linked from elsewhere, though: `/projects` now leads with
+a card that links straight into the game via a "Play now" button
+(`docs/features/projects.md`'s `Project.External` field), so it isn't
+reachable only by typing the URL directly.
 
 ## Summary
 

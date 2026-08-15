@@ -10,8 +10,10 @@ implemented and covered by tests — see `docs/features/home.md` and
 `docs/features/resume.md`. The header nav is a flat Home/Projects/About
 link row plus a Résumé button (not a dropdown) — see `internal/handler/
 nav.go`'s `primaryNavItems` doc comment; Settings is still a dropdown,
-auth-gated. Blogs and Fishing Game are reachable at their URLs
-(`/blogs`, `/fishing-game`) but no longer linked from the header. The
+auth-gated. Blogs is reachable only at its URL (`/blogs`), not linked from
+anywhere; Fishing Game is no longer linked from the header but is linked
+from the `/projects` grid (see below) as well as its own URL
+(`/fishing-game`). The
 landing page (`/`) renders an image carousel below its hero (hand-authored
 placeholder illustrations — see `docs/features/landing-carousel.md`;
 automated test coverage for it is still pending), then a "Selected work"
@@ -26,9 +28,10 @@ claude.ai/design project and adapted into Tailwind tokens — see
 and nav are pulled from that same claude.ai/design workspace's "Personal
 website and portfolio" project; a from-scratch restyle of page-specific
 components (resume, fishing game, carousel) to the new tokens is still
-open. The `/projects` page now renders a card grid too (hand-authored
-placeholder project data, same "Personal website and portfolio" pull — see
-`docs/features/projects.md`). Blogs and About are still placeholders.
+open. The `/projects` page now renders a card grid too (same "Personal
+website and portfolio" pull — see `docs/features/projects.md`), led by a
+real card linking into the Fishing Game, followed by four hand-authored
+placeholder projects. Blogs and About are still placeholders.
 Update this file as decisions are made or change.
 
 ## What this is

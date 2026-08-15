@@ -124,19 +124,29 @@ type PageData struct {
 // "Personal website and portfolio" project's Projects.dc.html (see
 // DesignSync), which shows four sample entries (Fieldnotes/Tidewatch/Loom
 // UI/Nightlight) as placeholder content until real projects replace them
-// (docs/features/projects.md). ImagePath/LiveURL are optional ("" if
-// none) — the card renders a placeholder tile in place of a screenshot,
-// and omits the "Live demo" link, exactly like the mockup's own unfilled
+// (docs/features/projects.md). A fifth, real entry (the Fishing Game,
+// docs/features/fishing-game.md) leads the list. ImagePath/LiveURL are
+// optional ("" if none) — the card renders a placeholder tile in place of
+// a screenshot, and omits the link, exactly like the mockup's own unfilled
 // image-slot and "#" hrefs. TagTint selects which token-tinted pill style
 // the card's tag chips use ("primary" or "accent") — the mockup alternates
 // tint per card rather than deriving it from the tags' content, so this is
 // data, not a template-computed value.
+//
+// External mirrors CarouselSlide's own field below (same pattern, same
+// name): LiveURL either points at an internal route (External: false, the
+// default) — rendered as a same-tab "Play now" link using the same HTMX
+// swap every other in-site nav link uses — or an off-site URL
+// (External: true) — rendered as a new-tab "Live demo" link. See
+// docs/features/projects.md's Visual Direction and Business Rules
+// sections for the full contract.
 type Project struct {
 	Title       string
 	Description string
 	Tags        []string
 	TagTint     string // "primary" or "accent"
 	LiveURL     string // optional, "" if none
+	External    bool   // true if LiveURL is off-site; false means an internal route
 	ImagePath   string // optional, "" renders a placeholder tile
 }
 
