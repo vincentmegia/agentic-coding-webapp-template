@@ -179,13 +179,21 @@ Follows `tailwind-ui`'s Visual Style principles; specifics for this feature:
   scroll" and "Cast animation and boat fade" notes) — it doesn't move the
   hook, change collision, or pause/alter scoring or spawning while the cast
   animation plays.
-* Fish and hazard sprites are hand-authored SVGs (not photos), in the same
+* **Fish and hazard sprites render as their actual hand-authored SVGs**
+  (`web/static/images/fishing/fish-*.svg` / `hazard-*.svg`), not the flat
+  colored circles used as a scaffolding placeholder earlier in this
+  feature's build-out — that placeholder was always meant to be temporary
+  (see Client-side Behavior's "Sprite image rendering"), not a final visual
+  choice, and this doc treats it as a defect, not an accepted gap. Same
   illustrative style as the landing carousel's placeholder art
   (`docs/features/landing-carousel.md`) — simple, flat, readable at small
   size, one silhouette-recognizable shape per creature so players can tell
-  fish from hazards at a glance without reading anything. They scroll
+  fish from hazards at a glance without reading anything. Sprites scroll
   upward with the rest of the world (spawning off the bottom edge, despawning
-  once they exit the top) rather than drifting in place.
+  once they exit the top) rather than drifting in place, per World scroll.
+  The boat/rod/fisherman remain canvas-drawn primitives, not images — that
+  is an intentional, permanent choice (Client-side Behavior's "World scroll"
+  and "Cast animation and boat fade" notes), unrelated to this gap.
 * Higher-value fish read as visually "richer" (e.g. warmer/brighter accent
   color, slightly larger) so a player can eyeball that a catch was worth more
   without checking the score number.
@@ -206,14 +214,15 @@ web/templates/
 
 web/static/
 ├── images/fishing/
-│   ├── fish-*.svg                # one per variety, see Business Rules
-│   └── hazard-*.svg              # one per hazard type
-│                                  # (diver.svg is superseded — the boat/rod
-│                                  #  + line + hook are drawn with canvas
-│                                  #  primitives, not a loaded image, the same
-│                                  #  way fish/hazard sprites already render
-│                                  #  as placeholder shapes rather than the
-│                                  #  SVGs above — see Open Questions)
+│   ├── fish-*.svg                # one per variety (see Business Rules), loaded and drawn as the real sprite image
+│   └── hazard-*.svg              # one per hazard type, loaded and drawn as the real sprite image
+│                                  # (diver.svg is the one exception, and stays
+│                                  #  unused/superseded — the boat/rod/
+│                                  #  fisherman are drawn with canvas
+│                                  #  primitives, not a loaded image, an
+│                                  #  intentional and permanent choice, unlike
+│                                  #  fish/hazard sprites above — see Open
+│                                  #  Questions for diver.svg's disposition)
 └── js/
     ├── fishing-game.js           # canvas game loop, input, localStorage progress
     └── fishing/
@@ -238,6 +247,7 @@ States this feature's UI must handle:
 | Leaderboard error             | A generic "couldn't load the leaderboard" message; the rest of the page (game, shop) still works. |
 | `localStorage` unavailable   | (private browsing / disabled storage) Game still fully playable for the session; tokens/gear reset to defaults each visit and a small notice explains progress won't be saved — never a hard error that blocks play. |
 | Reduced motion                | See Client-side Behavior — the canvas gameplay itself can't honor `prefers-reduced-motion` (motion is the game), but all *surrounding* UI transitions (shop, screens) do. |
+| Sprite image failed/slow to load | That one sprite instance falls back to its original flat colored circle (fish: blue, or gold if `rare`; hazard: red) for the frames until the image is ready or is confirmed to have failed — never a broken-image icon, and never blocking the rest of the game. Matches the landing carousel's "Image failed to load" precedent (`docs/features/landing-carousel.md`). |
 
 ---
 
@@ -299,13 +309,38 @@ with `docs/features/home.md`'s CSP rule) owns everything HTMX cannot model:
   `world-scroll.js`, a pure module (no DOM/canvas access) so this
   spawn/scroll/despawn math is unit-testable the same way `rules.js` and
   `engine-state.js` already are.
+* **Sprite image rendering**: fish and hazard sprites draw their actual
+  `fish-*.svg`/`hazard-*.svg` image (`web/static/images/fishing/`), keyed by
+  the `imageSlug` already computed at spawn time (see
+  `spawnFishSprite`/`spawnHazardSprite`), not the flat colored circles used
+  as a scaffolding placeholder earlier in this feature's build-out. A small
+  in-memory cache (a plain object/Map, keyed by the image path — this is
+  inherently DOM-dependent via the `Image` constructor, so unlike
+  `world-scroll.js`/`boat-visuals.js` it isn't a candidate for a separate
+  pure/tested module, same reasoning as why `localStorage` handling also
+  lives directly in `fishing-game.js`) holds one `Image` per distinct sprite
+  variety, created and assigned its `src` once on first use rather than once
+  per sprite instance — many sprites of the same fish/hazard variety share
+  one already-loading-or-loaded `Image` object, they never each trigger
+  their own fetch. Each frame, a sprite draws via `ctx.drawImage(...)`,
+  sized off its existing `hitboxRadius` (e.g. roughly `hitboxRadius * 2` to
+  `* 2.2` square, centered on `sprite.x`/`sprite.y`), if-and-only-if that
+  variety's cached `Image` reports itself loaded and valid
+  (`image.complete && image.naturalWidth > 0`); otherwise (still loading, or
+  the request failed) the sprite falls back to exactly the same flat colored
+  circle rendering this feature already had, per the UI states table's
+  "Sprite image failed/slow to load" row — every sprite is always drawn as
+  *something* representable, never a blank gap or a broken-image glyph, and
+  a slow/broken fish or hazard image never blocks or delays the rest of the
+  game loop.
 * **Cast animation and boat fade**: purely presentational, computed each
   frame alongside the rest of rendering — neither ever touches `boat.x`,
-  `HOOK_Y`, collision detection, spawning, or scoring math. A small local
-  timer (reset in `startRound()`, e.g. `castElapsedSeconds`) drives the
-  initial cast: for roughly its first 0.4-0.5s, the rendered line length is
-  interpolated from near-zero up to the normal boat-to-hook distance rather
-  than drawn at full length immediately, purely as a drawing detail — the
+  `HOOK_Y`, collision detection, spawning, or scoring math. `state.elapsedSeconds`
+  (already reset to 0 and incremented every frame by `engine-state.js`, with
+  no separate timer needed) drives the initial cast: for roughly its first
+  0.4-0.5s, the rendered line length is interpolated from near-zero up to
+  the normal boat-to-hook distance rather than drawn at full length
+  immediately, purely as a drawing detail — the
   round's actual state (`engine-state.js`'s `roundStatus`, hook position,
   collision) is already fully live from frame one, so a fish or hazard that
   happens to spawn during this brief window still behaves normally; nothing
@@ -581,6 +616,14 @@ holds only voluntarily-submitted, already-finished round results.
       (never downward) as the scroll offset accumulates, and is reported as
       off-screen once it passes the top edge — unit-tested independent of
       canvas rendering, the same way the other pure modules are.
+* [ ] Manual/visual verification: every fish variety and hazard type renders
+      as its real `fish-*.svg`/`hazard-*.svg` illustration, not a flat
+      colored circle, once its image has loaded; a simulated load failure
+      (or the frames before an image finishes loading) falls back to the
+      original colored-circle rendering rather than a blank gap or a
+      broken-image glyph, and doesn't block or delay the rest of the game
+      loop while that happens. Multiple on-screen sprites of the same
+      variety share one loaded `Image`, not one fetch per sprite instance.
 * [ ] The boat/line/hook's on-screen vertical position never changes during
       play, regardless of depth/elapsed time — only its horizontal position
       moves, and only in response to input.
@@ -639,14 +682,13 @@ holds only voluntarily-submitted, already-finished round results.
   level — worth a playtesting pass to confirm low-tier fish don't become
   effectively extinct at depth for a fully-geared player, rather than
   assuming the combination is automatically fine.
-* `diver.svg` (the earlier diver-character art) is superseded by the boat/
-  rod + line + hook, which render via canvas primitives rather than a loaded
-  image — consistent with fish/hazard sprites, which have real SVGs
-  (`fish-*.svg`/`hazard-*.svg`) but also still render as placeholder shapes,
-  since wiring real `<img>`/`Image()` drawing into the canvas was already a
-  known, not-yet-done follow-up before this revision. Whether `diver.svg` is
-  deleted, kept unused, or repurposed (e.g. a "caught!" splash animation) is
-  left open rather than decided as part of this revision.
+* `diver.svg` (the earlier diver-character art) is superseded by the
+  boat/rod/fisherman, which are drawn via canvas primitives — an
+  intentional, permanent choice, not a placeholder gap (unlike fish/hazard
+  sprites, which do render their real SVGs — see Client-side Behavior's
+  "Sprite image rendering"). Whether `diver.svg` is deleted, kept unused, or
+  repurposed (e.g. a "caught!" splash animation) is left open rather than
+  decided as part of this revision.
 
 ---
 
