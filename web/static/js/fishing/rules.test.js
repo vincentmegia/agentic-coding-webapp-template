@@ -6,9 +6,11 @@ import {
   fishSpawnPool,
   descentSpeed,
   roundTokens,
+  sonarLookaheadSeconds,
   STREAK_MULTIPLIER_BASE,
   STREAK_MULTIPLIER_MAX,
   DEPTH_CAP_MILES,
+  SONAR_LOOKAHEAD_STEP_SECONDS,
 } from './rules.js';
 
 describe('streakMultiplier', () => {
@@ -246,5 +248,36 @@ describe('roundTokens', () => {
   test('always returns a whole number', () => {
     const tokens = roundTokens(137, 155);
     assert.equal(Number.isInteger(tokens), true);
+  });
+});
+
+describe('sonarLookaheadSeconds', () => {
+  test('at level 0 (gear not purchased), returns exactly 0', () => {
+    assert.equal(sonarLookaheadSeconds(0), 0);
+  });
+
+  test('gains SONAR_LOOKAHEAD_STEP_SECONDS per level', () => {
+    assert.equal(sonarLookaheadSeconds(1), SONAR_LOOKAHEAD_STEP_SECONDS);
+    // Floating-point: 3 * 0.4 is not exactly 1.2, so compare within an epsilon.
+    assert.ok(Math.abs(sonarLookaheadSeconds(3) - 1.2) < 1e-9);
+  });
+
+  test('at the max level (5), returns exactly 2.0', () => {
+    assert.equal(sonarLookaheadSeconds(5), 2.0);
+  });
+
+  test('clamps levels above the max to the max level result', () => {
+    assert.equal(sonarLookaheadSeconds(7), 2.0);
+    assert.equal(sonarLookaheadSeconds(100), 2.0);
+  });
+
+  test('treats negative input as 0', () => {
+    assert.equal(sonarLookaheadSeconds(-3), 0);
+  });
+
+  test('treats non-finite input as 0', () => {
+    assert.equal(sonarLookaheadSeconds(NaN), 0);
+    assert.equal(sonarLookaheadSeconds(Infinity), 0);
+    assert.equal(sonarLookaheadSeconds(undefined), 0);
   });
 });

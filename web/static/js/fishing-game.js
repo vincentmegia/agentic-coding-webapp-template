@@ -31,7 +31,7 @@
 // so importing this module under Node (e.g. `node --check`, or an
 // import-only smoke test) never touches a nonexistent DOM.
 
-import { fishSpawnPool, streakMultiplier, roundTokens, descentSpeed, DEPTH_CAP_MILES } from './fishing/rules.js';
+import { fishSpawnPool, streakMultiplier, roundTokens, descentSpeed, DEPTH_CAP_MILES, sonarLookaheadSeconds } from './fishing/rules.js';
 import { createInitialState, applyHazardHit, applyFishCatch, advance, DEFAULT_LIVES } from './fishing/engine-state.js';
 import { scrollOffsetForFrame, spawnY, scrollSprite, isOffScreen } from './fishing/world-scroll.js';
 import { castProgress, boatOpacityForDepth } from './fishing/boat-visuals.js';
@@ -313,6 +313,7 @@ function circlesOverlap(ax, ay, ar, bx, by, br) {
  *   canvas                       <canvas id="fishing-canvas">, the game surface.
  *   hud: {
  *     depth, score, lives, tokens, streak   — HUD text nodes, updated every frame while playing.
+ *     sonarCallout                 — optional; names the upcoming hazard when Sonar Range's lookahead window is active, hidden otherwise.
  *   }
  *   startScreen: {
  *     root                        — #fishing-start-screen, shown before a round starts.
@@ -462,6 +463,21 @@ export function init(canvas, elements) {
     elements.hud.streak.textContent = streakMultiplier(state.milesSinceLastHit).toFixed(2) + 'x';
   }
 
+  // Purely informational per the same discipline as the cast animation/boat
+  // fade above: this only ever writes to a HUD text node's content/visibility.
+  // It never gates or delays real hazard spawning or collision detection —
+  // those still run on the actual `hazardSpawnIntervalSeconds`/
+  // `timeSinceHazardSpawn` values untouched by this function.
+  function updateSonarCallout(name) {
+    if (!elements.hud.sonarCallout) return;
+    if (name) {
+      elements.hud.sonarCallout.textContent = `Sonar: ${name} incoming`;
+      elements.hud.sonarCallout.classList.remove('hidden');
+    } else {
+      elements.hud.sonarCallout.classList.add('hidden');
+    }
+  }
+
   // -- Round lifecycle ----------------------------------------------------
 
   function startRound() {
@@ -481,6 +497,7 @@ export function init(canvas, elements) {
     paused = false;
     showScreen(null);
     renderHud();
+    updateSonarCallout(null);
     if (rafHandle === null) rafHandle = window.requestAnimationFrame(loop);
   }
 
@@ -490,6 +507,7 @@ export function init(canvas, elements) {
       window.cancelAnimationFrame(rafHandle);
       rafHandle = null;
     }
+    updateSonarCallout(null);
 
     const tokensEarned = roundTokens(state.score, state.depthMiles);
     save.tokens += tokensEarned;
@@ -682,6 +700,21 @@ export function init(canvas, elements) {
       timeSinceHazardSpawn = 0;
       sprites.push(spawnHazardSprite(world.width, world.height, state.depthMiles, random));
     }
+
+    // Sonar Range gear's HUD callout: purely informational — names the next
+    // hazard once its predicted spawn falls within the purchased gear
+    // level's lookahead window. Reads (never writes) `state.depthMiles`,
+    // `timeSinceHazardSpawn`, and `save.gear.sonarRange`; never gates or
+    // delays the real spawn/collision logic above. Runs after the spawn
+    // block above so that on the frame a hazard actually spawns,
+    // `timeSinceHazardSpawn` has already reset to 0 and the callout clears
+    // itself with no special-casing.
+    const hazardLookahead = sonarLookaheadSeconds(save.gear.sonarRange);
+    const timeUntilNextHazard = hazardSpawnIntervalSeconds(state.depthMiles) - timeSinceHazardSpawn;
+    const upcomingHazardName = hazardLookahead > 0 && timeUntilNextHazard <= hazardLookahead
+      ? hazardBandFor(state.depthMiles).name
+      : null;
+    updateSonarCallout(upcomingHazardName);
 
     // Horizontal wobble/chase first (mutates in place, existing
     // convention), then the shared vertical scroll (pure — returns new
@@ -1041,6 +1074,7 @@ function bootstrap() {
       lives: document.getElementById('fishing-hud-lives'),
       tokens: document.getElementById('fishing-hud-tokens'),
       streak: document.getElementById('fishing-hud-streak'),
+      sonarCallout: document.getElementById('fishing-sonar-callout'),
     },
     startScreen: {
       root: document.getElementById('fishing-start-screen'),

@@ -78,6 +78,15 @@
 					</div>
 				</dl>
 
+				{{/* Sonar Range gear's HUD callout: names the next hazard shortly before it
+				     spawns, shown/hidden by fishing-game.js. Hidden by default — only
+				     visible while a hazard spawn is within the purchased gear level's
+				     lookahead window (docs/features/fishing-game.md's Business Rules,
+				     Sonar Range). role="status"/aria-live so it's announced to screen
+				     readers without requiring focus, matching this doc's Definition of
+				     Done accessibility line for non-canvas UI. */}}
+				<p id="fishing-sonar-callout" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
+
 				{{/* Canvas game box: a fixed dark-ocean scene regardless of the
 				     site's light/dark mode toggle (docs/features/fishing-game.md's
 				     Visual Direction) — bg-[#01111f] is a literal arbitrary value

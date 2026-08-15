@@ -247,6 +247,7 @@ States this feature's UI must handle:
 | Leaderboard error             | A generic "couldn't load the leaderboard" message; the rest of the page (game, shop) still works. |
 | `localStorage` unavailable   | (private browsing / disabled storage) Game still fully playable for the session; tokens/gear reset to defaults each visit and a small notice explains progress won't be saved — never a hard error that blocks play. |
 | Reduced motion                | See Client-side Behavior — the canvas gameplay itself can't honor `prefers-reduced-motion` (motion is the game), but all *surrounding* UI transitions (shop, screens) do. |
+| Sonar callout                | Visible (HUD banner naming the next hazard) only while Sonar Range is purchased and the next hazard's predicted spawn falls within that level's lookahead window; hidden otherwise, and never blocks/delays canvas gameplay underneath it. |
 | Sprite image failed/slow to load | That one sprite instance falls back to its original flat colored circle (fish: blue, or gold if `rare`; hazard: red) for the frames until the image is ready or is confirmed to have failed — never a broken-image icon, and never blocking the rest of the game. Matches the landing carousel's "Image failed to load" precedent (`docs/features/landing-carousel.md`). |
 
 ---
@@ -352,6 +353,24 @@ with `docs/features/home.md`'s CSP rule) owns everything HTMX cannot model:
   stays at that minimum for the rest of the round. The line and hook are
   drawn in a separate pass at full opacity regardless of the boat's current
   fade, so they never fade with it.
+* **Sonar callout**: computed every frame in the game loop, driven by the
+  same `hazardSpawnIntervalSeconds(depth)` / `timeSinceHazardSpawn`
+  countdown that already governs real hazard spawning — not a separate
+  timer or a new queueing system. Once Sonar Range is actually purchased
+  (gear level > 0) and that countdown drops to within
+  `sonarLookaheadSeconds(save.gear.sonarRange)` (`rules.js`) of the next
+  spawn, the HUD's optional `elements.hud.sonarCallout` element
+  (`<p id="fishing-sonar-callout">`, hidden by default,
+  `role="status" aria-live="polite"`) shows text naming the predicted
+  hazard, resolved via the existing non-randomized
+  `hazardBandFor(depthMiles)` (hazard *type* is a pure function of current
+  depth; only spawn *timing* is randomized, so predicting the type slightly
+  ahead of the real spawn is exact, not a guess). It clears the same frame
+  the real hazard actually spawns, since the interval timer resets to 0
+  immediately before this check runs each frame. Purely informational —
+  it never gates, delays, or alters real spawn timing, hazard type, or
+  collision, the same discipline as the Cast animation/boat fade note
+  above.
 * **Input**: arrow keys / WASD, **or the mouse** (moving the mouse over the
   canvas sets the boat's target horizontal position) on desktop; on-screen
   touch buttons (or drag-to-steer) on mobile/touch viewports, since a canvas
@@ -553,11 +572,11 @@ holds only voluntarily-submitted, already-finished round results.
   before any fish are counted), without letting the milestone bonus dwarf
   score-driven tokens on a genuinely good run.
 * **Gear upgrades** — costs and magnitudes are final, not illustrative,
-  matching `GEAR_DEFS`/the gear-effect functions in `fishing-game.js`. Every
-  cost curve is `round(baseCost × costGrowth ^ currentLevel)`, 5 levels
-  except Emergency Ballast (a single 0/1 unlock, per its own note below).
-  Sonar Range is deliberately not in the table below — see the callout right
-  after it for why:
+  matching `GEAR_DEFS`/the gear-effect functions in `fishing-game.js`, with
+  one exception noted in the table below (Sonar Range's lookahead-seconds
+  magnitude, which is new and still illustrative). Every cost curve is
+  `round(baseCost × costGrowth ^ currentLevel)`, 5 levels except Emergency
+  Ballast (a single 0/1 unlock, per its own note below):
 
   | Gear             | Effect per level                              | Base cost | Growth ×/level |
   | ------------------ | ------------------------------------------------ | ----------- | ----------------- |
@@ -565,11 +584,13 @@ holds only voluntarily-submitted, already-finished round results.
   | Ballast Thrusters    | +15% lateral steering speed (easier hazard dodges) | 35          | 1.6                |
   | Magnetic Lure        | +6px catch radius around the hook                  | 35          | 1.6                |
   | Golden Bait            | Shifts spawn weight further toward higher-value fish for the current depth | 45 | 1.7 |
+  | Sonar Range         | HUD callout names the next hazard shortly before it spawns; advance warning scales with level (0.4s per level, up to 2.0s at max) | 30 | 1.6 |
   | Emergency Ballast       | Once per round, automatically absorbs a hit — no life lost, streak not reset — then must recharge (available again next round) | 60 | n/a (single level) |
 
-  Maxing any one 5-level line costs roughly 550-850 tokens total across its
-  5 levels (the exact total varies by base cost/growth rate above) — by
-  design a multi-run investment, not a first-round purchase, so the shop
+  Maxing any one 5-level line costs roughly 475-850 tokens total across its
+  5 levels (the exact total varies by base cost/growth rate above; Sonar
+  Range's own 30-base/1.6-growth line is the cheapest of the five at ~475) —
+  by design a multi-run investment, not a first-round purchase, so the shop
   stays a meaningful long-term goal rather than something a single good dive
   clears out.
 
@@ -578,22 +599,33 @@ holds only voluntarily-submitted, already-finished round results.
   the shop a second kind of decision (raw survivability/speed/reward vs. a
   one-shot mistake-forgiveness tool) instead of parallel sliders.
 
-  **Sonar Range is purchasable but currently has no effect** — a real,
-  discovered defect, not a documented design decision. `fishing-game.js`
-  computes a `visibilityRangeForSave` multiplier for it, but nothing in the
-  game loop ever reads that value, so a player can spend real tokens on it
-  for literally nothing. Its originally-intended effect ("fish/hazards
-  become visible farther ahead") doesn't have an obvious implementation in
-  this game's fixed-canvas/world-scroll architecture: a sprite already
-  becomes visible at the exact same on-screen moment (crossing the bottom
-  edge) regardless of how far below the canvas it originally spawned, so
-  simply increasing its spawn margin has no effect on when the player can
-  actually see it — genuinely "seeing farther ahead" would need a new
-  mechanism (e.g. a HUD callout naming the next hazard shortly before it
-  spawns, or relaxing the strict canvas-edge clip) that hasn't been decided
-  yet. Left as an open item (see Open Questions) rather than assigning it a
-  number here, since assigning a magnitude to an effect that doesn't exist
-  wouldn't actually fix anything.
+  **Sonar Range's effect is a HUD callout that names the next hazard
+  shortly before it spawns** — the fix for a real, previously-discovered
+  defect where the gear was purchasable and cost tokens like every other
+  item, but nothing in the game loop ever read the multiplier
+  `fishing-game.js` computed for it (see Open Questions for how that was
+  found and how this resolves it). Its originally-intended effect
+  ("fish/hazards become visible farther ahead") never had an obvious
+  implementation in this game's fixed-canvas/world-scroll architecture: a
+  sprite already becomes visible at the exact same on-screen moment
+  (crossing the bottom edge) regardless of how far below the canvas it
+  originally spawned, so simply increasing its spawn margin would have had
+  no effect on when the player can actually see it. A HUD callout sidesteps
+  that architecture problem entirely by predicting rather than
+  pre-rendering: `sonarLookaheadSeconds(sonarRangeLevel)` (`rules.js`)
+  returns `clampedLevel × 0.4` seconds of advance warning (level clamped to
+  `[0, 5]`; 0 at level 0, up to 2.0s at max level 5; non-finite/negative
+  input → 0), and the game loop, every frame, compares that lookahead
+  against the same `hazardSpawnIntervalSeconds(depth) - timeSinceHazardSpawn`
+  countdown that already drives real hazard spawning — no new queueing or
+  prediction system needed, since hazard *type* is already a pure,
+  non-randomized function of current depth (`hazardBandFor(depthMiles)`;
+  only spawn *timing* has randomness), so naming the next hazard slightly
+  ahead of its actual spawn is exact, not a guess. See Client-side
+  Behavior's "Sonar callout" note for the frame-by-frame mechanics. Unlike
+  the rest of this table, the 0.4s-per-level/2.0s-max magnitude is new and
+  illustrative/tunable, not final — it has no prior playtesting data behind
+  it the way the other gear numbers above do.
 
   Each gear item has its own level track and token cost curve; levels only
   ever go up (no sell-back/refund) and apply starting the *next* round, not
@@ -661,6 +693,10 @@ holds only voluntarily-submitted, already-finished round results.
       (never downward) as the scroll offset accumulates, and is reported as
       off-screen once it passes the top edge — unit-tested independent of
       canvas rendering, the same way the other pure modules are.
+* [ ] `sonarLookaheadSeconds` (`rules.js`): level 0 → 0s, a mid-level value
+      between the two endpoints, max level 5 → exactly 2.0s, a level above 5
+      clamps to the same 2.0s rather than exceeding it, and negative or
+      non-finite input → 0.
 * [ ] Manual/visual verification: every fish variety and hazard type renders
       as its real `fish-*.svg`/`hazard-*.svg` illustration, not a flat
       colored circle, once its image has loaded; a simulated load failure
@@ -691,6 +727,11 @@ holds only voluntarily-submitted, already-finished round results.
       full normal length by the time the animation ends, and the boat is
       visibly faded (not just conceptually) by partway through a longer
       dive.
+* [ ] Manual/visual verification: the Sonar callout shows the correct
+      upcoming hazard's name once the countdown enters the gear's lookahead
+      window, clears the instant that hazard actually spawns, never appears
+      at Sonar Range level 0, and never delays or alters real spawn
+      timing/collision while it's visible.
 * [ ] Round-end token calculation matches the documented formula for a few
       representative (score, depth) pairs.
 * [ ] Gear level effects apply starting the next round, not mid-round.
@@ -727,17 +768,15 @@ holds only voluntarily-submitted, already-finished round results.
   item below), but the stale player-facing wording was a real, undocumented
   bug, not a design gap; fixed to say "boat" and "hook" respectively,
   matching the terms used throughout this doc.
-* **Sonar Range has no working effect** (a real defect, found while
-  finalizing gear magnitudes above, not a design gap): it's purchasable and
-  costs tokens like every other gear item, but nothing in the game loop
-  reads the multiplier `fishing-game.js` already computes for it. Its
-  originally-intended effect doesn't have an obvious implementation in this
-  game's fixed-canvas/world-scroll architecture (see the Gear upgrades note
-  above for why). Needs an actual design decision — a redefined effect that
-  *is* implementable (e.g. a HUD callout naming the next hazard shortly
-  before it spawns) or a decision to retire/replace this gear item entirely
-  — before it can be implemented; assigning it a number wouldn't fix
-  anything on its own.
+* **Resolved**: Sonar Range's effect — a real defect, found while
+  finalizing gear magnitudes above, not a design gap, where the gear was
+  purchasable and cost tokens like every other item but nothing in the game
+  loop read the multiplier `fishing-game.js` already computed for it — is
+  now a HUD callout that names the next hazard shortly before it spawns,
+  with the advance-warning window scaling with gear level via
+  `sonarLookaheadSeconds` (`rules.js`). See the Gear upgrades table and the
+  paragraph right after it in Business Rules, and Client-side Behavior's
+  "Sonar callout" note, for the finished mechanism.
 * Whether the leaderboard needs any abuse moderation beyond rate limiting
   (e.g. a profanity filter on `player_name`) if it turns out to attract spam
   once live.

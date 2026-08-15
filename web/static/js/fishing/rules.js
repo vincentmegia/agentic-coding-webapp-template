@@ -312,3 +312,49 @@ export function roundTokens(score, depthReachedMiles) {
 
   return Math.max(0, baseTokens + milestoneTokens);
 }
+
+// ---------------------------------------------------------------------------
+// 5. sonarLookaheadSeconds
+// ---------------------------------------------------------------------------
+
+/** Advance-warning gained per Sonar Range gear level, in seconds. */
+export const SONAR_LOOKAHEAD_STEP_SECONDS = 0.4;
+
+/**
+ * Sonar Range gear level hard cap. Must stay in sync with
+ * `GEAR_DEFS.sonarRange.maxLevel` in `fishing-game.js` — this file cannot
+ * import from `fishing-game.js` (the dependency only ever flows the other
+ * direction), so the value is duplicated here, the same way
+ * `STREAK_MULTIPLIER_STEP`/`_MAX` are documented as matching
+ * `docs/features/fishing-game.md`'s Business Rules numbers.
+ */
+const SONAR_RANGE_MAX_LEVEL = 5;
+
+/**
+ * The Sonar Range gear's actual implemented effect (docs/features/fishing-game.md
+ * documents this as the fix for a previously-dead gear item, which was
+ * purchasable but read by nothing): how many seconds of advance warning the
+ * HUD callout gets before a hazard spawns. The callout itself — naming the
+ * upcoming hazard shortly before it appears — is implemented in
+ * `fishing-game.js`'s game loop; this function only computes the pure
+ * duration of that warning window from the gear's level.
+ *
+ * Shape: 0 seconds of warning at level 0 (gear not purchased — no callout is
+ * ever shown), growing by `SONAR_LOOKAHEAD_STEP_SECONDS` per level, up to
+ * `SONAR_RANGE_MAX_LEVEL`.
+ *
+ * @param {number} sonarRangeLevel - the player's current Sonar Range gear
+ *   level. Negative/non-finite input is treated as 0; input above the max
+ *   level is clamped to the max.
+ * @returns {number} seconds of advance warning before a hazard spawns, in
+ *   [0, SONAR_RANGE_MAX_LEVEL * SONAR_LOOKAHEAD_STEP_SECONDS].
+ */
+export function sonarLookaheadSeconds(sonarRangeLevel) {
+  const level = Number.isFinite(sonarRangeLevel) && sonarRangeLevel > 0
+    ? sonarRangeLevel
+    : 0;
+
+  const clampedLevel = Math.min(level, SONAR_RANGE_MAX_LEVEL);
+
+  return clampedLevel * SONAR_LOOKAHEAD_STEP_SECONDS;
+}
