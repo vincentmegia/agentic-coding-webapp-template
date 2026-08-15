@@ -170,12 +170,6 @@ function catchRadiusForSave(save) {
   return 18 + 6 * save.gear.magneticLure;
 }
 
-function visibilityRangeForSave(save) {
-  // How far ahead (px) sprites become visible/spawn-relevant; Sonar Range
-  // does not change collision, only how early sprites appear on screen.
-  return 1.0 + 0.12 * save.gear.sonarRange;
-}
-
 /** Golden Bait is not modeled in rules.js's fishSpawnPool (that function's
  * weighting is fixed by the doc to depth+streak only); applied as a local
  * post-process that further boosts the pool's higher-point entries, kept

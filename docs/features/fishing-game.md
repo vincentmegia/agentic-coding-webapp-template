@@ -315,8 +315,10 @@ with `docs/features/home.md`'s CSP rule) owns everything HTMX cannot model:
   the `imageSlug` already computed at spawn time (see
   `spawnFishSprite`/`spawnHazardSprite`), not the flat colored circles used
   as a scaffolding placeholder earlier in this feature's build-out. A small
-  in-memory cache (a plain object/Map, keyed by the image path — this is
-  inherently DOM-dependent via the `Image` constructor, so unlike
+  in-memory cache (a plain `Map`, keyed by `` `${kind}:${imageSlug}` `` — not
+  just `imageSlug`, since fish and hazard art live in separate filename
+  namespaces and a slug collision between them isn't otherwise ruled out —
+  this is inherently DOM-dependent via the `Image` constructor, so unlike
   `world-scroll.js`/`boat-visuals.js` it isn't a candidate for a separate
   pure/tested module, same reasoning as why `localStorage` handling also
   lives directly in `fishing-game.js`) holds one `Image` per distinct sprite
