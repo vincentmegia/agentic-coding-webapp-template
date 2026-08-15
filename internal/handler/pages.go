@@ -140,11 +140,44 @@ var landingCarouselSlides = []CarouselSlide{
 	},
 }
 
-// Projects renders GET /projects. Real content is a separate feature.
+// Projects renders GET /projects. See docs/features/projects.md.
 func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
-	data := h.page(r, "Projects", false, "Projects", "Projects content coming soon.")
+	data := shellPageData(r, h.Version, "Projects", false)
 	data.NavActive = "/projects"
+	data.ContentTemplate = "projects-content"
+	data.Projects = projectItems
 	h.Renderer.Render(w, r, data)
+}
+
+// projectItems is the hand-authored card list for /projects (docs/features/
+// projects.md) — the same four sample entries as the pulled-in design's
+// Projects.dc.html (see Project's doc comment), placeholder until real
+// projects replace them. TagTint alternates per card, matching the mockup.
+var projectItems = []Project{
+	{
+		Title:       "Fieldnotes",
+		Description: "A minimal journaling app for capturing ideas on the move, synced offline-first.",
+		Tags:        []string{"React", "PWA", "IndexedDB"},
+		TagTint:     "primary",
+	},
+	{
+		Title:       "Tidewatch",
+		Description: "A real-time surf and tide dashboard for local breaks, built for quick morning checks.",
+		Tags:        []string{"Next.js", "D3"},
+		TagTint:     "accent",
+	},
+	{
+		Title:       "Loom UI",
+		Description: "A small open-source component kit for fast, honest prototypes.",
+		Tags:        []string{"TypeScript", "Storybook"},
+		TagTint:     "primary",
+	},
+	{
+		Title:       "Nightlight",
+		Description: "A sleep and focus timer with ambient soundscapes, built for quiet evenings.",
+		Tags:        []string{"Swift", "iOS"},
+		TagTint:     "accent",
+	},
 }
 
 // Blogs renders GET /blogs. Real content is a separate feature. Not linked

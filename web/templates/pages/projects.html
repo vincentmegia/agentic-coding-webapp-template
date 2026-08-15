@@ -1,0 +1,69 @@
+{{/* /projects page: a page heading + subhead, and a grid of project cards.
+     Pulled from a claude.ai/design "Personal website and portfolio"
+     project's Projects.dc.html (see DesignSync) — see docs/features/
+     projects.md and the Project type's doc comment in
+     internal/handler/template.go for the full contract (the four cards are
+     still that mockup's own placeholder content).
+
+     Defines "projects-content", not "content" — reusing "content" would
+     silently take over the shared placeholder every other still-unbuilt
+     route (/blogs, /settings/*) renders. See docs/features/resume.md's
+     Template Rendering and internal/handler/template.go's
+     PageData.ContentTemplate/LoadTemplates, the same pattern resume.html/
+     landing.html established.
+
+     Supplies its own <main id="main-content"> wrapper, with the exact same
+     classes every other page's wrapper uses, rather than relying on
+     base.html for it — required because hx-swap="outerHTML" (home.md's
+     HTMX Interactions) replaces the *entire* #main-content element with
+     whatever this template renders; base.html renders .RenderedContent
+     directly with no wrapper of its own. See resume.html's doc comment for
+     the full explanation of why this is load-bearing, not a style choice. */}}
+{{define "projects-content"}}
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<section class="space-y-3 pb-8">
+		<h1 class="text-4xl text-ink sm:text-5xl">Projects</h1>
+		<p class="max-w-xl text-lg text-muted">A few things I&rsquo;ve built recently &mdash; some finished, some still growing.</p>
+	</section>
+
+	<div id="projects-grid" class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+		{{range .Projects}}
+		{{$tint := .TagTint}}
+		<article class="project-card flex flex-col gap-4 rounded-card bg-surface p-5">
+			<div class="aspect-[16/10] overflow-hidden rounded-lg bg-surface-2">
+				{{if .ImagePath}}
+				<img src="{{.ImagePath}}" alt="" class="h-full w-full object-cover">
+				{{else}}
+				<div class="flex h-full w-full items-center justify-center text-xs text-muted">Screenshot coming soon</div>
+				{{end}}
+			</div>
+			<div>
+				<h3 class="text-lg text-ink">{{.Title}}</h3>
+				<p class="mt-2 text-sm leading-relaxed text-muted">{{.Description}}</p>
+				{{if .Tags}}
+				<div class="mt-3 flex flex-wrap gap-1.5">
+					{{range .Tags}}
+					<span class="rounded-full px-2.5 py-1 text-xs font-medium {{if eq $tint "accent"}}bg-accent/15 text-accent{{else}}bg-primary/10 text-primary{{end}}">{{.}}</span>
+					{{end}}
+				</div>
+				{{end}}
+				{{if .LiveURL}}
+				<a
+					href="{{.LiveURL}}"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+				>
+					Live demo
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true">
+						<path d="M7 7h10v10" />
+						<path d="M7 17 17 7" />
+					</svg>
+				</a>
+				{{end}}
+			</div>
+		</article>
+		{{end}}
+	</div>
+</main>
+{{end}}

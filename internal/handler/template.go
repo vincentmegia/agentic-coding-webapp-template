@@ -112,6 +112,32 @@ type PageData struct {
 	// Hand-authored placeholder entries, same pattern as CarouselSlides —
 	// no DB, no admin editing yet. Nil/empty for every other route.
 	SelectedWork []SelectedWorkItem
+
+	// Projects backs the /projects page (pages/projects.html), set only by
+	// PagesHandler.Projects. Hand-authored placeholder entries, same
+	// pattern as CarouselSlides/SelectedWork — no DB, no admin editing yet.
+	// Nil/empty for every other route.
+	Projects []Project
+}
+
+// Project is one card in the /projects grid — pulled from a claude.ai/design
+// "Personal website and portfolio" project's Projects.dc.html (see
+// DesignSync), which shows four sample entries (Fieldnotes/Tidewatch/Loom
+// UI/Nightlight) as placeholder content until real projects replace them
+// (docs/features/projects.md). ImagePath/LiveURL are optional ("" if
+// none) — the card renders a placeholder tile in place of a screenshot,
+// and omits the "Live demo" link, exactly like the mockup's own unfilled
+// image-slot and "#" hrefs. TagTint selects which token-tinted pill style
+// the card's tag chips use ("primary" or "accent") — the mockup alternates
+// tint per card rather than deriving it from the tags' content, so this is
+// data, not a template-computed value.
+type Project struct {
+	Title       string
+	Description string
+	Tags        []string
+	TagTint     string // "primary" or "accent"
+	LiveURL     string // optional, "" if none
+	ImagePath   string // optional, "" renders a placeholder tile
 }
 
 // SelectedWorkItem is one card in the landing page's "Selected work"
@@ -187,6 +213,7 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "carousel.html"),
 		filepath.Join(templatesDir, "components", "selected-work.html"),
 		filepath.Join(templatesDir, "pages", "landing.html"),
+		filepath.Join(templatesDir, "pages", "projects.html"),
 		filepath.Join(templatesDir, "components", "fishing-leaderboard.html"),
 		filepath.Join(templatesDir, "components", "fishing-shop.html"),
 		filepath.Join(templatesDir, "pages", "fishing-game.html"),

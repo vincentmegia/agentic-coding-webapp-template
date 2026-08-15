@@ -26,8 +26,10 @@ claude.ai/design project and adapted into Tailwind tokens — see
 and nav are pulled from that same claude.ai/design workspace's "Personal
 website and portfolio" project; a from-scratch restyle of page-specific
 components (resume, fishing game, carousel) to the new tokens is still
-open. Projects, Blogs, and About are still placeholders. Update this file
-as decisions are made or change.
+open. The `/projects` page now renders a card grid too (hand-authored
+placeholder project data, same "Personal website and portfolio" pull — see
+`docs/features/projects.md`). Blogs and About are still placeholders.
+Update this file as decisions are made or change.
 
 ## What this is
 

@@ -239,8 +239,8 @@ func TestEndToEnd(t *testing.T) {
 
 	t.Run("placeholder routes are unaffected by the resume feature", func(t *testing.T) {
 		for path, want := range map[string]string{
-			"/projects": "Projects content coming soon.",
-			"/blogs":    "Blog posts coming soon.",
+			"/blogs": "Blog posts coming soon.",
+			"/about": "About content coming soon.",
 		} {
 			resp, body := get(t, client, srv.URL+path)
 			if resp.StatusCode != http.StatusOK {
@@ -249,6 +249,23 @@ func TestEndToEnd(t *testing.T) {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s: body missing %q", path, want)
 			}
+		}
+	})
+
+	// /projects has real content now (docs/features/projects.md) — no
+	// longer part of the placeholder-routes check above.
+	t.Run("projects page renders real content, not the shared placeholder", func(t *testing.T) {
+		resp, body := get(t, client, srv.URL+"/projects")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		for _, want := range []string{`id="projects-grid"`, "Fieldnotes", "Tidewatch"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("/projects missing %q", want)
+			}
+		}
+		if strings.Contains(body, "Projects content coming soon.") {
+			t.Error("/projects still rendering the shared placeholder")
 		}
 	})
 
