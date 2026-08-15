@@ -720,6 +720,13 @@ holds only voluntarily-submitted, already-finished round results.
   score-to-token conversion, and gear costs/magnitudes are now final,
   locked-in numbers (Business Rules), not illustrative placeholders —
   matching what's already live in `rules.js`/`fishing-game.js`.
+* **Resolved**: two spots in the shipped UI copy (`fishing-game.html`'s
+  intro paragraph, `fishing-shop.html`'s Magnetic Lure description) still
+  said "diver" — leftover text from before the boat/rod/fisherman rework.
+  `diver.svg` itself being superseded was already documented (see the open
+  item below), but the stale player-facing wording was a real, undocumented
+  bug, not a design gap; fixed to say "boat" and "hook" respectively,
+  matching the terms used throughout this doc.
 * **Sonar Range has no working effect** (a real defect, found while
   finalizing gear magnitudes above, not a design gap): it's purchasable and
   costs tokens like every other gear item, but nothing in the game loop
