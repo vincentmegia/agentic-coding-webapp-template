@@ -358,3 +358,47 @@ export function sonarLookaheadSeconds(sonarRangeLevel) {
 
   return clampedLevel * SONAR_LOOKAHEAD_STEP_SECONDS;
 }
+
+// ---------------------------------------------------------------------------
+// 6. seaweedGapWidth
+// ---------------------------------------------------------------------------
+
+/** Gap width at depth 0 — the first wall a player meets, forgiving on purpose. */
+export const SEAWEED_GAP_WIDTH_MAX = 170;
+
+/**
+ * Gap width hard floor at the depth cap. Never narrower than this — a wall
+ * blocking the path is meant to demand precise steering, not become
+ * literally unfair/impassable the way an ever-shrinking gap eventually
+ * would (the same "harder but never unplayable" shape `descentSpeed`'s
+ * asymptote already commits to for this game).
+ */
+export const SEAWEED_GAP_WIDTH_MIN = 95;
+
+/**
+ * How wide a seaweed wall's navigable gap is, as a function of depth —
+ * fishing-game.js's obstacle-course walls (docs/features/fishing-game.md's
+ * Business Rules "Seaweed obstacle walls") use this to decide where to
+ * *omit* strand sprites when building a wall, not to size any sprite
+ * itself.
+ *
+ * Shape: linear interpolation from `SEAWEED_GAP_WIDTH_MAX` at depth 0 down
+ * to `SEAWEED_GAP_WIDTH_MIN` at `DEPTH_CAP_MILES` — the same simple linear
+ * shape `fishing-game.js`'s own `hazardSpawnIntervalSeconds` already uses
+ * for a comparable depth-driven difficulty ramp, rather than inventing a
+ * different curve shape for this one hazard.
+ *
+ * @param {number} depthMiles - current depth in miles. Negative/non-finite
+ *   input is treated as 0; input above the depth cap is clamped to it.
+ * @returns {number} gap width in px, in [SEAWEED_GAP_WIDTH_MIN, SEAWEED_GAP_WIDTH_MAX].
+ */
+export function seaweedGapWidth(depthMiles) {
+  const depth = clamp(
+    Number.isFinite(depthMiles) ? depthMiles : 0,
+    0,
+    DEPTH_CAP_MILES,
+  );
+
+  const span = SEAWEED_GAP_WIDTH_MAX - SEAWEED_GAP_WIDTH_MIN;
+  return SEAWEED_GAP_WIDTH_MAX - span * (depth / DEPTH_CAP_MILES);
+}

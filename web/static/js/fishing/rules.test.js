@@ -7,10 +7,13 @@ import {
   descentSpeed,
   roundTokens,
   sonarLookaheadSeconds,
+  seaweedGapWidth,
   STREAK_MULTIPLIER_BASE,
   STREAK_MULTIPLIER_MAX,
   DEPTH_CAP_MILES,
   SONAR_LOOKAHEAD_STEP_SECONDS,
+  SEAWEED_GAP_WIDTH_MAX,
+  SEAWEED_GAP_WIDTH_MIN,
 } from './rules.js';
 
 describe('streakMultiplier', () => {
@@ -279,5 +282,36 @@ describe('sonarLookaheadSeconds', () => {
     assert.equal(sonarLookaheadSeconds(NaN), 0);
     assert.equal(sonarLookaheadSeconds(Infinity), 0);
     assert.equal(sonarLookaheadSeconds(undefined), 0);
+  });
+});
+
+describe('seaweedGapWidth', () => {
+  test('at depth 0, returns exactly the max gap width', () => {
+    assert.equal(seaweedGapWidth(0), SEAWEED_GAP_WIDTH_MAX);
+  });
+
+  test('at the depth cap, returns exactly the min gap width', () => {
+    assert.equal(seaweedGapWidth(DEPTH_CAP_MILES), SEAWEED_GAP_WIDTH_MIN);
+  });
+
+  test('narrows monotonically as depth increases', () => {
+    const shallow = seaweedGapWidth(100);
+    const mid = seaweedGapWidth(500);
+    const deep = seaweedGapWidth(900);
+    assert.ok(shallow > mid, `${shallow} should be wider than ${mid}`);
+    assert.ok(mid > deep, `${mid} should be wider than ${deep}`);
+  });
+
+  test('never narrower than the documented floor, even past the depth cap', () => {
+    assert.equal(seaweedGapWidth(DEPTH_CAP_MILES * 10), SEAWEED_GAP_WIDTH_MIN);
+  });
+
+  test('treats negative input as depth 0 (the max gap width)', () => {
+    assert.equal(seaweedGapWidth(-50), SEAWEED_GAP_WIDTH_MAX);
+  });
+
+  test('treats non-finite input as depth 0 (the max gap width)', () => {
+    assert.equal(seaweedGapWidth(NaN), SEAWEED_GAP_WIDTH_MAX);
+    assert.equal(seaweedGapWidth(undefined), SEAWEED_GAP_WIDTH_MAX);
   });
 });

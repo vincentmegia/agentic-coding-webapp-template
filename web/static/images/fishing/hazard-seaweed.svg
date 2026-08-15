@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img">
+  <title>Seaweed hazard, a swaying green kelp strand with leaf blades</title>
+  <defs>
+    <linearGradient id="stalk" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#2F5D34"/>
+      <stop offset="100%" stop-color="#6FA85C"/>
+    </linearGradient>
+    <linearGradient id="blade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#3E7A45"/>
+      <stop offset="100%" stop-color="#7FB86B"/>
+    </linearGradient>
+  </defs>
+  <path d="M100 190 Q70 160 100 130 Q130 100 96 72 Q66 46 100 10" stroke="url(#stalk)" stroke-width="14" fill="none" stroke-linecap="round"/>
+  <path d="M92 150 Q56 140 46 108 Q70 116 92 140 Z" fill="url(#blade)" opacity="0.9"/>
+  <path d="M104 118 Q142 104 150 70 Q124 82 104 108 Z" fill="url(#blade)" opacity="0.9"/>
+  <path d="M90 82 Q54 70 48 40 Q76 50 92 74 Z" fill="url(#blade)" opacity="0.85"/>
+  <path d="M104 56 Q136 40 140 14 Q116 24 100 46 Z" fill="url(#blade)" opacity="0.85"/>
+</svg>

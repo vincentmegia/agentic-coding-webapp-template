@@ -31,7 +31,7 @@
 // so importing this module under Node (e.g. `node --check`, or an
 // import-only smoke test) never touches a nonexistent DOM.
 
-import { fishSpawnPool, streakMultiplier, roundTokens, descentSpeed, DEPTH_CAP_MILES, sonarLookaheadSeconds } from './fishing/rules.js';
+import { fishSpawnPool, streakMultiplier, roundTokens, descentSpeed, DEPTH_CAP_MILES, sonarLookaheadSeconds, seaweedGapWidth } from './fishing/rules.js';
 import { createInitialState, applyHazardHit, applyFishCatch, advance, DEFAULT_LIVES } from './fishing/engine-state.js';
 import { scrollOffsetForFrame, spawnY, scrollSprite, isOffScreen } from './fishing/world-scroll.js';
 import { castProgress, boatOpacityForDepth } from './fishing/boat-visuals.js';
@@ -308,6 +308,70 @@ function spawnHazardSprite(worldWidth, worldHeight, depthMiles, random) {
 }
 
 // ---------------------------------------------------------------------------
+// Seaweed obstacle walls (docs/features/fishing-game.md's Business Rules
+// "Seaweed obstacle walls") — a periodic, depth-triggered "obstacle course"
+// event layered on top of the continuous jellyfish/rock/eel/shark rotation
+// above, not a fifth entry in it. Deliberately reuses that rotation's own
+// machinery rather than inventing a new collision primitive: a wall is just
+// several ordinary hazard-kind sprites (imageSlug 'seaweed', vx 0, so
+// updateSprite()'s generic `x += vx * deltaSeconds` naturally leaves them
+// stationary — no new movement `behavior` needed) spawned in one row, with
+// no sprite placed across the gap's x-range. handleCollisions() and
+// engine-state.js's applyHazardHit() need zero changes — hitting any single
+// strand already behaves exactly like hitting any other hazard.
+// ---------------------------------------------------------------------------
+
+/** Horizontal spacing between adjacent seaweed strands in a wall, in px. */
+const SEAWEED_STRAND_SPACING_PX = 26;
+
+/** Each strand's collision hitbox radius — comparable scale to other hazards. */
+const SEAWEED_STRAND_HITBOX_RADIUS = 13;
+
+/** Small per-strand vertical jitter so a wall reads as organic kelp, not a ruler-straight line. */
+const SEAWEED_STRAND_Y_JITTER_PX = 16;
+
+/** Depth-miles of the very first wall — eases a fresh round in before the first gap-navigation challenge. */
+const SEAWEED_WALL_FIRST_DEPTH_MILES = 80;
+
+/** Depth-miles between subsequent walls (a depth threshold, not a timer — ties wall frequency to progress). */
+const SEAWEED_WALL_DEPTH_INTERVAL_MILES = 120;
+
+/**
+ * Builds one seaweed wall: a row of stationary strand sprites spanning
+ * `worldWidth`, omitting whichever strands would fall inside a randomly
+ * positioned gap `seaweedGapWidth(depthMiles)` px wide (narrower at greater
+ * depth — rules.js owns that curve). The gap's center is randomized but
+ * always kept fully on-screen, so the wall is never unfair by construction
+ * (a boat that can reach the gap's x-range can always fit through it).
+ *
+ * @returns {object[]} strand sprites, ready to push onto the shared `sprites` array.
+ */
+function spawnSeaweedWall(worldWidth, worldHeight, depthMiles, random) {
+  const gapWidth = seaweedGapWidth(depthMiles);
+  const halfGap = gapWidth / 2;
+  const gapCenter = halfGap + random() * Math.max(1, worldWidth - gapWidth);
+  const gapMin = gapCenter - halfGap;
+  const gapMax = gapCenter + halfGap;
+
+  const baseY = spawnY(worldHeight);
+  const strands = [];
+  for (let x = SEAWEED_STRAND_SPACING_PX / 2; x < worldWidth; x += SEAWEED_STRAND_SPACING_PX) {
+    if (x >= gapMin && x <= gapMax) continue; // the navigable gap: no strand here
+    strands.push({
+      id: nextSpriteId(),
+      kind: 'hazard',
+      name: 'Seaweed',
+      imageSlug: 'seaweed',
+      x,
+      y: baseY + (random() - 0.5) * SEAWEED_STRAND_Y_JITTER_PX,
+      vx: 0,
+      hitboxRadius: SEAWEED_STRAND_HITBOX_RADIUS,
+    });
+  }
+  return strands;
+}
+
+// ---------------------------------------------------------------------------
 // Collision
 // ---------------------------------------------------------------------------
 
@@ -395,6 +459,9 @@ export function init(canvas, elements) {
   let sprites = [];
   let timeSinceFishSpawn = 0;
   let timeSinceHazardSpawn = 0;
+  // Depth threshold (not a timer, unlike the two above) for the next
+  // seaweed obstacle wall — see spawnSeaweedWall's doc comment.
+  let nextSeaweedWallDepthMiles = SEAWEED_WALL_FIRST_DEPTH_MILES;
   // Accumulated world-scroll distance (px), used only to phase the
   // repeating background pattern — sprite positions themselves are moved
   // directly via world-scroll.js's `scrollSprite` each frame, not derived
@@ -508,6 +575,7 @@ export function init(canvas, elements) {
     sprites = [];
     timeSinceFishSpawn = 0;
     timeSinceHazardSpawn = 0;
+    nextSeaweedWallDepthMiles = SEAWEED_WALL_FIRST_DEPTH_MILES;
     boat = { x: world.width / 2, vx: 0 };
     worldScrollOffset = 0;
     submittedThisRound = false;
@@ -746,6 +814,14 @@ export function init(canvas, elements) {
     if (timeSinceHazardSpawn >= hazardSpawnIntervalSeconds(state.depthMiles)) {
       timeSinceHazardSpawn = 0;
       sprites.push(spawnHazardSprite(world.width, world.height, state.depthMiles, random));
+    }
+    // Seaweed obstacle wall: a depth threshold, not a timer (see
+    // nextSeaweedWallDepthMiles's declaration) — independent of the two
+    // spawn timers above, so a wall can land on the same frame as a
+    // point-hazard/fish spawn without either being skipped.
+    if (state.depthMiles >= nextSeaweedWallDepthMiles) {
+      nextSeaweedWallDepthMiles += SEAWEED_WALL_DEPTH_INTERVAL_MILES;
+      sprites.push(...spawnSeaweedWall(world.width, world.height, state.depthMiles, random));
     }
 
     // Sonar Range gear's HUD callout: purely informational — names the next

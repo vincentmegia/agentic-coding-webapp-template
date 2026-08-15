@@ -21,6 +21,15 @@ a card that links straight into the game via a "Play now" button
 (`docs/features/projects.md`'s `Project.External` field), so it isn't
 reachable only by typing the URL directly.
 
+**Later change**: seaweed obstacle walls — a depth-triggered gap the player
+must steer through, distinct from the continuous dodge-a-hazard rotation —
+were added on top of the original hazard system (Business Rules "Seaweed
+obstacle walls"). Unit-tested (`rules.js`'s `seaweedGapWidth`) and manually
+verified end-to-end in a real session (wall spawns at the documented depth,
+renders with a navigable gap, and a strand collision costs a life exactly
+like any other hazard) — nothing about the original hazard rotation or its
+own tests changed.
+
 ## Summary
 
 A playable arcade mini-game at `/fishing-game` (no longer linked from the
@@ -542,6 +551,30 @@ holds only voluntarily-submitted, already-finished round results.
   Visual Direction and Client-side Behavior's "World scroll") — only the
   world scrolls, so "movement" for every sprite in this table is a
   horizontal-only component layered on top of the shared upward scroll.
+* **Seaweed obstacle walls**: a periodic "obstacle course" event layered on
+  top of the continuous hazard rotation above, not a fifth row in that
+  table — a horizontal band of stationary seaweed strands spans the play
+  area with one navigable gap the player must steer through, rather than a
+  single point-hazard to dodge. Depth-triggered, not time-triggered: the
+  first wall spawns at 80 depth-miles (easing a fresh round in before the
+  first gap-navigation challenge), then every 120 depth-miles after that —
+  a wall's *frequency* doesn't scale with depth, only its *difficulty*
+  does. That difficulty comes entirely from the gap narrowing:
+  `seaweedGapWidth(depthMiles)` (`rules.js`) interpolates linearly from
+  170px wide at depth 0 down to a 95px hard floor at the 1000-mile depth
+  cap — never narrower, so a wall is harder at depth but never literally
+  unfair/impassable, the same "harder but never unplayable" shape
+  `descentSpeed`'s own asymptote already commits to elsewhere in this
+  table. The gap's horizontal center is randomized per wall (kept fully
+  on-screen), so its position is never predictable from depth alone.
+  Colliding with any individual strand costs a life exactly like colliding
+  with any other hazard — `engine-state.js`'s `applyHazardHit` needed zero
+  changes, since a strand is architecturally just an ordinary hazard-kind
+  sprite (stationary: `vx: 0` on the existing generic per-sprite
+  horizontal-motion update, no new movement `behavior` needed) placed in a
+  row, with none placed across the gap's x-range. See Client-side
+  Behavior's "Sprite image rendering" for the strand art
+  (`hazard-seaweed.svg`).
 * **One continuous cast per round, not repeated cast/reel cycles**: the line
   goes out once, at the start of the round, and stays out until the round
   ends (a hit-based "caught" or the depth-cap "reached the abyss") — there is
@@ -751,6 +784,18 @@ holds only voluntarily-submitted, already-finished round results.
       between the two endpoints, max level 5 → exactly 2.0s, a level above 5
       clamps to the same 2.0s rather than exceeding it, and negative or
       non-finite input → 0.
+* [x] `seaweedGapWidth` (`rules.js`): exactly the max gap width at depth 0,
+      exactly the documented min at the depth cap (and still the min past
+      it, never narrower), narrows monotonically as depth increases, and
+      negative/non-finite input is treated as depth 0.
+* [x] Manual/visual verification: the first seaweed wall appears once depth
+      crosses 80 miles, renders as a row of strands with a clear gap (not a
+      solid unbroken wall), and steering the boat outside the gap's x-range
+      when the wall reaches the boat costs exactly one life via the same
+      hit/invulnerability system every other hazard uses — verified via a
+      real Playwright session (not just reading the code): held the boat at
+      its clamped left edge through a wall and confirmed lives dropped from
+      3 to 2.
 * [ ] Manual/visual verification: every fish variety and hazard type renders
       as its real `fish-*.svg`/`hazard-*.svg` illustration, not a flat
       colored circle, once its image has loaded; a simulated load failure
@@ -856,6 +901,21 @@ holds only voluntarily-submitted, already-finished round results.
   "Sprite image rendering"). Whether `diver.svg` is deleted, kept unused, or
   repurposed (e.g. a "caught!" splash animation) is left open rather than
   decided as part of this revision.
+* Seaweed obstacle walls (Business Rules) don't get a Sonar Range HUD
+  callout the way point-hazards do — that gear's lookahead logic reads
+  `hazardBandFor`/`hazardSpawnIntervalSeconds`, which the depth-triggered
+  wall spawn deliberately doesn't go through (see Business Rules). A wall
+  arriving with zero warning may feel unfair at depth once gaps have
+  narrowed toward their 95px floor; extending Sonar Range to also preview
+  walls, or giving walls their own distinct warning affordance, is left
+  open rather than bundled into this pass.
+* The seaweed wall's spawn cadence (first at 80mi, then every 120mi) and
+  gap-width curve (170px down to a 95px floor) are illustrative/tunable
+  like the original hazard-band numbers were before their own
+  playtesting pass — worth the same kind of real-play validation before
+  calling them final, particularly whether a 95px gap (against a boat
+  clamped to a 16px-margin steering range) is actually comfortable to
+  thread at normal steering speed, not just mathematically non-zero.
 
 ---
 
