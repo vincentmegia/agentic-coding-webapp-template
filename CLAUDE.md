@@ -22,12 +22,16 @@ game (`docs/features/landing-page.md`). A
 Fishing Game mini-game (canvas-based, Postgres-backed public leaderboard,
 gear upgrades via `localStorage`-persisted fishing tokens) is implemented
 and covered by tests at `/fishing-game` — see `docs/features/fishing-game.md`.
-A second mini-game, Kitchen Shift (a top-down restaurant-shift sim at
-`/kitchen-shift` — take orders, gather ingredients, cook, then close up and
-collect a flat per-shift Gard paycheck from Duke across a 20-shift month),
-is implemented and covered by tests the same way — Postgres-backed public
-leaderboard, `localStorage`-persisted Gard/shop progress — see
-`docs/features/cooking-game.md`. `/projects` now leads with two real cards
+A second mini-game, Kitchen Shift (a top-down, click-controlled restaurant-
+shift sim at `/kitchen-shift` — click a table/fridge/cabinet/stove/etc. and
+the player walks over and uses it automatically; take orders, gather
+ingredients and cookware, cook, manage a draining Sanity bar via the Coffee
+Machine, then close up and collect a flat per-shift Gard paycheck from Duke
+across a 20-shift, 30-table month, with recurring characters Mel, Olive &
+Oliver, and a one-off Karen on shift 12), is implemented and covered by
+tests the same way — Postgres-backed public leaderboard, `localStorage`-
+persisted Gard/shop progress — see `docs/features/cooking-game.md`.
+`/projects` now leads with two real cards
 — Fishing Game and Kitchen Shift, both linking straight into their games
 via "Play now" — but Kitchen Shift still isn't linked from the header nav
 or the landing page's "Selected work" section yet, same as the Fishing
