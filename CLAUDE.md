@@ -30,7 +30,13 @@ Machine, then close up and collect a flat per-shift Gard paycheck from Duke
 across a 20-shift, 30-table month, with recurring characters Mel, Olive &
 Oliver, and a one-off Karen on shift 12), is implemented and covered by
 tests the same way — Postgres-backed public leaderboard, `localStorage`-
-persisted Gard/shop progress — see `docs/features/cooking-game.md`.
+persisted Gard/shop progress — see `docs/features/cooking-game.md`. Its
+visual style is "coquette" (soft pastel palette, rounded shapes, bow/star
+accents) rather than v2's pixel-art look, the floor plan is split into a
+Dining room and a separate Kitchen room (fridge/cabinet/cookware-closet/
+stove/oven/cleaning-closet) connected by a door and an "Enter Kitchen"
+button, and a one-time walk-in intro with scripted dialogue plays before a
+player's very first shift.
 `/projects` now leads with two real cards
 — Fishing Game and Kitchen Shift, both linking straight into their games
 via "Play now" — but Kitchen Shift still isn't linked from the header nav
