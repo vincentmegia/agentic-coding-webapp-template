@@ -51,7 +51,8 @@ export const PLAYER_START = { x: 480, y: 500 };
  * old "sink" — washes dishes, restyled as a door per the user's request),
  * 'cookware-closet' (Pan/Baking Tray/Rice Cooker), 'stove', 'oven',
  * 'counter' (the old "shutdown" light-switch/register point, restyled as
- * a proper front counter), 'boss-office', and 'table' (one per id).
+ * a proper front counter), 'boss-office', 'coffee-machine' (restores
+ * sanity — rules.js's restoreSanity), and 'table' (one per id).
  *
  * @param {number[]} tableIds
  * @returns {{id: string, kind: string, x: number, y: number, size: number, tableId?: number}[]}
@@ -65,6 +66,7 @@ export function buildStations(tableIds) {
     { id: 'stove', kind: 'stove', x: 90, y: 520, size: STATION_BOX_SIZE },
     { id: 'oven', kind: 'oven', x: 870, y: 520, size: STATION_BOX_SIZE },
     { id: 'counter', kind: 'counter', x: 480, y: 560, size: STATION_BOX_SIZE },
+    { id: 'coffee-machine', kind: 'coffee-machine', x: 350, y: 560, size: STATION_BOX_SIZE },
     { id: 'boss-office', kind: 'boss-office', x: 480, y: 40, size: STATION_BOX_SIZE },
   ];
 

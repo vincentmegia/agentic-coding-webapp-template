@@ -26,6 +26,9 @@ import {
   MEL_DISH,
   MEL_PATIENCE_BONUS_SECONDS,
   COUPLE_DISH,
+  clampSanity,
+  walkSpeedMultiplierForSanity,
+  SANITY_MAX,
 } from './rules.js';
 
 describe('RECIPE_BANDS ingredient and cookware names', () => {
@@ -296,5 +299,40 @@ describe('COUPLE_DISH', () => {
       const names = availableDishes(shift).map((d) => d.name);
       assert.ok(!names.includes(COUPLE_DISH.name), `COUPLE_DISH leaked into availableDishes(${shift})`);
     }
+  });
+});
+
+describe('clampSanity', () => {
+  test('clamps into [0, SANITY_MAX]', () => {
+    assert.equal(clampSanity(-10), 0);
+    assert.equal(clampSanity(SANITY_MAX + 10), SANITY_MAX);
+    assert.equal(clampSanity(50), 50);
+  });
+
+  test('non-finite input clamps to 0', () => {
+    assert.equal(clampSanity(NaN), 0);
+  });
+});
+
+describe('walkSpeedMultiplierForSanity', () => {
+  test('full sanity is full speed', () => {
+    assert.equal(walkSpeedMultiplierForSanity(SANITY_MAX), 1);
+  });
+
+  test('zero sanity never fully stops the player', () => {
+    const multiplier = walkSpeedMultiplierForSanity(0);
+    assert.ok(multiplier > 0);
+    assert.ok(multiplier < 1);
+  });
+
+  test('decreases monotonically as sanity drops', () => {
+    const high = walkSpeedMultiplierForSanity(80);
+    const low = walkSpeedMultiplierForSanity(20);
+    assert.ok(high > low);
+  });
+
+  test('out-of-range/non-finite input clamps before computing', () => {
+    assert.equal(walkSpeedMultiplierForSanity(-50), walkSpeedMultiplierForSanity(0));
+    assert.equal(walkSpeedMultiplierForSanity(SANITY_MAX + 50), walkSpeedMultiplierForSanity(SANITY_MAX));
   });
 });

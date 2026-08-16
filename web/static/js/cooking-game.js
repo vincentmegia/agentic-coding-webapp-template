@@ -64,6 +64,7 @@ import {
   COUPLE_DISH,
   OLIVE_FAVORITE_COLOR,
   OLIVER_FAVORITE_COLOR,
+  walkSpeedMultiplierForSanity,
 } from './cooking/rules.js';
 import {
   createInitialState,
@@ -74,6 +75,8 @@ import {
   washDishes,
   shutDown,
   failOrderAt,
+  restoreSanity,
+  SANITY_MAX,
 } from './cooking/engine-state.js';
 import {
   buildStations,
@@ -247,6 +250,7 @@ const STATION_COLORS = {
   stove: '#d97a52',
   oven: '#b5563c',
   counter: '#caa24a',
+  'coffee-machine': '#6f4e37',
   'boss-office': '#9b7bb8',
   table: '#3a2414',
 };
@@ -259,6 +263,7 @@ const STATION_LABELS = {
   stove: 'Stove',
   oven: 'Oven',
   counter: 'Counter',
+  'coffee-machine': 'Coffee Machine',
   'boss-office': "Duke's Office",
 };
 
@@ -306,7 +311,7 @@ function drawPixelPerson(ctx, x, y, { bodyColor, headColor, pantsColor = null, h
  * Wires up the canvas game loop against a page's DOM elements.
  *
  * DOM contract:
- *   hud: { shift, clock, status }
+ *   hud: { shift, clock, status, sanityFill, sanityLabel } — sanityFill is a bar's fill div, sanityLabel its "N%" text.
  *   orderQueue                    — <ul> repopulated with the active order/pending-customer list every frame.
  *   hoverHint                     — shown/hidden with the hovered station's name/status (mouse-hover tooltip, not a "press key" prompt).
  *   toast                         — brief transient message banner (e.g. missing-ingredient hints, Karen's line).
@@ -453,6 +458,11 @@ export function init(canvas, elements) {
     elements.hud.shift.textContent = `${currentShiftNumber}/${SHIFTS_PER_MONTH}`;
     elements.hud.clock.textContent = inGameTimeLabel(shiftState.clockSeconds);
     elements.hud.status.textContent = shiftState.shiftUpset ? 'Customer upset' : 'Going well';
+
+    const sanityPercent = Math.round((shiftState.sanity / SANITY_MAX) * 100);
+    elements.hud.sanityFill.style.width = `${sanityPercent}%`;
+    elements.hud.sanityFill.style.backgroundColor = sanityPercent > 50 ? '#7fd68a' : (sanityPercent > 20 ? '#e0a83a' : '#e06a5b');
+    elements.hud.sanityLabel.textContent = `${sanityPercent}%`;
   }
 
   function renderOrderQueue() {
@@ -785,7 +795,12 @@ export function init(canvas, elements) {
     const dx = moveTarget.x - player.x;
     const dy = moveTarget.y - player.y;
     const dist = Math.hypot(dx, dy);
-    const step = walkSpeedForSave(save) * deltaSeconds;
+    // Sanity multiplies on top of the gear-based speed (rules.js's
+    // walkSpeedMultiplierForSanity) — tired legs from a rough shift, not a
+    // separate speed system. shiftState is only null before the very first
+    // "Start Shift" click; SANITY_MAX (full speed) covers that case.
+    const sanityMultiplier = walkSpeedMultiplierForSanity(shiftState ? shiftState.sanity : SANITY_MAX);
+    const step = walkSpeedForSave(save) * sanityMultiplier * deltaSeconds;
 
     if (dist <= step || dist === 0) {
       const clamped = clampToCanvas(moveTarget.x, moveTarget.y);
@@ -907,6 +922,11 @@ export function init(canvas, elements) {
       if (station.kind === 'fridge' || station.kind === 'cabinet') return handleGatherArrival(station.kind);
       if (station.kind === 'cookware-closet') return openPanel('cookware');
       if (station.kind === 'stove' || station.kind === 'oven') return handleCookArrival(station.kind);
+      if (station.kind === 'coffee-machine') {
+        shiftState = restoreSanity(shiftState);
+        showToast('Coffee! Feeling sharper.');
+        return;
+      }
       return;
     }
     if (shiftState.phase === 'closing-clean' && station.kind === 'table') return startClosingTimerIfValid(station);
@@ -1331,6 +1351,8 @@ function bootstrap() {
       shift: document.getElementById('cooking-hud-shift'),
       clock: document.getElementById('cooking-hud-clock'),
       status: document.getElementById('cooking-hud-status'),
+      sanityFill: document.getElementById('cooking-hud-sanity-fill'),
+      sanityLabel: document.getElementById('cooking-hud-sanity-label'),
     },
     orderQueue: document.getElementById('cooking-order-queue'),
     hoverHint: document.getElementById('cooking-interact-hint'),

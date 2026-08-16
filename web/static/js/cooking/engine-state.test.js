@@ -10,7 +10,9 @@ import {
   washDishes,
   shutDown,
   failOrderAt,
+  restoreSanity,
   SHIFT_CLOCK_SECONDS,
+  SANITY_MAX,
 } from './engine-state.js';
 
 const TABLE_IDS = [1, 2, 3, 4];
@@ -23,6 +25,7 @@ describe('createInitialState', () => {
     assert.deepEqual(state.orders, []);
     assert.equal(state.dirtyDishCount, 0);
     assert.equal(state.shiftUpset, false);
+    assert.equal(state.sanity, SANITY_MAX);
     for (const id of TABLE_IDS) {
       assert.deepEqual(state.tables[id], { occupied: false, dirty: false });
     }
@@ -226,5 +229,59 @@ describe('closing sequence order is enforced', () => {
     state = washDishes(state);
     state = shutDown(state);
     assert.equal(state.phase, 'paycheck');
+  });
+});
+
+describe('sanity', () => {
+  test('tick drains sanity passively even when nothing goes wrong', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = tick(state, 10);
+    assert.ok(state.sanity < SANITY_MAX);
+  });
+
+  test('a wrong-dish serve drains sanity on top of the passive rate', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 30, 4);
+    const before = state.sanity;
+    state = serveDish(state, 1, 'Pancakes');
+    assert.ok(state.sanity < before);
+  });
+
+  test('failOrderAt drains sanity', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 30, 4);
+    const before = state.sanity;
+    state = failOrderAt(state, 1);
+    assert.ok(state.sanity < before);
+  });
+
+  test('a patience timeout during tick drains sanity', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 5, 4);
+    const before = state.sanity;
+    state = tick(state, 5);
+    assert.ok(state.sanity < before);
+  });
+
+  test('sanity never drops below 0 no matter how much drains at once', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = tick(state, SHIFT_CLOCK_SECONDS * 100);
+    assert.equal(state.sanity, 0);
+  });
+
+  test('restoreSanity sets it back to SANITY_MAX', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = tick(state, 10);
+    assert.ok(state.sanity < SANITY_MAX);
+    state = restoreSanity(state);
+    assert.equal(state.sanity, SANITY_MAX);
+  });
+
+  test('restoreSanity is a no-op once the shift has left playing', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = tick(state, SHIFT_CLOCK_SECONDS);
+    const before = state;
+    const after = restoreSanity(state);
+    assert.deepEqual(after, before);
   });
 });

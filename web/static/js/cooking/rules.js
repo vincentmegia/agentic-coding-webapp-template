@@ -417,3 +417,50 @@ export function inGameTimeLabel(clockSecondsRemaining) {
 
   return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
 }
+
+// ---------------------------------------------------------------------------
+// 9. Sanity and the Coffee Machine — a shift-long stat that passively drains
+//    and takes a bigger hit on every upset (a missed order or a wrong-dish
+//    serve), representing the stress of a bad shift. Low sanity slows the
+//    player down, never anything harsher — matching this game's existing
+//    lower-stakes design (Business Rules: "the tension is finishing the
+//    shift clean, not avoiding a game-over state"). A Coffee Machine station
+//    restores it to full on the spot.
+// ---------------------------------------------------------------------------
+
+/** Sanity starts here every shift. */
+export const SANITY_MAX = 100;
+
+/** Passive drain per real second of the shift clock, whether or not anything goes wrong. */
+export const SANITY_DRAIN_PER_SECOND = SANITY_MAX / 150;
+
+/** Extra one-time drain on top of the passive rate for each upset event (missed order or wrong-dish serve). */
+export const SANITY_DRAIN_PER_UPSET = 15;
+
+/** Walking speed multiplier floor at 0 sanity — tired, not stuck. */
+const SANITY_MIN_WALK_MULTIPLIER = 0.6;
+
+/**
+ * Clamps a proposed sanity value into `[0, SANITY_MAX]`.
+ *
+ * @param {number} sanity
+ * @returns {number}
+ */
+export function clampSanity(sanity) {
+  return clamp(Number.isFinite(sanity) ? sanity : 0, 0, SANITY_MAX);
+}
+
+/**
+ * Walking speed multiplier for the player's current sanity: 1.0 at full
+ * sanity, linearly down to `SANITY_MIN_WALK_MULTIPLIER` at 0 — tired
+ * legs, not a hard stop. Multiplies whatever `walkSpeedForSave` (gear)
+ * already computes; the two effects stack rather than one overriding the
+ * other.
+ *
+ * @param {number} sanity - 0..SANITY_MAX (out-of-range/non-finite clamped).
+ * @returns {number}
+ */
+export function walkSpeedMultiplierForSanity(sanity) {
+  const fraction = clampSanity(sanity) / SANITY_MAX;
+  return SANITY_MIN_WALK_MULTIPLIER + (1 - SANITY_MIN_WALK_MULTIPLIER) * fraction;
+}

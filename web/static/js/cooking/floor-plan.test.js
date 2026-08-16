@@ -18,7 +18,7 @@ describe('buildStations', () => {
   test('includes one entry per fixed station plus one per table id', () => {
     const stations = buildStations(TABLE_IDS);
     const kinds = stations.map((s) => s.kind);
-    for (const kind of ['fridge', 'cabinet', 'cleaning-closet', 'cookware-closet', 'stove', 'oven', 'counter', 'boss-office']) {
+    for (const kind of ['fridge', 'cabinet', 'cleaning-closet', 'cookware-closet', 'stove', 'oven', 'counter', 'coffee-machine', 'boss-office']) {
       assert.ok(kinds.includes(kind), `missing station kind ${kind}`);
     }
     assert.equal(stations.filter((s) => s.kind === 'table').length, TABLE_IDS.length);

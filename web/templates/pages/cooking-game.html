@@ -71,6 +71,27 @@
 					>Fullscreen</button>
 				</div>
 
+				{{/* Sanity bar: starts full and drains through the shift (passively,
+				     and more on every upset), restored by visiting the Coffee
+				     Machine — cooking-game.js's renderHud() updates both the fill
+				     bar's width and its color (green/amber/red bands) and the "N%"
+				     label every frame via CSSOM property assignment
+				     (`.style.width`/`.style.backgroundColor`), not an HTML style
+				     attribute — this shell's CSP blocks the latter (see the Status
+				     note's earlier CSP bug), the same safe pattern the cook-timing
+				     gauge's fill bar already uses. bg-primary here is just the
+				     pre-JS default color, overwritten as soon as the game loop
+				     starts. */}}
+				<div class="rounded-card border border-line bg-surface-2 px-3 py-2">
+					<div class="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted sm:text-xs">
+						<span>Sanity</span>
+						<span id="cooking-hud-sanity-label" class="font-mono tabular-nums text-ink">100%</span>
+					</div>
+					<div class="mt-1 h-2 overflow-hidden rounded-full bg-surface">
+						<div id="cooking-hud-sanity-fill" class="h-full w-full bg-primary"></div>
+					</div>
+				</div>
+
 				{{/* Order queue: variable-length, so cooking-game.js repopulates
 				     this list's innerHTML directly (unlike the fixed HUD numbers
 				     above) rather than this template pre-rendering any rows. Empty

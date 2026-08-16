@@ -188,6 +188,12 @@ second data point for that pattern rather than a reskin of the first game.
   mishandled). See Business Rules for the full rundown of each.
 * A stationary security guard figure near the entrance — cosmetic only, not
   an interactive station.
+* A Sanity stat (HUD bar, starts full every shift) that drains over the
+  shift — passively, and more on every upset — and slows the player down
+  the lower it gets; a Coffee Machine station restores it to full on
+  arrival. See Business Rules for the full shape.
+* A Recipe Book reference panel (every known dish's station/cookware/
+  ingredients), reachable anytime.
 * A Fullscreen toggle on the game container (native Fullscreen API).
 * A small public leaderboard (Postgres-backed): top monthly Gard totals
   across all visitors, submitted voluntarily at month-end with a
@@ -717,11 +723,29 @@ only voluntarily-submitted, already-finished month results.
   security to protect the place." Cosmetic only: not a `floor-plan.js`
   station, no click target, no interaction, no effect on Karen or anyone
   else. Present every shift, unconditionally.
+* **Sanity and the Coffee Machine**: a shift-long stat (`SANITY_MAX` = 100,
+  starts full every shift, shown as a HUD bar) that drains passively over
+  the shift (`SANITY_DRAIN_PER_SECOND`) and takes an extra one-time hit
+  (`SANITY_DRAIN_PER_UPSET` = 15) on every upset event — a missed order or
+  a wrong-dish serve, latched independently each time it happens, not just
+  once per shift the way `shiftUpset` itself is. Low sanity slows the
+  player down: `walkSpeedMultiplierForSanity` scales walking speed
+  linearly from 1.0x at full sanity down to a 0.6x floor at zero — tired,
+  never stuck, matching this game's existing "no game-over state" design
+  (see the missed-order rule above). A Coffee Machine station (near the
+  front counter) restores sanity to full the moment the player arrives,
+  no picker panel needed — same "auto-action on arrival" pattern as the
+  fridge/cabinet, just instant. Purely a pacing/QoL mechanic: sanity has no
+  effect on the shift paycheck itself, which stays governed entirely by
+  `shiftUpset` (Shift paycheck rule above) — a player who never drinks
+  coffee still gets paid the same for a clean shift, just walks slower by
+  the end of it.
 * **Mid-month resume**: month-to-date Gard, current shift number, and shop
   levels persist across a reload; an in-progress shift's floor-plan state
   (order queue, inventory, acquired cookware, table/dish cleanliness, the
-  `shiftUpset` flag, and whether Mel/Karen/Olive & Oliver have already
-  appeared or been resolved this shift) does not — returning mid-shift
+  `shiftUpset` flag, current sanity, and whether Mel/Karen/Olive & Oliver
+  have already appeared or been resolved this shift) does not — returning
+  mid-shift
   restarts that shift from its beginning, same forfeiture principle as the
   Fishing Game's abandoned-round rule, just scoped to one shift instead of
   the whole run since a month is a much longer investment to fully discard.
@@ -810,6 +834,19 @@ only voluntarily-submitted, already-finished month results.
       output at any shift number — only the two scripted spawns ever order
       them.
 * [ ] `isKarenShift` is true only at `KAREN_SHIFT_NUMBER`.
+* [ ] Sanity starts at `SANITY_MAX` every shift; `tick` drains it passively
+      even when nothing goes wrong, and drains an extra
+      `SANITY_DRAIN_PER_UPSET` on top for each upset event (a patience
+      timeout during `tick`, a wrong-dish `serveDish`, or `failOrderAt`) —
+      never below 0 no matter how much drains at once.
+* [ ] `walkSpeedMultiplierForSanity` is 1.0 at full sanity, decreases
+      monotonically as sanity drops, and never reaches 0 (tired, never
+      stuck) even at exactly 0 sanity.
+* [ ] `restoreSanity` sets sanity back to `SANITY_MAX` and is a no-op once
+      the shift has left `playing`.
+* [ ] `e2e`/manual: the Coffee Machine restores the HUD sanity bar to 100%
+      on arrival, and the player visibly moves slower at low sanity than
+      at full sanity.
 * [ ] Month total accumulates correctly across shifts (sum of each shift's
       4,000/2,000 payout) and resets to 0 on "Start New Month" while shop
       gear levels persist.
