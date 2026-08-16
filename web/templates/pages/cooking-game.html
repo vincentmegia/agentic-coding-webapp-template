@@ -130,6 +130,26 @@
 						aria-label="Kitchen Shift play area"
 					>Your browser doesn't support the canvas element needed to play this game.</canvas>
 
+					{{/* One-time intro dialogue — hidden by default; cooking-game.js's
+					     playIntro() unhides it the very first time ever "Start Shift"
+					     is clicked on this device (gated on the localStorage save's
+					     hasSeenIntro flag), while the player character walks in from
+					     the entrance across the floor plan behind it. "Continue"
+					     dismisses it (and finishes the walk instantly, if it hasn't
+					     already) and starts the shift for real; it never shows again
+					     after that first time. Positioned at the bottom, like the
+					     cook-timing gauge below, so the walk-in animation stays
+					     visible above it rather than being covered by a centered
+					     card. */}}
+					<div id="cooking-intro-screen" class="hidden absolute inset-x-0 bottom-4 mx-auto w-[92%] max-w-md space-y-3 rounded-card border border-line bg-surface p-4 shadow-lg">
+						<p id="cooking-intro-line" class="text-sm text-ink"></p>
+						<button
+							type="button"
+							id="cooking-intro-continue-button"
+							class="w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>Let's get to work!</button>
+					</div>
+
 					{{/* Cook-timing mini-game overlay — hidden by default;
 					     cooking-game.js's handleCookArrival() unhides it once the
 					     player has arrived at a stove/oven with the right

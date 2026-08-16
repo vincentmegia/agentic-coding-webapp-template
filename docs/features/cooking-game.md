@@ -153,6 +153,45 @@ the new arbitrary-value Tailwind class, zero console errors on
 screenshots — legible labels, visible Sanity bar, visible signage, no
 overlapping text.
 
+**v3.1 intro sequence** — alongside the v3 restyle request, the user also
+asked for a one-time intro: the player walking in from the entrance with a
+specific opening line of dialogue. Shipped as a short scripted sequence
+(`cooking-game.js`'s `playIntro()`) that runs exactly once, ever, on the
+very first "Start Shift" click on a given device — gated on a new
+`hasSeenIntro` boolean in the `cooking-game:v2` `localStorage` save (see
+Client-side Behavior's Progress persistence). The player character walks
+from a fixed spot near the floor's "★ Entrance / Exit ★" marker to their
+normal `PLAYER_START` position using the same movement code real gameplay
+uses (`updatePlayer`, `floor-plan.js`'s geometry), then a dialogue box
+reveals the line verbatim and a "Let's get to work!" button starts the
+shift for real. Every later "Start Shift"/"Start Next Shift"/"Start New
+Month" click skips straight to gameplay, since `hasSeenIntro` is already
+`true` by then; "Reset progress" clears it back to `false` along with the
+rest of the save, so the intro also replays once after a reset — treated
+as a fresh save, not a special case.
+
+**Real bug caught and fixed before shipping this**: the dialogue box's
+first draft sat at the bottom of the canvas — the same region the
+entrance-to-`PLAYER_START` walk crosses — so the walking player sprite was
+completely hidden behind the card for the whole animation, defeating the
+point of a "player walking in" cutscene. Fixed by keeping the dialogue box
+hidden until the walk finishes (`moveTarget` clears), so the walk itself
+is fully visible first and the dialogue only appears once the player has
+actually arrived. Under `prefers-reduced-motion`, the walk is skipped
+entirely (player starts already at `PLAYER_START`) and the dialogue shows
+immediately — same reveal-after-arrival code path either way, since
+"arrival" is instant in that case.
+
+Manually verified via Playwright: a fresh browser/`localStorage` shows the
+walk-in animation (confirmed via a mid-walk screenshot with no dialogue box
+visible) followed by the dialogue box with the exact line, "Let's get to
+work!" starts real gameplay, `hasSeenIntro` is persisted `true` in
+`localStorage`, and a second shift (same `localStorage`, via the
+`skipToClosing`/`collectPaycheck` test hooks) does not replay the intro.
+Zero console errors. JS (`node --test`) and Go (`go build`/`go vet`/
+`go test`) suites green; `make css` rebuilt for the intro card's new
+arbitrary-value Tailwind class.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,
@@ -267,6 +306,11 @@ second data point for that pattern rather than a reskin of the first game.
   closes the tab mid-month resumes at the start of their current shift
   rather than losing the whole month (unlike the Fishing Game's much
   shorter, fully-ephemeral single round — see Business Rules).
+* A one-time intro sequence (v3.1): the very first "Start Shift" click
+  ever on a device plays the player walking in from the entrance, then
+  reveals a scripted dialogue line before the shift actually starts —
+  never shown again after that first time (gated on `localStorage`, see
+  Client-side Behavior).
 
 **Out of scope (v1):**
 
@@ -298,15 +342,21 @@ second data point for that pattern rather than a reskin of the first game.
    total (read from localStorage), the leaderboard fragment, and a "Start
    Shift" button. If localStorage shows a shift already in progress
    (mid-month resume), the button instead reads "Resume Shift {n}".
-2. User clicks "Start Shift". The floor plan renders: fridge, cabinet,
-   cleaning closet, cookware closet, stove, oven, a 6x5 grid of 30 tables,
-   the front counter, the (locked) boss's office door, a stationary
-   security guard near the entrance, and the player character. A HUD
-   overlays the canvas: shift number (n/20), the in-game clock (starts at
-   8:30 AM), this shift's status (no customer upset yet vs. upset), and the
-   order queue. Mel — always the first customer of the shift — and, right
-   after her, Olive & Oliver, seat themselves before the normal random
-   arrival rotation begins.
+2. User clicks "Start Shift". The very first time ever on this device
+   (`localStorage`'s `hasSeenIntro` still `false`), a one-time intro plays
+   first: the player character walks in from the entrance, then a dialogue
+   box reveals "Woah so this is my new job! i hope this will turn out well
+   this is a perfect match because i like this resturant" with a "Let's get
+   to work!" button — clicking it starts the shift for real and marks the
+   intro seen forever. Every other time, the shift starts immediately. The
+   floor plan renders: fridge, cabinet, cleaning closet, cookware closet,
+   stove, oven, a 6x5 grid of 30 tables, the front counter, the (locked)
+   boss's office door, a stationary security guard near the entrance, and
+   the player character. A HUD overlays the canvas: shift number (n/20),
+   the in-game clock (starts at 8:30 AM), this shift's status (no customer
+   upset yet vs. upset), and the order queue. Mel — always the first
+   customer of the shift — and, right after her, Olive & Oliver, seat
+   themselves before the normal random arrival rotation begins.
 3. Customers begin seating themselves at tables at intervals (faster in
    later shifts). Clicking an occupied table walks the player over and
    automatically takes its order into the queue, showing the requested dish
@@ -479,6 +529,7 @@ States this feature's UI must handle:
 | State                        | Behavior |
 | ----------------------------- | -------- |
 | Start screen                   | Shows month-to-date Gard/shop levels/best month from `localStorage`, shop entry point, leaderboard, "Start Shift" (or "Resume Shift {n}"). |
+| One-time intro (v3.1)           | Only on the very first "Start Shift" ever (`hasSeenIntro` still `false`): player walks in from the entrance across the floor plan, then a dialogue box reveals the scripted line and a "Let's get to work!" button; every later start skips straight to Playing. |
 | Playing — floor plan            | Canvas game loop running; HUD (in-game clock, shift status, order queue) updates every frame; player walks toward the current click target. |
 | Hover tooltip                   | Shows the hovered station's name/status (e.g. a table's order, "Duke's Office (locked)") — mouse-hover only, no click needed. |
 | Station picker panel            | Fridge/cabinet/cookware-closet panel open, listing that station's items as clickable buttons; owned cookware shown checked/disabled. |
@@ -613,10 +664,27 @@ site's CSP):
   (`cooking-game:v2` — bumped from `v1` since this redesign changes enough
   client-only state shape that a stale v1 save isn't worth attempting to
   migrate) holding `{monthToDateGard, currentShift, gear: {...levels},
-  bestMonthTotal}`.
+  bestMonthTotal, hasSeenIntro}`. `hasSeenIntro` (v3.1) is read as `false`
+  on any save written before this field existed, so a pre-existing player
+  sees the one-time intro once on their next "Start Shift" rather than the
+  load failing or the intro being silently skipped for a save that
+  genuinely never saw it.
+* **One-time intro** (v3.1): `playIntro()` walks the player in from a fixed
+  spot near the floor's entrance/exit marker to `PLAYER_START` using the
+  same `updatePlayer` movement code real gameplay uses (with `moveTarget`'s
+  `station` left `null`, so arrival never triggers `handleArrival`), then
+  reveals a dialogue box once the walk finishes. `startShift()` is a thin
+  gate in front of the real shift-start logic (`beginShift()`): first time
+  ever, it calls `playIntro(beginShift)`; every other time, straight to
+  `beginShift()`. "Start Next Shift," "Start New Month," and "Reset
+  progress" all funnel through the same gate, so the intro only ever plays
+  when `hasSeenIntro` is genuinely still `false`.
 * **Reduced motion**: same accepted gap as the Fishing Game — gameplay
   canvas can't fully honor the preference, but every non-gameplay transition
-  (shop, paycheck, station-panel screens) does.
+  (shop, paycheck, station-panel screens) does; the one-time intro's walk-in
+  is skipped entirely under `prefers-reduced-motion` (the player starts
+  already at `PLAYER_START`), though the dialogue itself still shows either
+  way.
 * **Cleanup**: loop torn down (canceled `requestAnimationFrame`, listeners
   removed) on HTMX nav-away, not just full page unload; a pending toast
   `setTimeout` is also cleared.
@@ -943,6 +1011,12 @@ only voluntarily-submitted, already-finished month results.
       simulated fetch error.
 * [ ] Rate limiting on `POST /kitchen-shift/score` rejects rapid repeated
       submissions from the same source.
+* [ ] `e2e/`: a fresh browser/`localStorage`, clicking "Start Shift" the
+      first time ever, shows the one-time intro (player walks in from the
+      entrance, the exact scripted dialogue line, "Let's get to work!"
+      starts the shift for real) and persists `hasSeenIntro: true`;
+      starting a second shift with the same `localStorage` does not replay
+      it.
 * [ ] `e2e/`: nav → Kitchen Shift → play through a full shift with zero
       upsets (real clicks, plus the `skipToClosing`/`collectPaycheck` test
       hooks to fast-forward the closing sequence's real-time waits) →
@@ -998,10 +1072,11 @@ only voluntarily-submitted, already-finished month results.
   production.
 * **Not yet started**: splitting the single Dining floor plan into a
   separate Kitchen room (fridge, cabinet, cookware closet, stove, oven,
-  cleaning closet) connected via a door/button, and a one-time scripted
-  intro sequence (the player walking in with an opening line of dialogue)
-  — both requested alongside the v3 restyle above but out of scope for
-  this pass; planned as separate follow-up work.
+  cleaning closet) connected via a door/button — requested alongside the
+  v3 restyle above but out of scope for that pass; planned as separate
+  follow-up work. **Resolved (v3.1)**: the one-time scripted intro
+  sequence requested in the same message — see the Status note's "v3.1
+  intro sequence" entry.
 * **Resolved**: a real, previously-shipped bug where any *new* Tailwind
   utility class introduced only in a template (not already used elsewhere
   in the codebase) silently did nothing until `make css` regenerated

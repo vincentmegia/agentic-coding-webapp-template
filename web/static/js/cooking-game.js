@@ -111,7 +111,7 @@ export const GEAR_DEFS = {
 function defaultSave() {
   const gear = {};
   Object.keys(GEAR_DEFS).forEach((key) => { gear[key] = 0; });
-  return { version: 1, monthToDateGard: 0, currentShift: 1, gear, bestMonthTotal: 0 };
+  return { version: 1, monthToDateGard: 0, currentShift: 1, gear, bestMonthTotal: 0, hasSeenIntro: false };
 }
 
 /** Feature-detects a real, usable localStorage (private browsing / disabled storage safe). */
@@ -151,6 +151,11 @@ export function loadSave(storageAvailable) {
     save.monthToDateGard = Math.max(0, parsed.monthToDateGard);
     save.currentShift = Math.min(SHIFTS_PER_MONTH, Math.max(1, Math.round(parsed.currentShift)));
     save.bestMonthTotal = Math.max(0, parsed.bestMonthTotal);
+    // Absent on any save written before this field existed — treated as
+    // `false` (not yet seen), so pre-existing players see the one-time
+    // intro once on their next "Start Shift" rather than the load failing
+    // or the intro being skipped for a save that genuinely never saw it.
+    save.hasSeenIntro = parsed.hasSeenIntro === true;
     Object.keys(GEAR_DEFS).forEach((key) => {
       const level = parsed.gear[key];
       save.gear[key] = typeof level === 'number' && Number.isFinite(level) && level >= 0
@@ -200,6 +205,20 @@ function carryCapacityForSave(save) {
 function cleaningDurationForSave(save) {
   return Math.max(0.4, BASE_CLEAN_SECONDS - save.gear.quickClean * CLEAN_SECONDS_PER_QUICK_CLEAN_LEVEL);
 }
+
+// ---------------------------------------------------------------------------
+// One-time intro (v3): the very first "Start Shift" ever clicked on this
+// device shows the player walking in from the entrance/exit (drawFloor's
+// "★ Entrance / Exit ★" marker) while a dialogue line displays, before
+// normal play begins — never again after that, gated on the save's
+// `hasSeenIntro` flag (see loadSave/defaultSave above).
+// ---------------------------------------------------------------------------
+
+/** Verbatim per the user's request — not reworded. */
+const INTRO_DIALOGUE_LINE = "Woah so this is my new job! i hope this will turn out well this is a perfect match because i like this resturant";
+
+/** Just inside the canvas near the floor's "Entrance / Exit" marker (drawFloor). */
+const INTRO_ENTRANCE_POSITION = { x: 650, y: CANVAS_HEIGHT - 30 };
 
 // ---------------------------------------------------------------------------
 // Recipe helpers
@@ -433,6 +452,7 @@ function drawMel(ctx, x, y, scale) {
  *   orderQueue                    — <ul> repopulated with the active order/pending-customer list every frame.
  *   hoverHint                     — shown/hidden with the hovered station's name/status (mouse-hover tooltip, not a "press key" prompt).
  *   toast                         — brief transient message banner (e.g. missing-ingredient hints, Karen's line).
+ *   introScreen: { root, line, continueButton } — the one-time walk-in intro dialogue box (see playIntro()).
  *   fullscreenButton              — toggles Fullscreen API on the game container.
  *   recipeBookButton              — opens the recipe book (see below); available before and during a shift.
  *   recipeBook: { root, list, closeButton } — a static reference list of every known dish, rendered once.
@@ -772,7 +792,88 @@ export function init(canvas, elements) {
     showToast(KAREN_LINE, 5);
   }
 
+  // "Start Shift"/"Start Next Shift"/"Start New Month" all funnel through
+  // this gate: the very first time ever (hasSeenIntro still false), play
+  // the one-time walk-in intro first; every other time, start the shift
+  // immediately. "Reset progress" (resetProgress, below) clears
+  // hasSeenIntro back to false along with the rest of the save, so the
+  // intro replays once after a reset too — consistent with treating reset
+  // as a fresh save, not a special case.
   function startShift() {
+    if (!save.hasSeenIntro) {
+      playIntro(beginShift);
+    } else {
+      beginShift();
+    }
+  }
+
+  function playIntro(onComplete) {
+    const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // A valid shiftState is needed for render() (drawSanityBar/drawStation/
+    // drawTableContents all read it) — beginShift() below creates its own
+    // fresh one afterward, so this one is only ever used for these
+    // intro-scene frames.
+    currentShiftNumber = save.currentShift;
+    shiftState = createInitialState(TABLE_IDS);
+    pendingCustomers = {};
+    karen = null;
+    mel = null;
+    couple = null;
+    player = reducedMotion ? { ...PLAYER_START } : { ...INTRO_ENTRANCE_POSITION };
+    moveTarget = reducedMotion ? null : { x: PLAYER_START.x, y: PLAYER_START.y, station: null };
+
+    showScreen(null);
+    elements.introScreen.line.textContent = INTRO_DIALOGUE_LINE;
+    // Stays hidden until the walk-in finishes — the dialogue card sits at
+    // the bottom of the canvas, the same area the entrance-to-PLAYER_START
+    // walk crosses, so showing it immediately would hide the player sprite
+    // behind it for the whole walk. Revealed by introLoop below once
+    // moveTarget clears (or immediately under reduced motion, where there's
+    // no walk to watch in the first place).
+    elements.introScreen.root.classList.add('hidden');
+    render();
+
+    let introRafHandle = null;
+    let introLastTimestamp = null;
+    function introLoop(timestamp) {
+      if (introLastTimestamp === null) introLastTimestamp = timestamp;
+      const deltaSeconds = Math.min(0.1, (timestamp - introLastTimestamp) / 1000);
+      introLastTimestamp = timestamp;
+      updatePlayer(deltaSeconds); // station: null on moveTarget, so arrival never calls handleArrival
+      render();
+      if (moveTarget) {
+        introRafHandle = window.requestAnimationFrame(introLoop);
+      } else {
+        introRafHandle = null;
+        elements.introScreen.root.classList.remove('hidden');
+      }
+    }
+    if (!reducedMotion) {
+      introRafHandle = window.requestAnimationFrame(introLoop);
+    } else {
+      elements.introScreen.root.classList.remove('hidden');
+    }
+
+    function dismiss() {
+      if (introRafHandle !== null) {
+        window.cancelAnimationFrame(introRafHandle);
+        introRafHandle = null;
+      }
+      // Clicking "Continue" mid-walk finishes it instantly rather than
+      // leaving the player stranded partway across the floor.
+      player = { ...PLAYER_START };
+      moveTarget = null;
+      elements.introScreen.root.classList.add('hidden');
+      elements.introScreen.continueButton.removeEventListener('click', dismiss);
+      save.hasSeenIntro = true;
+      persistSave(storageAvailable, save);
+      onComplete();
+    }
+    elements.introScreen.continueButton.addEventListener('click', dismiss);
+  }
+
+  function beginShift() {
     currentShiftNumber = save.currentShift;
     shiftState = createInitialState(TABLE_IDS);
     player = { ...PLAYER_START };
@@ -1576,6 +1677,11 @@ function bootstrap() {
     orderQueue: document.getElementById('cooking-order-queue'),
     hoverHint: document.getElementById('cooking-interact-hint'),
     toast: document.getElementById('cooking-toast'),
+    introScreen: {
+      root: document.getElementById('cooking-intro-screen'),
+      line: document.getElementById('cooking-intro-line'),
+      continueButton: document.getElementById('cooking-intro-continue-button'),
+    },
     fullscreenButton: document.getElementById('cooking-fullscreen-button'),
     recipeBookButton: document.getElementById('cooking-recipe-book-button'),
     recipeBook: {
