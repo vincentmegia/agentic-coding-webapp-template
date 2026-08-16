@@ -20,6 +20,18 @@
 // one specific station or floor point as the current move target, and
 // "arrival" is judged against that one target, not a continuous
 // every-frame area scan the way keyboard movement needed.
+//
+// v3.1 room split: the user asked for the fridge/cabinet/cookware-closet/
+// stove/oven/cleaning-closet to stop being "in random places in the
+// dining [room]" and move into a separate Kitchen, reachable through a
+// door. Every station now carries a `room` tag (`ROOM_DINING` or
+// `ROOM_KITCHEN`); `buildStations` still returns the full combined list
+// (so game logic that isn't room-scoped — e.g. looking up a table by id —
+// doesn't need to care which room it's in), and `stationsInRoom` is the
+// pure filter cooking-game.js uses for rendering/hit-testing/hover, so
+// only the active room's stations are ever visible or clickable. Both
+// rooms reuse the same 960x600 canvas — they're never shown at once, so
+// there's no need for a bigger or split canvas.
 
 /** The floor plan's fixed canvas size, in pixels (matches cooking-game.html). */
 export const CANVAS_WIDTH = 960;
@@ -38,39 +50,60 @@ export const TABLE_BOX_SIZE = 50;
  */
 export const PLAYER_STOP_MARGIN = 26;
 
-/** The player's starting position — just below the table grid, near the counter/entrance. */
+/** The player's starting position — just below the table grid, near the counter/entrance, in the Dining room. */
 export const PLAYER_START = { x: 480, y: 500 };
 
+/** Room identifiers a station (and the player) can be in. Exactly one room is ever visible/active at a time. */
+export const ROOM_DINING = 'dining';
+export const ROOM_KITCHEN = 'kitchen';
+
+/** Where the player lands after walking through the kitchen-door (arriving into the Kitchen, near its dining-door). */
+export const KITCHEN_ENTRY_POINT = { x: 480, y: 470 };
+
+/** Where the player lands after walking through the dining-door (arriving back into Dining, near its kitchen-door). */
+export const DINING_ENTRY_POINT = { x: 820, y: 150 };
+
 /**
- * Builds the fixed set of non-table stations plus one entry per table id.
- * Positions are hand-placed, not computed, mirroring the room the doc's
- * User Flow describes: door-fixture stations along the left/right walls
- * and top/bottom centerline, a 6x5 table grid filling the middle.
+ * Builds the fixed set of non-table stations plus one entry per table id,
+ * tagged with which room each belongs to (`ROOM_DINING`/`ROOM_KITCHEN`).
+ * The full combined list is always returned — game logic that isn't
+ * room-scoped (e.g. looking up a table by id) shouldn't need to filter —
+ * callers that render/hit-test only the currently-visible room should run
+ * the result through `stationsInRoom`. Positions are hand-placed, not
+ * computed, mirroring the room the doc's User Flow describes.
  *
- * Station kinds: 'fridge', 'cabinet', 'cleaning-closet' (doubles as the
- * old "sink" — washes dishes, restyled as a door per the user's request),
- * 'cookware-closet' (Pan/Baking Tray/Rice Cooker), 'stove', 'oven',
- * 'counter' (the old "shutdown" light-switch/register point, restyled as
- * a proper front counter), 'boss-office', 'coffee-machine' (restores
- * sanity — rules.js's restoreSanity), 'toilet' (a restroom — decorative
- * only, no gameplay effect, "in case the customers need to take a dump"),
- * and 'table' (one per id).
+ * Station kinds:
+ * - Dining room: 'toilet' (a restroom — decorative only, no gameplay
+ *   effect), 'kitchen-door' (walking up switches the active room to
+ *   Kitchen), 'counter' (the old "shutdown" light-switch/register point,
+ *   restyled as a proper front counter), 'coffee-machine' (restores
+ *   sanity — rules.js's restoreSanity), 'boss-office', and 'table' (one
+ *   per id, a 6x5 grid).
+ * - Kitchen room: 'fridge', 'cabinet', 'cleaning-closet' (doubles as the
+ *   old "sink" — washes dishes, restyled as a door per the user's
+ *   request), 'cookware-closet' (Pan/Baking Tray/Rice Cooker), 'stove',
+ *   'oven', and 'dining-door' (walking up switches the active room back
+ *   to Dining).
  *
  * @param {number[]} tableIds
- * @returns {{id: string, kind: string, x: number, y: number, size: number, tableId?: number}[]}
+ * @returns {{id: string, kind: string, room: string, x: number, y: number, size: number, tableId?: number}[]}
  */
 export function buildStations(tableIds) {
   const stations = [
-    { id: 'fridge', kind: 'fridge', x: 90, y: 80, size: STATION_BOX_SIZE },
-    { id: 'cabinet', kind: 'cabinet', x: 870, y: 80, size: STATION_BOX_SIZE },
-    { id: 'toilet', kind: 'toilet', x: 90, y: 190, size: STATION_BOX_SIZE },
-    { id: 'cleaning-closet', kind: 'cleaning-closet', x: 90, y: 300, size: STATION_BOX_SIZE },
-    { id: 'cookware-closet', kind: 'cookware-closet', x: 870, y: 300, size: STATION_BOX_SIZE },
-    { id: 'stove', kind: 'stove', x: 90, y: 520, size: STATION_BOX_SIZE },
-    { id: 'oven', kind: 'oven', x: 870, y: 520, size: STATION_BOX_SIZE },
-    { id: 'counter', kind: 'counter', x: 480, y: 560, size: STATION_BOX_SIZE },
-    { id: 'coffee-machine', kind: 'coffee-machine', x: 376, y: 560, size: STATION_BOX_SIZE },
-    { id: 'boss-office', kind: 'boss-office', x: 480, y: 40, size: STATION_BOX_SIZE },
+    // Dining room
+    { id: 'toilet', kind: 'toilet', room: ROOM_DINING, x: 90, y: 80, size: STATION_BOX_SIZE },
+    { id: 'kitchen-door', kind: 'kitchen-door', room: ROOM_DINING, x: 870, y: 80, size: STATION_BOX_SIZE },
+    { id: 'counter', kind: 'counter', room: ROOM_DINING, x: 480, y: 560, size: STATION_BOX_SIZE },
+    { id: 'coffee-machine', kind: 'coffee-machine', room: ROOM_DINING, x: 376, y: 560, size: STATION_BOX_SIZE },
+    { id: 'boss-office', kind: 'boss-office', room: ROOM_DINING, x: 480, y: 40, size: STATION_BOX_SIZE },
+    // Kitchen room
+    { id: 'fridge', kind: 'fridge', room: ROOM_KITCHEN, x: 200, y: 160, size: STATION_BOX_SIZE },
+    { id: 'oven', kind: 'oven', room: ROOM_KITCHEN, x: 480, y: 160, size: STATION_BOX_SIZE },
+    { id: 'cabinet', kind: 'cabinet', room: ROOM_KITCHEN, x: 760, y: 160, size: STATION_BOX_SIZE },
+    { id: 'cookware-closet', kind: 'cookware-closet', room: ROOM_KITCHEN, x: 200, y: 360, size: STATION_BOX_SIZE },
+    { id: 'cleaning-closet', kind: 'cleaning-closet', room: ROOM_KITCHEN, x: 480, y: 360, size: STATION_BOX_SIZE },
+    { id: 'stove', kind: 'stove', room: ROOM_KITCHEN, x: 760, y: 360, size: STATION_BOX_SIZE },
+    { id: 'dining-door', kind: 'dining-door', room: ROOM_KITCHEN, x: 480, y: 540, size: STATION_BOX_SIZE },
   ];
 
   const columnXs = [220, 324, 428, 532, 636, 740];
@@ -81,6 +114,7 @@ export function buildStations(tableIds) {
     stations.push({
       id: `table-${tableId}`,
       kind: 'table',
+      room: ROOM_DINING,
       tableId,
       x: columnXs[col],
       y: rowYs[row],
@@ -89,6 +123,20 @@ export function buildStations(tableIds) {
   });
 
   return stations;
+}
+
+/**
+ * Filters a station list down to just the ones in the given room — the
+ * pure "what's visible/clickable right now" query, used for rendering and
+ * hit-testing so the inactive room's stations never render or intercept
+ * clicks.
+ *
+ * @param {{room: string}[]} stations
+ * @param {string} room - `ROOM_DINING` or `ROOM_KITCHEN`.
+ * @returns {object[]}
+ */
+export function stationsInRoom(stations, room) {
+  return stations.filter((station) => station.room === room);
 }
 
 /**

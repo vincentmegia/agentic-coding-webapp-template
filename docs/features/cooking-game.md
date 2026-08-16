@@ -153,6 +153,39 @@ the new arbitrary-value Tailwind class, zero console errors on
 screenshots — legible labels, visible Sanity bar, visible signage, no
 overlapping text.
 
+**v3.1 room split** — the user asked for the fridge/cabinet/cookware
+closet/stove/oven/cleaning closet to stop being "in random places in the
+dining [room]" and move into their own Kitchen, reachable through a door
+and a button. The single 960x600 floor plan is now two rooms sharing that
+same canvas (never shown at once, so no bigger/split canvas was needed):
+
+* **Dining room** (the default, where every shift starts): all 30 tables,
+  the front counter, boss's office, coffee machine, restroom, entrance/exit
+  signage, the security guard, and a new **kitchen-door** station.
+* **Kitchen room**: fridge, cabinet, cookware closet ("supply closet"),
+  stove, oven, cleaning closet, and a new **dining-door** station leading
+  back.
+* Walking up to either door station switches the active room instantly (no
+  loading state) and repositions the player near that room's entry point
+  (`floor-plan.js`'s `KITCHEN_ENTRY_POINT`/`DINING_ENTRY_POINT`). An
+  **"Enter Kitchen" / "Back to Dining" button** in the HUD row does the
+  same switch instantly from wherever the player currently stands — the
+  user asked for both "a door to the kitchen" and "a button to enter the
+  kitchen," so both exist side by side rather than picking one.
+* Only the active room's stations render or respond to clicks/hover
+  (`floor-plan.js`'s new `stationsInRoom` filter) — the inactive room's
+  stations are entirely invisible and non-interactive, not just visually
+  hidden.
+* **Room switching works in every shift phase, not just `playing`** — this
+  was the critical constraint: the closing sequence needs both rooms
+  (dirty tables and the counter/boss's office are in Dining, the cleaning
+  closet is in Kitchen), so gating the doors to one phase would make a
+  shift unwinnable mid-closing. Manually verified end-to-end: waited out a
+  full shift clock, switched to Kitchen to wash dishes at the cleaning
+  closet, switched back to Dining to shut down at the counter, then
+  collected the paycheck at the boss's office — all via real clicks, zero
+  console errors, `4000 Gard` payout confirmed on the paycheck screen.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,
@@ -193,12 +226,15 @@ second data point for that pattern rather than a reskin of the first game.
 
 **In scope:**
 
-* A canvas-based top-down restaurant floor plan, 960x600, rendered
-  pixel-art style: **click-only controls** — click empty floor to walk
-  there, click a station (a table, the fridge, the stove, anywhere) and the
-  player walks over and automatically interacts with it on arrival. Fixed
-  stations: 30 tables (a 6x5 grid), the fridge, cabinet, cleaning closet,
-  cookware closet, stove, oven, a front counter, and the boss's office.
+* A canvas-based top-down restaurant floor plan, 960x600, rendered in a
+  soft pastel "coquette" style (v3): **click-only controls** — click empty
+  floor to walk there, click a station (a table, the fridge, the stove,
+  anywhere) and the player walks over and automatically interacts with it
+  on arrival. Split (v3.1) into two rooms sharing that same canvas, never
+  both visible at once: **Dining** (30 tables in a 6x5 grid, front
+  counter, boss's office, coffee machine, restroom, a kitchen-door) and
+  **Kitchen** (fridge, cabinet, cookware closet, stove, oven, cleaning
+  closet, a dining-door) — see Business Rules for the room-switching rule.
 * An order system: tables periodically seat a customer with an order;
   walking up to (clicking) an occupied table takes the order into an
   on-screen queue with a per-customer patience timer.
@@ -298,22 +334,26 @@ second data point for that pattern rather than a reskin of the first game.
    total (read from localStorage), the leaderboard fragment, and a "Start
    Shift" button. If localStorage shows a shift already in progress
    (mid-month resume), the button instead reads "Resume Shift {n}".
-2. User clicks "Start Shift". The floor plan renders: fridge, cabinet,
-   cleaning closet, cookware closet, stove, oven, a 6x5 grid of 30 tables,
-   the front counter, the (locked) boss's office door, a stationary
-   security guard near the entrance, and the player character. A HUD
-   overlays the canvas: shift number (n/20), the in-game clock (starts at
-   8:30 AM), this shift's status (no customer upset yet vs. upset), and the
-   order queue. Mel — always the first customer of the shift — and, right
-   after her, Olive & Oliver, seat themselves before the normal random
-   arrival rotation begins.
+2. User clicks "Start Shift". The Dining room renders (the default room
+   every shift starts in): a 6x5 grid of 30 tables, the front counter, the
+   (locked) boss's office door, the coffee machine, a restroom, a
+   kitchen-door leading to the Kitchen, a stationary security guard near
+   the entrance, and the player character. A HUD overlays the canvas:
+   shift number (n/20), the in-game clock (starts at 8:30 AM), this
+   shift's status (no customer upset yet vs. upset), the order queue, and
+   an "Enter Kitchen" button. Mel — always the first customer of the shift
+   — and, right after her, Olive & Oliver, seat themselves before the
+   normal random arrival rotation begins.
 3. Customers begin seating themselves at tables at intervals (faster in
    later shifts). Clicking an occupied table walks the player over and
    automatically takes its order into the queue, showing the requested dish
    and a patience timer — no separate confirm step.
-4. Player clicks the fridge or cabinet; once they've walked over, a picker
-   panel opens listing that station's items. Clicking an item adds it to
-   the carrying inventory (capacity limited, upgradeable) — for a dish that
+4. Player clicks the kitchen-door (or the "Enter Kitchen" button) to switch
+   to the Kitchen room, where the fridge, cabinet, cookware closet, stove,
+   and oven live (a dining-door/"Back to Dining" button switches back).
+   Clicking the fridge or cabinet; once they've walked over, a picker panel
+   opens listing that station's items. Clicking an item adds it to the
+   carrying inventory (capacity limited, upgradeable) — for a dish that
    needs cooking, the player also needs its cookware (Pan or Baking Tray),
    picked the same way from the Cookware Closet, once per shift.
 5. Player clicks the stove or oven (whichever the dish needs). Once they've
@@ -335,15 +375,18 @@ second data point for that pattern rather than a reskin of the first game.
    floor plan switches into closing mode: every dirty table shows a mess
    indicator, and the cleaning closet shows the shift's stack of dirty
    dishes.
-8. Player clicks each dirty table; once they've walked over, cleaning
-   starts automatically and finishes after a short duration (faster with
-   Quick Clean gear) — walking away before it finishes cancels it, no
-   partial credit. Same pattern at the cleaning closet to wash the
-   accumulated dishes. Once every table is clean and the dishes are washed,
-   the front counter becomes clickable; clicking it walks the player over
-   and shuts the restaurant down automatically. Only then does the boss's
-   office door unlock; clicking it walks the player there and collects the
-   shift's paycheck.
+8. Player clicks each dirty table (in Dining); once they've walked over,
+   cleaning starts automatically and finishes after a short duration
+   (faster with Quick Clean gear) — walking away before it finishes
+   cancels it, no partial credit. Player switches to the Kitchen room to
+   wash the accumulated dishes the same way at the cleaning closet — room
+   switching stays available throughout closing, so this cross-room step
+   is always reachable. Once every table is clean and the dishes are
+   washed, the player switches back to Dining, where the front counter
+   becomes clickable; clicking it walks the player over and shuts the
+   restaurant down automatically. Only then does the boss's office door
+   unlock; clicking it walks the player there and collects the shift's
+   paycheck.
 9. A paycheck screen shows whether any customer was upset this shift, the
    shift's Gard payout (4,000 if no one was upset, 2,000 if at least one
    was), and the running month-to-date total. Buttons: "Open Shop" and
@@ -494,6 +537,7 @@ States this feature's UI must handle:
 | Final paycheck (shift 20)        | Month summary, "Submit to leaderboard" field, "Start New Month". |
 | Shop                             | Upgrade list, affordable vs. too-expensive visually distinguished; buying disabled once balance can't cover next level. |
 | Fullscreen                       | Toggling the button enters/exits Fullscreen API on the game container; canvas keeps its aspect ratio either way. |
+| Room switch (v3.1)               | "Enter Kitchen"/"Back to Dining" button (and each room's door station) switches the active room instantly; available in every shift phase, including throughout closing. |
 | Leaderboard loading              | Local loading indicator while the fragment fetches. |
 | Leaderboard empty                | "No scores yet — be the first!" |
 | Leaderboard error                | Generic "couldn't load the leaderboard" message; rest of page still works. |
@@ -604,7 +648,19 @@ site's CSP):
   the table-arrival handler instead, since that doesn't go through `tick`).
 * **Security guard**: drawn every frame at a fixed canvas position,
   independent of `stations`/`floor-plan.js` entirely — it's not
-  interactive, so it never needed to be a real station.
+  interactive, so it never needed to be a real station. Only drawn while
+  `currentRoom === ROOM_DINING` (v3.1) — he stands watch at the Dining
+  entrance, not a Kitchen fixture.
+* **Room switching (v3.1)**: a `currentRoom` variable (`ROOM_DINING` by
+  default, reset on every `startShift()`) gates both rendering and
+  hit-testing — `render()`, the canvas `click`/`mousemove` handlers all run
+  `floor-plan.js`'s `stationsInRoom(stations, currentRoom)` first, so the
+  inactive room's stations are never drawn or clickable. `handleArrival()`
+  checks for the `kitchen-door`/`dining-door` station kinds *before* any
+  shift-phase branching, so walking through either door works identically
+  in every phase; `switchRoom(room, entryPoint)` updates `currentRoom`,
+  snaps the player to that room's entry point, clears the current move
+  target/hover, and syncs the HUD's room-toggle button (see UI).
 * **Fullscreen**: `toggleFullscreen()` calls `requestFullscreen()`/
   `exitFullscreen()` on the canvas's parent container (the same element
   the CSS `aspect-[960/600]` box lives on), so the canvas keeps its true
@@ -822,6 +878,15 @@ only voluntarily-submitted, already-finished month results.
   `shiftUpset` (Shift paycheck rule above) — a player who never drinks
   coffee still gets paid the same for a clean shift, just walks slower by
   the end of it.
+* **The Dining/Kitchen room split (v3.1)**: exactly one room is ever
+  active; only its stations render, are clickable, or count for hover
+  tooltips (`floor-plan.js`'s `stationsInRoom`). Room switching (via
+  either door station or the HUD's room button) is available in **every**
+  shift phase, not just `playing` — a deliberate rule, not an oversight,
+  since the closing sequence needs stations from both rooms in order
+  (clean tables and shut down in Dining, wash dishes in Kitchen) and
+  restricting switching to `playing` would strand the player mid-closing
+  with no way to reach the next required station.
 * **Mid-month resume**: month-to-date Gard, current shift number, and shop
   levels persist across a reload; an in-progress shift's floor-plan state
   (order queue, inventory, acquired cookware, table/dish cleanliness, the
@@ -996,12 +1061,11 @@ only voluntarily-submitted, already-finished month results.
   (Visual Direction) — left open the same way the Fishing Game's own
   flat-circle-to-real-sprite upgrade was, rather than blocking on art
   production.
-* **Not yet started**: splitting the single Dining floor plan into a
-  separate Kitchen room (fridge, cabinet, cookware closet, stove, oven,
-  cleaning closet) connected via a door/button, and a one-time scripted
-  intro sequence (the player walking in with an opening line of dialogue)
-  — both requested alongside the v3 restyle above but out of scope for
-  this pass; planned as separate follow-up work.
+* **Resolved (v3.1)**: the Kitchen/Dining room split (see Status and
+  Business Rules) closes out the "fridge/cabinet/stove/oven in random
+  places in the dining [room]" request. A one-time scripted intro sequence
+  (the player walking in with an opening line of dialogue), requested
+  alongside it, is separate follow-up work not covered by this pass.
 * **Resolved**: a real, previously-shipped bug where any *new* Tailwind
   utility class introduced only in a template (not already used elsewhere
   in the codebase) silently did nothing until `make css` regenerated

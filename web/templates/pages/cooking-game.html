@@ -59,6 +59,17 @@
 							<dd id="cooking-hud-status" class="text-sm font-medium text-ink sm:text-base">Going well</dd>
 						</div>
 					</dl>
+					{{/* Toggles between the Dining room and the Kitchen (v3.1's room
+					     split) instantly, from anywhere — a shortcut alongside the
+					     canvas's own kitchen-door/dining-door stations, which need a
+					     walk-up click. cooking-game.js's updateRoomButton() flips both
+					     the label and aria-pressed to reflect the current room. */}}
+					<button
+						type="button"
+						id="cooking-room-button"
+						aria-pressed="false"
+						class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+					>Enter Kitchen</button>
 					<button
 						type="button"
 						id="cooking-recipe-book-button"

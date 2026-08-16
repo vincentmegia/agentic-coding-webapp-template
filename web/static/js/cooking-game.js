@@ -18,6 +18,14 @@
 // v3 restyle (see "Coquette rendering constants" below): dropped v2's
 // pixel-art treatment for a soft pastel "coquette" look.
 //
+// v3.1 room split: the fridge/cabinet/cookware-closet/stove/oven/cleaning-
+// closet no longer sit "in random places" alongside the dining tables —
+// they now live in a separate Kitchen room, reachable from Dining through
+// a kitchen-door station (and back via a dining-door station in Kitchen),
+// plus a "roomButton" DOM shortcut that switches instantly from anywhere.
+// Only the active room's stations render or hit-test at any moment
+// (`stationsInRoom`, floor-plan.js) — see `currentRoom`/`switchRoom` below.
+//
 // This file owns everything HTMX cannot model for /kitchen-shift: the
 // `requestAnimationFrame` loop, click-driven movement/station-interaction,
 // customer spawning, HUD/order-queue updates, and the single
@@ -80,11 +88,16 @@ import {
 } from './cooking/engine-state.js';
 import {
   buildStations,
+  stationsInRoom,
   stationAtPoint,
   approachPoint,
   clampToCanvas,
   PLAYER_START,
   PLAYER_STOP_MARGIN,
+  ROOM_DINING,
+  ROOM_KITCHEN,
+  KITCHEN_ENTRY_POINT,
+  DINING_ENTRY_POINT,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   TABLE_BOX_SIZE,
@@ -267,6 +280,8 @@ const STATION_COLORS = {
   'coffee-machine': '#d9bfa3',
   'boss-office': '#dcc2ea',
   table: '#fdf1e4',
+  'kitchen-door': '#f2c9a0',
+  'dining-door': '#f2c9a0',
 };
 
 const STATION_LABELS = {
@@ -280,10 +295,12 @@ const STATION_LABELS = {
   counter: 'Counter',
   'coffee-machine': 'Coffee Machine',
   'boss-office': "Duke's Office",
+  'kitchen-door': 'To Kitchen',
+  'dining-door': 'To Dining',
 };
 
 /** Which station kinds render as a "door" (rect + handle dot, opens while active) vs a plain fixture. */
-const DOOR_KINDS = new Set(['fridge', 'cabinet', 'toilet', 'cleaning-closet', 'cookware-closet', 'boss-office']);
+const DOOR_KINDS = new Set(['fridge', 'cabinet', 'toilet', 'cleaning-closet', 'cookware-closet', 'boss-office', 'kitchen-door', 'dining-door']);
 
 const STATION_CORNER_RADIUS = 14;
 
@@ -434,6 +451,7 @@ function drawMel(ctx, x, y, scale) {
  *   hoverHint                     — shown/hidden with the hovered station's name/status (mouse-hover tooltip, not a "press key" prompt).
  *   toast                         — brief transient message banner (e.g. missing-ingredient hints, Karen's line).
  *   fullscreenButton              — toggles Fullscreen API on the game container.
+ *   roomButton (optional)         — instant Dining/Kitchen room switch shortcut; label/aria-pressed follow the current room.
  *   recipeBookButton              — opens the recipe book (see below); available before and during a shift.
  *   recipeBook: { root, list, closeButton } — a static reference list of every known dish, rendered once.
  *   cookGauge: { root, button }   — the cook-timing mini-game's click-to-sample overlay.
@@ -473,6 +491,7 @@ export function init(canvas, elements) {
   let currentShiftNumber = save.currentShift;
   let shiftState = null;
   let player = { ...PLAYER_START };
+  let currentRoom = ROOM_DINING; // ROOM_DINING | ROOM_KITCHEN — only this room's stations render/hit-test
   let moveTarget = null; // { x, y, station: station|null }
   let hoverStation = null;
   let pendingCustomers = {}; // { [tableId]: dishName }
@@ -776,6 +795,8 @@ export function init(canvas, elements) {
     currentShiftNumber = save.currentShift;
     shiftState = createInitialState(TABLE_IDS);
     player = { ...PLAYER_START };
+    currentRoom = ROOM_DINING;
+    updateRoomButton();
     moveTarget = null;
     pendingCustomers = {};
     inventory = [];
@@ -875,7 +896,7 @@ export function init(canvas, elements) {
   function onCanvasClick(e) {
     if (activePanel || recipeBookOpen || !running) return;
     const { x, y } = canvasCoordsFromEvent(e);
-    const station = stationAtPoint(x, y, stations);
+    const station = stationAtPoint(x, y, stationsInRoom(stations, currentRoom));
 
     if (cookMiniGame) {
       if (station && station.kind === cookMiniGame.station) return; // still cooking here — ignore
@@ -896,7 +917,7 @@ export function init(canvas, elements) {
 
   function onCanvasMouseMove(e) {
     const { x, y } = canvasCoordsFromEvent(e);
-    hoverStation = stationAtPoint(x, y, stations);
+    hoverStation = stationAtPoint(x, y, stationsInRoom(stations, currentRoom));
   }
 
   function onCanvasMouseLeave() {
@@ -1029,7 +1050,22 @@ export function init(canvas, elements) {
     }
   }
 
+  // Room switching works in every shift phase, not just 'playing' — the
+  // closing sequence needs both rooms (dirty tables and the counter/boss's
+  // office are in Dining, the cleaning closet is in Kitchen), so gating
+  // the doors to one phase would make the game unwinnable mid-closing.
+  function switchRoom(room, entryPoint) {
+    currentRoom = room;
+    player.x = entryPoint.x;
+    player.y = entryPoint.y;
+    moveTarget = null;
+    hoverStation = null;
+    updateRoomButton();
+  }
+
   function handleArrival(station) {
+    if (station.kind === 'kitchen-door') return switchRoom(ROOM_KITCHEN, KITCHEN_ENTRY_POINT);
+    if (station.kind === 'dining-door') return switchRoom(ROOM_DINING, DINING_ENTRY_POINT);
     if (shiftState.phase === 'playing') {
       if (station.kind === 'table') return handleTableArrival(station.tableId);
       if (station.kind === 'fridge' || station.kind === 'cabinet') return handleGatherArrival(station.kind);
@@ -1133,26 +1169,34 @@ export function init(canvas, elements) {
       drawStar(ctx, p.x, p.y, 10, 4, 'rgba(255,255,255,0.35)');
     }
 
-    // The star-themed sign, and the entrance/exit marker — both purely
-    // decorative text, not interactive stations (the user asked "where is
-    // the entrance/exit" — this answers it directly rather than adding a
-    // new clickable station for something with no separate mechanic).
-    // Stations draw on top of the floor, so the sign must sit somewhere no
-    // station box or label chip ever occupies — Duke's Office (x 445-515)
-    // owns the top-center column including its label chip below it, so the
-    // sign is offset well clear of that column instead of centered on it.
+    // The star-themed sign and the entrance/exit marker only make sense in
+    // the Dining room (the Kitchen has no entrance/exit of its own — its
+    // only way out is the dining-door station) — both purely decorative
+    // text, not interactive stations (the user asked "where is the
+    // entrance/exit" — this answers it directly rather than adding a new
+    // clickable station for something with no separate mechanic). Stations
+    // draw on top of the floor, so the sign must sit somewhere no station
+    // box or label chip ever occupies — Duke's Office (x 445-515) owns the
+    // top-center column including its label chip below it, so the sign is
+    // offset well clear of that column instead of centered on it.
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#c65f7c';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.fillText('✨ Startime Diner ✨', 240, 18);
+    if (currentRoom === ROOM_DINING) {
+      ctx.fillStyle = '#c65f7c';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText('✨ Startime Diner ✨', 240, 18);
 
-    // Placed clear of the counter/coffee-machine/oven boxes that already
-    // occupy the rest of the bottom row.
-    ctx.fillStyle = 'rgba(198,95,124,0.6)';
-    ctx.font = '10px sans-serif';
-    ctx.fillText('★ Entrance / Exit ★', 650, world.height - 10);
+      // Placed clear of the counter/coffee-machine boxes that already
+      // occupy the rest of the bottom row.
+      ctx.fillStyle = 'rgba(198,95,124,0.6)';
+      ctx.font = '10px sans-serif';
+      ctx.fillText('★ Entrance / Exit ★', 650, world.height - 10);
+    } else {
+      ctx.fillStyle = '#c65f7c';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText('✨ Kitchen ✨', 240, 18);
+    }
     ctx.restore();
   }
 
@@ -1370,8 +1414,9 @@ export function init(canvas, elements) {
 
   function render() {
     drawFloor();
-    stations.forEach((station) => drawStation(station));
-    drawSecurityGuard();
+    stationsInRoom(stations, currentRoom).forEach((station) => drawStation(station));
+    // Guard stands watch by the Dining entrance — not a Kitchen fixture.
+    if (currentRoom === ROOM_DINING) drawSecurityGuard();
     drawPlayer();
     drawSanityBar();
   }
@@ -1431,6 +1476,27 @@ export function init(canvas, elements) {
     rafHandle = window.requestAnimationFrame(loop);
   }
 
+  // -- Room toggle button -------------------------------------------------
+
+  // A DOM shortcut alongside the canvas's own kitchen-door/dining-door
+  // stations — the user asked for both "a door to the kitchen" and "a
+  // button to enter the kitchen"; this button switches instantly from
+  // wherever the player currently stands, no walk-up needed.
+  function updateRoomButton() {
+    if (!elements.roomButton) return;
+    const inKitchen = currentRoom === ROOM_KITCHEN;
+    elements.roomButton.textContent = inKitchen ? 'Back to Dining' : 'Enter Kitchen';
+    elements.roomButton.setAttribute('aria-pressed', String(inKitchen));
+  }
+
+  function toggleRoomButton() {
+    if (currentRoom === ROOM_DINING) {
+      switchRoom(ROOM_KITCHEN, KITCHEN_ENTRY_POINT);
+    } else {
+      switchRoom(ROOM_DINING, DINING_ENTRY_POINT);
+    }
+  }
+
   // -- Fullscreen -------------------------------------------------------
 
   function toggleFullscreen() {
@@ -1458,6 +1524,7 @@ export function init(canvas, elements) {
   document.addEventListener('visibilitychange', onVisibilityChange);
   elements.fullscreenButton.addEventListener('click', toggleFullscreen);
   elements.recipeBookButton.addEventListener('click', openRecipeBook);
+  elements.roomButton?.addEventListener('click', toggleRoomButton);
   elements.recipeBook.closeButton.addEventListener('click', closeRecipeBook);
   elements.cookGauge.button.addEventListener('click', sampleCookGauge);
   elements.stationPanel.closeButton.addEventListener('click', closePanel);
@@ -1577,6 +1644,7 @@ function bootstrap() {
     hoverHint: document.getElementById('cooking-interact-hint'),
     toast: document.getElementById('cooking-toast'),
     fullscreenButton: document.getElementById('cooking-fullscreen-button'),
+    roomButton: document.getElementById('cooking-room-button'),
     recipeBookButton: document.getElementById('cooking-recipe-book-button'),
     recipeBook: {
       root: document.getElementById('cooking-recipe-book'),

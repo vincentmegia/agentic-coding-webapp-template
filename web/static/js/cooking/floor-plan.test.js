@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildStations,
+  stationsInRoom,
   stationAtPoint,
   approachPoint,
   clampToCanvas,
@@ -10,6 +11,10 @@ import {
   CANVAS_HEIGHT,
   STATION_BOX_SIZE,
   TABLE_BOX_SIZE,
+  ROOM_DINING,
+  ROOM_KITCHEN,
+  KITCHEN_ENTRY_POINT,
+  DINING_ENTRY_POINT,
 } from './floor-plan.js';
 
 const TABLE_IDS = Array.from({ length: 30 }, (_, i) => i + 1);
@@ -18,7 +23,7 @@ describe('buildStations', () => {
   test('includes one entry per fixed station plus one per table id', () => {
     const stations = buildStations(TABLE_IDS);
     const kinds = stations.map((s) => s.kind);
-    for (const kind of ['fridge', 'cabinet', 'toilet', 'cleaning-closet', 'cookware-closet', 'stove', 'oven', 'counter', 'coffee-machine', 'boss-office']) {
+    for (const kind of ['fridge', 'cabinet', 'toilet', 'cleaning-closet', 'cookware-closet', 'stove', 'oven', 'counter', 'coffee-machine', 'boss-office', 'kitchen-door', 'dining-door']) {
       assert.ok(kinds.includes(kind), `missing station kind ${kind}`);
     }
     assert.equal(stations.filter((s) => s.kind === 'table').length, TABLE_IDS.length);
@@ -37,6 +42,54 @@ describe('buildStations', () => {
       const half = s.size / 2;
       assert.ok(s.x - half >= 0 && s.x + half <= CANVAS_WIDTH, `${s.id} out of horizontal bounds`);
       assert.ok(s.y - half >= 0 && s.y + half <= CANVAS_HEIGHT, `${s.id} out of vertical bounds`);
+    }
+  });
+
+  test('every station has a room tag of either ROOM_DINING or ROOM_KITCHEN', () => {
+    const stations = buildStations(TABLE_IDS);
+    for (const s of stations) {
+      assert.ok(s.room === ROOM_DINING || s.room === ROOM_KITCHEN, `${s.id} has no valid room tag`);
+    }
+  });
+
+  test('tables, the counter, coffee machine, toilet, boss-office, and kitchen-door are all in the Dining room', () => {
+    const stations = buildStations(TABLE_IDS);
+    const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
+    for (const id of ['toilet', 'kitchen-door', 'counter', 'coffee-machine', 'boss-office', 'table-1', 'table-30']) {
+      assert.equal(byId[id].room, ROOM_DINING, `${id} should be in the Dining room`);
+    }
+  });
+
+  test('fridge, cabinet, cookware-closet, stove, oven, cleaning-closet, and dining-door are all in the Kitchen room', () => {
+    const stations = buildStations(TABLE_IDS);
+    const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
+    for (const id of ['fridge', 'cabinet', 'cookware-closet', 'stove', 'oven', 'cleaning-closet', 'dining-door']) {
+      assert.equal(byId[id].room, ROOM_KITCHEN, `${id} should be in the Kitchen room`);
+    }
+  });
+});
+
+describe('stationsInRoom', () => {
+  test('filters down to only the stations in the given room', () => {
+    const stations = buildStations(TABLE_IDS);
+    const dining = stationsInRoom(stations, ROOM_DINING);
+    const kitchen = stationsInRoom(stations, ROOM_KITCHEN);
+    assert.ok(dining.every((s) => s.room === ROOM_DINING));
+    assert.ok(kitchen.every((s) => s.room === ROOM_KITCHEN));
+    assert.equal(dining.length + kitchen.length, stations.length);
+  });
+
+  test('returns an empty list for a room with no stations', () => {
+    const stations = [{ id: 'a', room: ROOM_DINING }];
+    assert.deepEqual(stationsInRoom(stations, ROOM_KITCHEN), []);
+  });
+});
+
+describe('room entry points', () => {
+  test('KITCHEN_ENTRY_POINT and DINING_ENTRY_POINT both stay within canvas bounds', () => {
+    for (const point of [KITCHEN_ENTRY_POINT, DINING_ENTRY_POINT]) {
+      assert.ok(point.x >= 0 && point.x <= CANVAS_WIDTH);
+      assert.ok(point.y >= 0 && point.y <= CANVAS_HEIGHT);
     }
   });
 });
