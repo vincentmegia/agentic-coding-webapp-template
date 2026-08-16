@@ -90,6 +90,69 @@ line, Olive & Oliver's guaranteed second appearance and shared order, the
 full closing sequence via a real click on the boss's office door, and zero
 console errors throughout.
 
+**v3 restyle** — the user reported the v2 pixel-art scene was too small to
+read ("i cant even see the characters") and asked for a different visual
+style entirely ("coquette" — soft pastel, rounded, ribbon/bow accents, per
+two reference images), plus a batch of smaller fixes surfaced by that same
+screenshot: a Restroom station ("in case the customers need to take a
+dump"), the Sanity bar moved from external HUD chrome onto the canvas
+itself, visible Entrance/Exit signage, star-themed chair pillows, and a
+named/detailed personality pass on Mel (favorite colors/flowers, outfit,
+hobby). Shipped in this pass:
+
+* **Coquette rendering pass**: replaced every pixel-art primitive (sharp
+  `fillRect` boxes, blocky pixel-people) with rounded shapes
+  (`ctx.roundRect`-based `drawRoundRect`), a soft pastel palette, and new
+  bow/star accent shapes (`drawBow`, `drawStar`). Real illustrated anime-
+  style art needs hand-drawn/generated sprite assets this canvas-primitive
+  renderer doesn't have (Open Questions) — this is the closest honest
+  approximation buildable from flat shapes. The `.pixel-canvas` CSS class
+  and its `image-rendering: pixelated` treatment are removed entirely.
+* **A dedicated `drawMel` renderer**, distinct from the generic
+  `drawPixelPerson` used for every other customer: a dandelion tucked
+  behind her ear, a yellow hair clip, hair tied in a white ribbon, a
+  flower-patterned yellow shirt, and a plain white skirt — per the user's
+  detailed character spec (Visual Direction has the full rundown).
+* **A real bug fix, not just a style change**: every on-canvas label
+  (station names, "dirty"/"clean," the dirty-dish count) used a cream/
+  white fill color tuned for v2's dark-wood palette — against the new
+  light pastel floor, that text was nearly invisible. This is the actual
+  root cause behind "where is the coffee machine???," not a coincidence of
+  timing. Fixed with a single dark `LABEL_TEXT_COLOR` plus a small opaque
+  chip drawn behind every label (`drawLabelChip`) so it stays legible
+  against any station color.
+* **On-canvas Sanity bar** (`drawSanityBar`, top-left corner of the floor
+  plan), replacing the external HUD's `#cooking-hud-sanity-fill`/`-label`
+  DOM elements entirely — per the user's "add the sanity bar inside the
+  game instead of outside."
+* **A Restroom station** (`toilet` station kind) — decorative only, same
+  as the Security Guard, no gameplay effect.
+* **Visible Entrance/Exit and restaurant-name signage**, drawn directly on
+  the floor (`drawFloor`) — answers the user's "where is the entrance and
+  the exit???" literally rather than adding a new interactive station for
+  something with no separate mechanic.
+* **Star-themed chair pillows** (`drawChairPillows`) around every table,
+  and a light star watermark scattered across the floor tile pattern.
+* **A real second bug fix, caught during this same pass**: two bottom-row
+  stations (Counter, Coffee Machine) sit close enough to the canvas's
+  bottom edge that their labels, drawn below the box the same way every
+  other station's is, rendered partially or fully off-canvas — invisible
+  regardless of color. Fixed by flipping the label above the box for any
+  station where it wouldn't fit below (`drawStation`'s `labelBelowFits`
+  check), rather than repositioning every station's coordinates.
+* **Label collisions with the floor's own decorative text**: the
+  "Startime Diner" sign was originally centered over the boss's-office
+  column, so Duke's Office's own label chip (drawn afterward, on top)
+  clipped straight through it. Moved to a clear corner of the floor
+  instead of debugging a shared column.
+
+Manually re-verified after the restyle: JS (`node --test`, 197 tests) and
+Go (`go build`/`go vet`/`go test`) suites all green, `make css` rebuilt for
+the new arbitrary-value Tailwind class, zero console errors on
+`/kitchen-shift`, and the floor plan visually confirmed via Playwright
+screenshots — legible labels, visible Sanity bar, visible signage, no
+overlapping text.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,
@@ -188,7 +251,8 @@ second data point for that pattern rather than a reskin of the first game.
   mishandled). See Business Rules for the full rundown of each.
 * A stationary security guard figure near the entrance — cosmetic only, not
   an interactive station.
-* A Sanity stat (HUD bar, starts full every shift) that drains over the
+* A Sanity stat (drawn on-canvas, top-left of the floor plan — not
+  external HUD chrome, v3 — starts full every shift) that drains over the
   shift — passively, and more on every upset — and slows the player down
   the lower it gets; a Coffee Machine station restores it to full on
   arrival. See Business Rules for the full shape.
@@ -316,18 +380,35 @@ Follows `tailwind-ui`'s Visual Style principles; specifics for this feature:
 * The boss is named **Duke** — the boss's-office interaction hint and the
   paycheck screen refer to him by name (e.g. "Duke hands you 4,000 Gard"),
   not just "the boss."
-* **Pixel-art style** (v2, per the user's explicit request): every station,
-  person, and UI element on the canvas is a canvas-drawn primitive — flat
-  color-block rectangles, no rounded corners, no anti-aliasing (blocky
-  "pixel people" for the player/customers/guard: a head, torso, two legs,
-  each a plain rect) — rendered at a fixed, modest internal resolution and
-  scaled up via a real `image-rendering: pixelated` CSS class (`.pixel-canvas`
-  in `app.css` — **not** an inline `style` attribute; see the Status note's
-  CSP bug), which turns flat shapes into a blocky, retro look without
-  needing hand-drawn sprite assets. This supersedes v1's plain
-  (non-pixelated) primitive rendering; loaded sprite images remain a
-  possible future follow-up (Open Questions), still not required for the
-  mechanics to work.
+* **"Coquette" style** (v3, superseding v2's pixel-art treatment — the user
+  tried the blocky pixel-art look, then asked for something different
+  entirely): a soft pastel palette (blush pinks/creams), rounded shapes
+  everywhere (`ctx.roundRect`-based `drawRoundRect`/`drawStation`, no sharp
+  pixel corners), round heads, and small bow/star accent shapes (`drawBow`,
+  `drawStar`) instead of blocky "pixel people." No `image-rendering`
+  override on the canvas at all — a soft style wants smooth scaling, not
+  jagged nearest-neighbor upscaling, so the old `.pixel-canvas` CSS class
+  is gone. Real illustrated anime-style art needs hand-drawn/generated
+  sprite assets this canvas-primitive renderer doesn't have (Open
+  Questions) — this is the closest honest approximation buildable from
+  flat shapes, not a claim of matching the user's reference images
+  pixel-for-pixel. Every on-canvas label uses a single dark
+  `LABEL_TEXT_COLOR` on a small opaque background chip (`drawLabelChip`),
+  since the light pastel floor made the old cream/white label text nearly
+  unreadable — the real cause behind "where is the coffee machine???."
+* **Mel's detailed look** (v3, a dedicated `drawMel` renderer distinct from
+  the generic person sprite used for every other customer): a dandelion
+  behind her ear, a yellow hair clip, hair tied in a white ribbon, a
+  flower-patterned yellow shirt, and a plain white skirt — sweet/kind/
+  caring personality, favorite colors creamy light yellow and white,
+  favorite flowers dandelions/tulips/roses, favorite hobby drawing and
+  cycling, per the user's full character spec.
+* **Restroom station** (`toilet` kind) — cosmetic only, no gameplay effect,
+  same "just presence" role as the Security Guard.
+* **On-canvas signage**: "Startime Diner" and "Entrance / Exit" render
+  directly on the floor (not HUD chrome), and star-themed pillows decorate
+  every table's chairs — matching the user's explicit "star themed" and
+  "where is the entrance and the exit???" requests.
 * The canvas game scene (floor plan, player, customers, stations) uses its
   own fixed warm "diner" palette regardless of site light/dark mode, the
   same reasoning as the Fishing Game's fixed ocean palette — a game scene
@@ -382,7 +463,7 @@ web/templates/
     └── cooking-leaderboard.html  # top-N monthly totals fragment (also the HTMX partial)
 
 web/static/
-├── css/app.css                    # .pixel-canvas (image-rendering: pixelated) — see Status note's CSP bug
+├── css/app.css                    # no canvas-specific rules — v3's coquette look needs no image-rendering override
 ├── images/cooking/                # not populated — see Visual Direction's sprite-image note
 └── js/
     ├── cooking-game.js           # canvas game loop, click input, station panels, localStorage progress
@@ -724,7 +805,8 @@ only voluntarily-submitted, already-finished month results.
   station, no click target, no interaction, no effect on Karen or anyone
   else. Present every shift, unconditionally.
 * **Sanity and the Coffee Machine**: a shift-long stat (`SANITY_MAX` = 100,
-  starts full every shift, shown as a HUD bar) that drains passively over
+  starts full every shift, drawn as an on-canvas bar in the floor plan's
+  top-left corner, not external HUD chrome — v3) that drains passively over
   the shift (`SANITY_DRAIN_PER_SECOND`) and takes an extra one-time hit
   (`SANITY_DRAIN_PER_UPSET` = 15) on every upset event — a missed order or
   a wrong-dish serve, latched independently each time it happens, not just
@@ -908,11 +990,18 @@ only voluntarily-submitted, already-finished month results.
   and completes after a short duration (Quick Clean gear shortens it),
   rather than a held key — same "clears the whole stack in one action" and
   "not scaled to dish count" shape, different trigger mechanism.
-* Real hand-authored SVG sprite art (ingredients/dishes/stations),
-  deliberately deferred in favor of the v2 pixel-art canvas-primitive
-  treatment (Visual Direction) — left open the same way the Fishing Game's
-  own flat-circle-to-real-sprite upgrade was, rather than blocking on art
+* Real hand-authored/generated sprite art (ingredients/dishes/stations,
+  and especially real illustrated "coquette" anime-style character art),
+  deliberately deferred in favor of the v3 canvas-primitive treatment
+  (Visual Direction) — left open the same way the Fishing Game's own
+  flat-circle-to-real-sprite upgrade was, rather than blocking on art
   production.
+* **Not yet started**: splitting the single Dining floor plan into a
+  separate Kitchen room (fridge, cabinet, cookware closet, stove, oven,
+  cleaning closet) connected via a door/button, and a one-time scripted
+  intro sequence (the player walking in with an opening line of dialogue)
+  — both requested alongside the v3 restyle above but out of scope for
+  this pass; planned as separate follow-up work.
 * **Resolved**: a real, previously-shipped bug where any *new* Tailwind
   utility class introduced only in a template (not already used elsewhere
   in the codebase) silently did nothing until `make css` regenerated

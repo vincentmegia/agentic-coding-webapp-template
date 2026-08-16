@@ -71,26 +71,10 @@
 					>Fullscreen</button>
 				</div>
 
-				{{/* Sanity bar: starts full and drains through the shift (passively,
-				     and more on every upset), restored by visiting the Coffee
-				     Machine — cooking-game.js's renderHud() updates both the fill
-				     bar's width and its color (green/amber/red bands) and the "N%"
-				     label every frame via CSSOM property assignment
-				     (`.style.width`/`.style.backgroundColor`), not an HTML style
-				     attribute — this shell's CSP blocks the latter (see the Status
-				     note's earlier CSP bug), the same safe pattern the cook-timing
-				     gauge's fill bar already uses. bg-primary here is just the
-				     pre-JS default color, overwritten as soon as the game loop
-				     starts. */}}
-				<div class="rounded-card border border-line bg-surface-2 px-3 py-2">
-					<div class="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted sm:text-xs">
-						<span>Sanity</span>
-						<span id="cooking-hud-sanity-label" class="font-mono tabular-nums text-ink">100%</span>
-					</div>
-					<div class="mt-1 h-2 overflow-hidden rounded-full bg-surface">
-						<div id="cooking-hud-sanity-fill" class="h-full w-full bg-primary"></div>
-					</div>
-				</div>
+				{{/* Sanity is drawn inside the canvas scene itself (cooking-game.js's
+				     drawSanityBar, top-left corner of the floor plan), not as
+				     external HUD chrome — moved on-canvas per the user's "add the
+				     sanity bar inside the game instead of outside". */}}
 
 				{{/* Order queue: variable-length, so cooking-game.js repopulates
 				     this list's innerHTML directly (unlike the fixed HUD numbers
@@ -129,20 +113,19 @@
 				     narrower than that on desktop) or stretched to fill the screen
 				     in fullscreen, where the 900px cap doesn't apply. Either way
 				     it's a meaningfully bigger play area than v1's fixed 480x480.
-				     The pixel-canvas class (app.css, image-rendering: pixelated) —
-				     not an inline style attribute, which this shell's CSP blocks —
-				     is what turns the fixed 960x600 internal resolution into a
-				     blocky, "pixelated art style" look once scaled up — see
-				     cooking-game.js's header comment. touch-none prevents touch
-				     input from also scrolling the page on mobile; cursor-pointer
-				     signals the whole scene is clickable, since v2 has no keyboard
-				     controls at all. */}}
-				<div class="relative mx-auto aspect-[960/600] w-full max-w-[900px] overflow-hidden rounded-card border border-line bg-[#2b1a12] shadow-sm">
+				     No image-rendering override on the canvas itself — v3's
+				     "coquette" art style (soft pastel, rounded shapes, bows/stars,
+				     see cooking-game.js's header comment) wants smooth scaling,
+				     the opposite of v2's blocky pixel-art look. touch-none
+				     prevents touch input from also scrolling the page on mobile;
+				     cursor-pointer signals the whole scene is clickable, since v2
+				     has no keyboard controls at all. */}}
+				<div class="relative mx-auto aspect-[960/600] w-full max-w-[900px] overflow-hidden rounded-card border border-line bg-[#fbeef1] shadow-sm">
 					<canvas
 						id="cooking-canvas"
 						width="960"
 						height="600"
-						class="pixel-canvas block h-full w-full cursor-pointer touch-none"
+						class="block h-full w-full cursor-pointer touch-none"
 						role="img"
 						aria-label="Kitchen Shift play area"
 					>Your browser doesn't support the canvas element needed to play this game.</canvas>
