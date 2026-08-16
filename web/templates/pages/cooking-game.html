@@ -8,6 +8,14 @@
      the type="module" script placement, and the pre-JS default-visibility
      convention) — only the game-specific content differs below.
 
+     v2: controls are click-only now (no keyboard) — click a station to
+     walk over and use it, click empty floor to just walk there. The
+     canvas grew from 480x480 to 960x600 (30 tables, more stations, "make
+     the game bigger" per the user) and gained a Fullscreen toggle, a
+     station-picker panel overlay (fridge/cabinet/cookware closet), and a
+     cook-timing gauge overlay — see cooking-game.js's header comment for
+     the full v2 rationale.
+
      Dot is PageData; this page reads none of its fields directly (no
      server-side fetch — all player state is localStorage-driven, per
      cooking-game.js's header comment) beyond passing dot through to
@@ -18,10 +26,10 @@
 		<section class="space-y-2">
 			<h1 class="text-2xl font-semibold text-ink">Kitchen Shift</h1>
 			<p class="text-muted">
-				Work a shift at Startime Diner: take orders from the tables, gather ingredients from the fridge and
-				cabinet, cook them up, and serve before a customer's patience runs out. Close up clean — clear the
-				tables, wash the dishes, shut down — and the boss pays 4,000 Gard, or only 2,000 if anyone left upset.
-				Twenty shifts make a month.
+				Work an 8:30 AM–11:30 PM shift at Startime Diner: click a table to take its order, click the fridge or
+				cabinet to gather ingredients, the cookware closet for a pan or tray, and the stove or oven to cook.
+				Close up clean — clear the tables, wash the dishes, shut down — and Duke pays 4,000 Gard, or only
+				2,000 if anyone left upset. Twenty shifts make a month.
 			</p>
 		</section>
 
@@ -33,21 +41,35 @@
 				     (bg-surface-2/text-ink), unlike the canvas box below it.
 				     Tabular-nums + font-mono for the same reason as the Fishing
 				     Game's HUD numbers (docs/features/cooking-game.md's Visual
-				     Direction). */}}
-				<dl class="grid grid-cols-3 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
-					<div>
-						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Shift</dt>
-						<dd id="cooking-hud-shift" class="font-mono text-sm tabular-nums text-ink sm:text-base">1/20</dd>
-					</div>
-					<div>
-						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Clock</dt>
-						<dd id="cooking-hud-clock" class="font-mono text-sm tabular-nums text-ink sm:text-base">0:00</dd>
-					</div>
-					<div>
-						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Status</dt>
-						<dd id="cooking-hud-status" class="text-sm font-medium text-ink sm:text-base">Going well</dd>
-					</div>
-				</dl>
+				     Direction). "Time" shows the in-game restaurant clock
+				     (rules.js's inGameTimeLabel, 8:30 AM-11:30 PM), not a
+				     countdown. */}}
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<dl class="grid flex-1 grid-cols-3 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
+						<div>
+							<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Shift</dt>
+							<dd id="cooking-hud-shift" class="font-mono text-sm tabular-nums text-ink sm:text-base">1/20</dd>
+						</div>
+						<div>
+							<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Time</dt>
+							<dd id="cooking-hud-clock" class="font-mono text-sm tabular-nums text-ink sm:text-base">8:30 AM</dd>
+						</div>
+						<div>
+							<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Status</dt>
+							<dd id="cooking-hud-status" class="text-sm font-medium text-ink sm:text-base">Going well</dd>
+						</div>
+					</dl>
+					<button
+						type="button"
+						id="cooking-recipe-book-button"
+						class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+					>Recipes</button>
+					<button
+						type="button"
+						id="cooking-fullscreen-button"
+						class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+					>Fullscreen</button>
+				</div>
 
 				{{/* Order queue: variable-length, so cooking-game.js repopulates
 				     this list's innerHTML directly (unlike the fixed HUD numbers
@@ -55,32 +77,131 @@
 				     by default until a customer places an order. */}}
 				<div class="rounded-card border border-line bg-surface-2 px-3 py-2">
 					<p class="text-[10px] font-medium uppercase tracking-wide text-muted sm:text-xs">Orders</p>
-					<ul id="cooking-order-queue" class="mt-1 space-y-1 text-sm text-ink">
+					<ul id="cooking-order-queue" class="mt-1 max-h-32 space-y-1 overflow-y-auto text-sm text-ink">
 						<li class="text-muted">No orders yet.</li>
 					</ul>
 				</div>
 
-				{{/* Station interaction hint — hidden by default, shown by
-				     cooking-game.js when the player is within range of an
-				     interactable station (mirrors the Fishing Game's Sonar
-				     callout: role="status"/aria-live so it's announced without
-				     requiring focus). */}}
+				{{/* Hover tooltip — hidden by default, shown by cooking-game.js
+				     when the mouse hovers a station (not a "press key" prompt;
+				     controls are click-only, see the file header comment).
+				     role="status"/aria-live so it's announced without requiring
+				     focus, mirroring the Fishing Game's Sonar callout. */}}
 				<p id="cooking-interact-hint" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
+
+				{{/* Toast: brief transient messages (missing-ingredient hints,
+				     Karen's line, the ripple-effect notice). Hidden by default;
+				     cooking-game.js's showToast() unhides it and re-hides it after
+				     a timeout. */}}
+				<p id="cooking-toast" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
 
 				{{/* Canvas game box: a fixed warm "diner" scene regardless of the
 				     site's light/dark mode toggle (docs/features/cooking-game.md's
 				     Visual Direction), same fixed-palette-scene pattern as the
-				     Fishing Game's canvas. touch-none prevents touch input from
-				     also scrolling the page on mobile. */}}
-				<div class="relative mx-auto w-full max-w-[480px] overflow-hidden rounded-card border border-line bg-[#2b1a12] shadow-sm">
+				     Fishing Game's canvas. This element itself is the Fullscreen
+				     API target (cooking-game.js's toggleFullscreen reads
+				     canvas.parentElement) — aspect-[960/600] keeps the canvas's
+				     true proportions whether it's sized by the grid column below
+				     (up to max-w-[900px], though in practice the shared #main-content
+				     max-w-5xl container — docs/features/home.md's Container width
+				     rule, which this page doesn't get an exception from — caps it
+				     narrower than that on desktop) or stretched to fill the screen
+				     in fullscreen, where the 900px cap doesn't apply. Either way
+				     it's a meaningfully bigger play area than v1's fixed 480x480.
+				     The pixel-canvas class (app.css, image-rendering: pixelated) —
+				     not an inline style attribute, which this shell's CSP blocks —
+				     is what turns the fixed 960x600 internal resolution into a
+				     blocky, "pixelated art style" look once scaled up — see
+				     cooking-game.js's header comment. touch-none prevents touch
+				     input from also scrolling the page on mobile; cursor-pointer
+				     signals the whole scene is clickable, since v2 has no keyboard
+				     controls at all. */}}
+				<div class="relative mx-auto aspect-[960/600] w-full max-w-[900px] overflow-hidden rounded-card border border-line bg-[#2b1a12] shadow-sm">
 					<canvas
 						id="cooking-canvas"
-						width="480"
-						height="480"
-						class="block h-auto w-full touch-none"
+						width="960"
+						height="600"
+						class="pixel-canvas block h-full w-full cursor-pointer touch-none"
 						role="img"
 						aria-label="Kitchen Shift play area"
 					>Your browser doesn't support the canvas element needed to play this game.</canvas>
+
+					{{/* Cook-timing mini-game overlay — hidden by default;
+					     cooking-game.js's handleCookArrival() unhides it once the
+					     player has arrived at a stove/oven with the right
+					     ingredients (and cookware) in hand. Clicking the button
+					     samples the sweeping gauge (cooking-game.js's
+					     sampleCookGauge()) — a click-compatible replacement for the
+					     old "press Space at the right moment" mechanic. */}}
+					<div id="cooking-gauge" class="hidden absolute inset-x-0 bottom-4 mx-auto w-full max-w-xs space-y-2 rounded-card border border-line bg-surface p-3 shadow-lg">
+						<div class="h-3 overflow-hidden rounded-full bg-surface-2">
+							<div id="cooking-gauge-fill" class="h-full w-0 bg-primary"></div>
+						</div>
+						<button
+							type="button"
+							id="cooking-gauge-button"
+							class="w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>Cook!</button>
+					</div>
+
+					{{/* Station picker panel — fridge/cabinet/cookware closet.
+					     Hidden by default; cooking-game.js's openPanel() unhides it
+					     and populates #cooking-station-panel-list with one button
+					     per item at that station (renderPanel()). Positioned as an
+					     absolute inset-0 overlay, matching the start/paycheck/shop
+					     screens below — only one "screen" is ever visible at a
+					     time. max-h-full + overflow-y-auto on the whole card, not
+					     just the list — see the Recipe Book's identical comment
+					     just below for the real clipped-Close-button bug this
+					     avoids; the Fridge now has 10 items (Lemonade/Matcha added
+					     for Mel/Olive & Oliver), so this card is just as tall a
+					     risk. */}}
+					<div id="cooking-station-panel" class="hidden absolute inset-0 flex items-center justify-center p-4">
+						<div class="flex w-full max-w-xs flex-col space-y-3 rounded-card border border-line bg-surface p-6 shadow-lg max-h-full overflow-y-auto">
+							<div class="flex items-center justify-between gap-2">
+								<h2 id="cooking-station-panel-title" class="text-lg font-semibold text-ink">Fridge</h2>
+								<button
+									type="button"
+									id="cooking-station-panel-close-button"
+									class="shrink-0 rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Close</button>
+							</div>
+							<ul id="cooking-station-panel-list" class="space-y-2"></ul>
+						</div>
+					</div>
+
+					{{/* Recipe book — a reference list of every known dish (station,
+					     cookware, ingredients), so the player doesn't have to
+					     memorize the Business Rules table. Hidden by default;
+					     cooking-game.js's openRecipeBook() unhides it and populates
+					     #cooking-recipe-book-list once (static content — the list
+					     doesn't change mid-shift). Reachable via the "Recipes" button
+					     both before and during a shift; opening it pauses movement
+					     the same way a station panel does. */}}
+					<div id="cooking-recipe-book" class="hidden absolute inset-0 flex items-center justify-center p-4">
+						{{/* max-h-full + overflow-y-auto on the whole card (not just the
+						     list) — a real, previously-shipped bug: with only the inner
+						     <ul> capped, this card could be taller than the canvas
+						     itself (a real risk here since the canvas's rendered height
+						     varies with viewport/column width, unlike this card's
+						     content, which is fixed), and the parent's overflow-hidden
+						     clipped the excess — including the Close button, pushed
+						     above the visible area and left unclickable. Capping the
+						     whole card guarantees Close always stays visible and
+						     reachable regardless of how much room the canvas actually
+						     has. */}}
+						<div class="flex w-full max-w-sm flex-col space-y-3 rounded-card border border-line bg-surface p-6 shadow-lg max-h-full overflow-y-auto">
+							<div class="flex items-center justify-between gap-2">
+								<h2 class="text-lg font-semibold text-ink">Recipe Book</h2>
+								<button
+									type="button"
+									id="cooking-recipe-book-close-button"
+									class="shrink-0 rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Close</button>
+							</div>
+							<ul id="cooking-recipe-book-list" class="space-y-2 text-sm"></ul>
+						</div>
+					</div>
 
 					{{/* Start screen — visible by default (see file header comment). */}}
 					<div id="cooking-start-screen" class="absolute inset-0 flex items-center justify-center p-4">
@@ -104,7 +225,8 @@
 								Your progress won't be saved in this browser.
 							</p>
 							<p class="text-xs text-muted">
-								Arrow keys / WASD to move, Space or Enter to interact with whatever's nearest.
+								Click where you want to walk. Click a station — a table, the fridge, the stove, anywhere —
+								to walk over and use it automatically.
 							</p>
 							<div class="flex flex-col gap-2 pt-1">
 								<button

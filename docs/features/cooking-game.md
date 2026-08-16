@@ -31,22 +31,88 @@ No sprite art (Visual Direction's canvas-primitives-only v1 scope cut) and
 on-screen touch controls remain open, tracked in Open Questions — neither
 blocks desktop keyboard play, which is what v1 targets.
 
+**v2 redesign** — the user tried v1 and reported keyboard movement not
+responding, and separately asked for a different control scheme entirely
+(point-and-click, matching how they described wanting to interact with the
+fridge/stations), plus a long list of world-building and scope requests in
+the same session. Rather than debug the keyboard input path, controls were
+replaced outright with click-to-move/click-to-interact (see Client-side
+Behavior) — this also resolves the open question about touch controls,
+since clicks and taps are the same pointer event. Also shipped in this
+pass:
+
+* **30 tables** (up from 4), a much bigger 960x600 floor plan (up from
+  480x480) — "make the game bigger" — with a Cookware Closet (Pan/Baking
+  Tray/Rice Cooker; every Stove dish needs a Pan, every Oven dish a Baking
+  Tray, picked up once and kept for the rest of the shift), the Sink
+  restyled as a **Cleaning Closet**, and every closet/fridge/cabinet/boss's-
+  office station now renders as a door that visually opens while its panel
+  or action is active.
+* A **pixel-art visual treatment**: the canvas renders at a fixed, modest
+  internal resolution and is scaled up with `image-rendering: pixelated`
+  (a real CSS class, not an inline `style` — see the CSP bug note below),
+  giving the flat color-block primitives a blocky, retro look without
+  needing hand-drawn sprite assets.
+* A **Fullscreen** toggle on the game container (native Fullscreen API).
+* A **front counter** fixture (replacing the old plain "shutdown" box) and
+  a stationary **security guard** figure near the entrance — the latter is
+  cosmetic only, not an interactive station (see Business Rules).
+* An **in-game restaurant clock** (8:30 AM–11:30 PM) replacing the HUD's
+  mm:ss countdown — the same underlying shift-clock seconds, just
+  formatted as a time of day (`rules.js`'s `inGameTimeLabel`).
+* Three recurring/scripted customers, layered on top of the normal random
+  arrival pool (Business Rules has the full rundown): **Mel**, sweet and
+  kind, always the first customer seated every shift, with her own usual
+  order and extra patience; **Olive & Oliver**, an engaged couple who
+  always arrive together right after Mel, sharing one table and one order;
+  and **Karen**, a one-time disruptive customer on shift 12, with a short
+  fuse whose failure ripples into upsetting one other table too.
+
+**Real CSP bug found and fixed during manual verification**: an inline
+`style="image-rendering: pixelated"` on the canvas and an inline
+`style="width: 0%"` on the cook-gauge fill bar were both silently blocked
+by this site's strict CSP (`default-src 'self'`, no `style-src`
+exception — `internal/middleware/middleware.go`) — console showed "Applying
+inline style violates the following Content Security Policy directive."
+Fixed by moving the static pixelation rule into a real CSS class
+(`.pixel-canvas` in `app.css`) and the static zero-width default into a
+Tailwind class (`w-0`); the gauge fill's *dynamic* width update still uses
+`element.style.width = ...` from JS, which is CSSOM property assignment,
+not an HTML `style` attribute, and is unaffected by this CSP — the same
+pattern `carousel.js` already used safely for `.style.display`/
+`.style.transitionDuration`.
+
+Manually re-verified end-to-end in a real browser after the redesign:
+click-to-move across the 30-table floor, station panels (fridge/cabinet/
+cookware closet) opening on arrival, gathering + cooking + serving,
+Mel's guaranteed first appearance with her patience bonus and thank-you
+line, Olive & Oliver's guaranteed second appearance and shared order, the
+full closing sequence via a real click on the boss's office door, and zero
+console errors throughout.
+
 ## Summary
 
-A playable top-down restaurant sim at `/kitchen-shift`, set at a diner named
-**Startime Diner**: the player works a series of shifts there, walking
-between tables, the fridge, the cabinet, and the stove/oven to take orders,
-gather ingredients, cook or bake dishes on a timed window, and serve them
-before the customer's patience runs out. Every shift ends with a closing
-sequence (clean the dirty tables, wash the dishes, shut the restaurant down,
-then walk to the boss's office) where the boss hands over that shift's
-paycheck — a flat 4,000 Gard, or only 2,000 Gard if a customer was upset
-during the shift. The game runs for 20 shifts — "the month" — after which
-the boss hands over a final paycheck, and the player can submit that
+A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,
+set at a diner named **Startime Diner**: across an 8:30 AM–11:30 PM shift,
+the player clicks tables to take orders, clicks the fridge/cabinet/cookware
+closet to gather ingredients and cookware, and clicks the stove/oven to
+cook — the player automatically walks to whatever's clicked and interacts
+with it. Every shift ends with a closing sequence (clean the dirty tables,
+wash the dishes at the Cleaning Closet, shut the restaurant down at the
+front counter, then walk to the boss's office) where Duke hands over that
+shift's paycheck — a flat 4,000 Gard, or only 2,000 Gard if a customer was
+upset during the shift. The game runs for 20 shifts — "the month" — after
+which Duke hands over a final paycheck, and the player can submit that
 month's total Gard earned to a public leaderboard. Gard also funds an
 upgrade shop between shifts (faster walking, more carrying capacity, easier
-cook timing, more simultaneous tables, longer customer patience, faster
-cleanup), persisted in `localStorage` across months.
+cook timing, more simultaneous tables out of a 30-table dining room, longer
+customer patience, faster cleanup), persisted in `localStorage` across
+months. The floor plan renders in a blocky, pixel-art style and can go
+fullscreen; a security guard stands watch by the door, and alongside the
+normal rotation of random diners, three recurring characters show up —
+sweet regular Mel (always first), engaged couple Olive & Oliver (always
+right after her), and, on shift 12 only, a demanding one-off customer
+named Karen.
 
 ## Problem / Motivation
 
@@ -64,30 +130,41 @@ second data point for that pattern rather than a reskin of the first game.
 
 **In scope:**
 
-* A canvas-based top-down restaurant floor plan: player walks (arrow keys /
-  WASD) between fixed stations — tables, fridge, cabinet, stove, oven, sink,
-  a shutdown point, and the boss's office.
-* An order system: tables periodically seat a customer with an order; walking
-  up to an occupied table and interacting takes the order into an on-screen
-  queue with a per-customer patience timer.
-* Ingredient gathering: the fridge and cabinet each open a small picker of
-  available ingredients; picked ingredients go into the player's limited
-  carrying inventory.
+* A canvas-based top-down restaurant floor plan, 960x600, rendered
+  pixel-art style: **click-only controls** — click empty floor to walk
+  there, click a station (a table, the fridge, the stove, anywhere) and the
+  player walks over and automatically interacts with it on arrival. Fixed
+  stations: 30 tables (a 6x5 grid), the fridge, cabinet, cleaning closet,
+  cookware closet, stove, oven, a front counter, and the boss's office.
+* An order system: tables periodically seat a customer with an order;
+  walking up to (clicking) an occupied table takes the order into an
+  on-screen queue with a per-customer patience timer.
+* Ingredient gathering: clicking the fridge or cabinet walks the player
+  over and opens a picker panel of that station's items; clicking an item
+  in the panel adds it to the player's limited carrying inventory.
+* Cookware: a dedicated Cookware Closet (Pan, Baking Tray, Rice Cooker),
+  same click-to-open-panel pattern as the fridge/cabinet — every Stove
+  dish needs a Pan and every Oven dish needs a Baking Tray, acquired once
+  and kept for the rest of the shift (not consumed per dish).
 * Cooking: walking to the stove or oven with the right ingredients and
-  interacting starts a timed mini-game (a sweeping gauge) — a second
-  interaction while the sweep is inside the success window finishes the
-  dish; missing the window burns/ruins the ingredients and the player must
-  re-gather and retry.
-* Serving: carrying a finished dish to the table that ordered it fulfills
-  the order. Serving the wrong dish, or a customer's patience running out
-  first, upsets that customer — and even a single upset customer in a shift
-  is enough to cut that whole shift's paycheck in half (see Business Rules).
-* A shift clock: new customers/orders stop spawning at zero, any orders still
-  queued are auto-failed, and the shift moves into its closing sequence.
+  cookware in hand automatically starts a timed mini-game (a sweeping
+  gauge); clicking the "Cook!" button while the sweep is inside the success
+  window finishes the dish; missing the window burns/ruins the ingredients
+  and the player must re-gather and retry.
+* Serving: carrying a finished dish to the table that ordered it (click the
+  table) fulfills the order. Serving the wrong dish, or a customer's
+  patience running out first, upsets that customer — and even a single
+  upset customer in a shift is enough to cut that whole shift's paycheck in
+  half (see Business Rules).
+* A shift clock, displayed as an in-game restaurant time of day (8:30
+  AM–11:30 PM): new customers/orders stop spawning at zero, any orders
+  still queued are auto-failed, and the shift moves into its closing
+  sequence.
 * A four-step closing sequence, in order: clean every dirty table, wash the
-  dishes at the sink, walk to the shutdown point (e.g. the light
-  switch/register) and shut the restaurant down, then walk to the boss's
-  office to collect that shift's paycheck.
+  dishes at the cleaning closet, walk to the front counter and shut the
+  restaurant down, then walk to the boss's office to collect that shift's
+  paycheck. Each closing action auto-completes over a short duration once
+  the player arrives (no separate "hold" input needed under click controls).
 * A paycheck screen after every shift: whether any customer was upset, this
   shift's Gard payout (4,000 or 2,000), and the running month-to-date Gard
   total. Offers "Open Shop" and "Start Next Shift."
@@ -99,9 +176,19 @@ second data point for that pattern rather than a reskin of the first game.
   New Month" (shop upgrades persist; the month total resets to 0).
 * A gear-style upgrade shop (persisted in `localStorage`, same shape as
   Fishing Game's): walking speed, carrying capacity, cook-timing forgiveness,
-  simultaneous table capacity, customer patience, and dish/table cleanup
-  speed — all aimed at avoiding an upset customer, since Gard-per-shift is
-  otherwise flat (see Business Rules).
+  simultaneous table capacity (up to the full 30), customer patience, and
+  dish/table cleanup speed — all aimed at avoiding an upset customer, since
+  Gard-per-shift is otherwise flat (see Business Rules).
+* Three recurring/scripted customers layered on the normal random-arrival
+  pool: **Mel** (always the first customer every shift, her own usual
+  order, extra patience, a thank-you line), **Olive & Oliver** (an engaged
+  couple, always the second arrival every shift, sharing one table and one
+  order), and **Karen** (a one-time disruptive customer on shift 12 only,
+  short patience, and a ripple effect that upsets one other table if she's
+  mishandled). See Business Rules for the full rundown of each.
+* A stationary security guard figure near the entrance — cosmetic only, not
+  an interactive station.
+* A Fullscreen toggle on the game container (native Fullscreen API).
 * A small public leaderboard (Postgres-backed): top monthly Gard totals
   across all visitors, submitted voluntarily at month-end with a
   self-chosen display name.
@@ -110,9 +197,6 @@ second data point for that pattern rather than a reskin of the first game.
   closes the tab mid-month resumes at the start of their current shift
   rather than losing the whole month (unlike the Fishing Game's much
   shorter, fully-ephemeral single round — see Business Rules).
-* Hand-authored SVG illustrations for ingredients, dishes, customers, and
-  station furniture, matching the flat/simple illustrative style already
-  used for the Fishing Game and landing carousel.
 
 **Out of scope (v1):**
 
@@ -144,39 +228,52 @@ second data point for that pattern rather than a reskin of the first game.
    total (read from localStorage), the leaderboard fragment, and a "Start
    Shift" button. If localStorage shows a shift already in progress
    (mid-month resume), the button instead reads "Resume Shift {n}".
-2. User clicks "Start Shift". The floor plan renders: fridge, cabinet, stove,
-   oven, sink, a row of tables, the (locked) boss's office door, and the
-   player character near the entrance. A HUD overlays the canvas: shift
-   number (n/20), shift clock, this shift's status (no customer upset yet
-   vs. upset), and the order queue.
+2. User clicks "Start Shift". The floor plan renders: fridge, cabinet,
+   cleaning closet, cookware closet, stove, oven, a 6x5 grid of 30 tables,
+   the front counter, the (locked) boss's office door, a stationary
+   security guard near the entrance, and the player character. A HUD
+   overlays the canvas: shift number (n/20), the in-game clock (starts at
+   8:30 AM), this shift's status (no customer upset yet vs. upset), and the
+   order queue. Mel — always the first customer of the shift — and, right
+   after her, Olive & Oliver, seat themselves before the normal random
+   arrival rotation begins.
 3. Customers begin seating themselves at tables at intervals (faster in
-   later shifts). Walking up to an occupied table and interacting takes its
-   order into the queue, showing the requested dish and a patience timer.
-4. Player walks to the fridge or cabinet, interacts to open its ingredient
-   picker, and picks up the ingredients a queued order's dish requires (each
-   dish's recipe is a small fixed ingredient list — see Business Rules).
-   Carrying capacity is limited (upgradeable).
-5. Player walks to the stove or oven (whichever the dish needs) with the
-   right ingredients and interacts to start cooking: a sweeping gauge
-   mini-game plays, and a second interaction while the sweep is inside the
-   success zone finishes the dish; missing the zone entirely burns/ruins the
-   ingredients, which must be re-gathered from scratch.
-6. Player carries the finished dish to the table that ordered it and
-   interacts to serve — the order clears from the queue, and the table (and
-   the dish it was served on) becomes dirty. Serving the wrong dish to a
-   table is rejected — the dish is wasted and that customer is now upset. A
-   customer whose patience timer expires before being served also leaves
-   upset, and still leaves the table dirty.
+   later shifts). Clicking an occupied table walks the player over and
+   automatically takes its order into the queue, showing the requested dish
+   and a patience timer — no separate confirm step.
+4. Player clicks the fridge or cabinet; once they've walked over, a picker
+   panel opens listing that station's items. Clicking an item adds it to
+   the carrying inventory (capacity limited, upgradeable) — for a dish that
+   needs cooking, the player also needs its cookware (Pan or Baking Tray),
+   picked the same way from the Cookware Closet, once per shift.
+5. Player clicks the stove or oven (whichever the dish needs). Once they've
+   walked over, if they're holding the right ingredients and cookware, a
+   sweeping gauge mini-game starts automatically; clicking "Cook!" while the
+   sweep is inside the success zone finishes the dish, missing it
+   burns/ruins the ingredients (cookware isn't lost), which must be
+   re-gathered from scratch. Some dishes (Garden Salad, Mel's order, Olive
+   & Oliver's order) need no cooking at all — they finish assembling the
+   moment their last ingredient is gathered.
+6. Player clicks the table that ordered the held dish — the order clears
+   from the queue, and the table (and the dish it was served on) becomes
+   dirty. Clicking the wrong table, or a table whose dish doesn't match, is
+   rejected — the dish is wasted and that customer is now upset. A customer
+   whose patience timer expires before being served also leaves upset, and
+   still leaves the table dirty.
 7. When the shift clock hits zero, no further customers seat themselves and
    any still-queued orders auto-fail (upsetting those customers too). The
    floor plan switches into closing mode: every dirty table shows a mess
-   indicator, and the sink shows the shift's stack of dirty dishes.
-8. Player walks to each dirty table and interacts to clean it, then to the
-   sink to wash the accumulated dishes. Once every table is clean and the
-   dishes are washed, the shutdown point (near the entrance) becomes
-   interactive; the player walks there and interacts to shut the restaurant
-   down. Only then does the boss's office door unlock; the player walks
-   there and interacts to receive the shift's paycheck.
+   indicator, and the cleaning closet shows the shift's stack of dirty
+   dishes.
+8. Player clicks each dirty table; once they've walked over, cleaning
+   starts automatically and finishes after a short duration (faster with
+   Quick Clean gear) — walking away before it finishes cancels it, no
+   partial credit. Same pattern at the cleaning closet to wash the
+   accumulated dishes. Once every table is clean and the dishes are washed,
+   the front counter becomes clickable; clicking it walks the player over
+   and shuts the restaurant down automatically. Only then does the boss's
+   office door unlock; clicking it walks the player there and collects the
+   shift's paycheck.
 9. A paycheck screen shows whether any customer was upset this shift, the
    shift's Gard payout (4,000 if no one was upset, 2,000 if at least one
    was), and the running month-to-date total. Buttons: "Open Shop" and
@@ -213,28 +310,54 @@ Follows `tailwind-ui`'s Visual Style principles; specifics for this feature:
 * The boss is named **Duke** — the boss's-office interaction hint and the
   paycheck screen refer to him by name (e.g. "Duke hands you 4,000 Gard"),
   not just "the boss."
-* Top-down, flat/simple shape language matching the Fishing Game's sprites.
-  **v1 renders every station, ingredient, and dish as a canvas-drawn
-  primitive (a colored rounded rect/circle) plus a short text label**, not
-  loaded sprite images — a deliberate scope cut, not an oversight: the
-  Fishing Game itself shipped flat colored circles first and added real
-  SVG sprites in a later pass (`docs/features/fishing-game.md`'s Status
-  note), and this feature follows that same "ship the working mechanic
-  first" precedent. Swapping in real hand-authored SVG art (one icon per
-  ingredient/dish/station) is a follow-up, tracked in Open Questions, not
-  required for v1's mechanics to work.
+* **Pixel-art style** (v2, per the user's explicit request): every station,
+  person, and UI element on the canvas is a canvas-drawn primitive — flat
+  color-block rectangles, no rounded corners, no anti-aliasing (blocky
+  "pixel people" for the player/customers/guard: a head, torso, two legs,
+  each a plain rect) — rendered at a fixed, modest internal resolution and
+  scaled up via a real `image-rendering: pixelated` CSS class (`.pixel-canvas`
+  in `app.css` — **not** an inline `style` attribute; see the Status note's
+  CSP bug), which turns flat shapes into a blocky, retro look without
+  needing hand-drawn sprite assets. This supersedes v1's plain
+  (non-pixelated) primitive rendering; loaded sprite images remain a
+  possible future follow-up (Open Questions), still not required for the
+  mechanics to work.
+* The canvas game scene (floor plan, player, customers, stations) uses its
+  own fixed warm "diner" palette regardless of site light/dark mode, the
+  same reasoning as the Fishing Game's fixed ocean palette — a game scene
+  commits to one look. The HUD, start screen, shop, and leaderboard chrome
+  around the canvas fully follow the site's dark mode.
+* The restaurant is named **Startime Diner** — the name appears in the page
+  heading/start screen and paycheck-screen copy (e.g. "Startime Diner —
+  Shift {n}"), not just an internal label.
+* The boss is named **Duke** — the boss's-office hover tooltip and the
+  paycheck screen refer to him by name (e.g. "Duke hands you 4,000 Gard"),
+  not just "the boss."
+* **Doors**: the fridge, cabinet, cleaning closet, cookware closet, and
+  boss's office all render with a door handle and visually "open" (an
+  inset lighter panel) while their picker panel is showing, dishes are
+  being washed there, or (for the boss's office) once shutdown is complete
+  and it's unlocked — matching the user's "when our mouse clicks the fridge
+  (e.g.) ... the fridge door opens" request. The front counter and stove/
+  oven are plain fixtures, not doors.
+* **Recurring characters** each read as visually distinct at their table, a
+  small pixel-person plus (for most of them) a colored marker rect above
+  their head: Karen in red with a yellow marker; Mel in her favorite
+  yellow (`MEL_FAVORITE_COLOR`) with a pale dandelion-puff marker; Olive &
+  Oliver render as *two* people at their shared table, in Olive's green
+  and Oliver's blue respectively, not the usual single figure. A normal
+  random customer is a plain warm tan, no marker.
+* **Security guard**: a stationary pixel-person near the entrance/counter,
+  dark uniform color with a small badge-colored marker and a "Security"
+  label — purely decorative (Business Rules), always present, every shift.
 * The order queue and patience timers use a monospace/tabular-figure
-  treatment for the same reason as the Fishing Game's HUD numbers.
-* Later-shift dishes (Business Rules' recipe table) read as visually
-  "richer" (warmer accent, slightly more detail) than early ones, mirroring
-  the Fishing Game's higher-value fish, even though — unlike fish — dishes
-  no longer carry a point value themselves (see Business Rules' Shift
-  paycheck rule); it's purely a progression/flavor cue.
-* Station interaction range is communicated with a subtle highlight/glow on
-  the nearest interactable station as the player walks close enough to use
-  it, since there's no natural "hook touches sprite" collision moment the
-  way the Fishing Game has — the player needs a clear affordance for "you
-  can interact here."
+  treatment for the same reason as the Fishing Game's HUD numbers; so does
+  the HUD's in-game clock.
+* Station click/hover affordance: the nearest station under the cursor
+  gets a highlight outline (hover), and the station currently targeted by
+  an in-flight walk gets a brighter one (click-target) — the click-driven
+  equivalent of the Fishing Game's "hook touches sprite" moment, since
+  there's no natural collision here.
 * The HUD's shift-status indicator (Business Rules) reads clearly at a
   glance as "still going well" vs. "a customer got upset" — e.g. a
   simple two-state icon/color, not a number, since the underlying rule
@@ -247,19 +370,21 @@ Follows `tailwind-ui`'s Visual Style principles; specifics for this feature:
 ```text
 web/templates/
 ├── pages/
-│   └── cooking-game.html         # canvas + HUD + start/paycheck/shop overlays
+│   └── cooking-game.html         # canvas + HUD + start/paycheck/shop/panel/gauge overlays
 └── components/
     ├── cooking-shop.html         # gear upgrade list (level, effect, cost, buy button)
     └── cooking-leaderboard.html  # top-N monthly totals fragment (also the HTMX partial)
 
 web/static/
-├── images/cooking/                # not populated in v1 — see Visual Direction's sprite-image note
+├── css/app.css                    # .pixel-canvas (image-rendering: pixelated) — see Status note's CSP bug
+├── images/cooking/                # not populated — see Visual Direction's sprite-image note
 └── js/
-    ├── cooking-game.js           # canvas game loop, input, localStorage progress
+    ├── cooking-game.js           # canvas game loop, click input, station panels, localStorage progress
     └── cooking/
-        ├── rules.js               # pure: recipes, cook-timing success zone, paycheck rule, shift ramp
+        ├── rules.js               # pure: recipes, cookware, cook-timing zone, paycheck rule, shift ramp,
+        │                          #       Karen/Mel/Olive & Oliver constants, in-game clock formatting
         ├── engine-state.js        # pure: order queue, inventory, shift phase transitions (incl. closing steps)
-        └── floor-plan.js          # pure: station positions, interaction-radius checks
+        └── floor-plan.js          # pure: station positions/sizes, click hit-testing, walk-approach geometry
 ```
 
 States this feature's UI must handle:
@@ -267,23 +392,27 @@ States this feature's UI must handle:
 | State                        | Behavior |
 | ----------------------------- | -------- |
 | Start screen                   | Shows month-to-date Gard/shop levels/best month from `localStorage`, shop entry point, leaderboard, "Start Shift" (or "Resume Shift {n}"). |
-| Playing — floor plan            | Canvas game loop running; HUD (shift clock, shift status, order queue) updates every frame. |
-| Cooking mini-game               | Sweeping gauge overlay while a cook/bake action is active. |
+| Playing — floor plan            | Canvas game loop running; HUD (in-game clock, shift status, order queue) updates every frame; player walks toward the current click target. |
+| Hover tooltip                   | Shows the hovered station's name/status (e.g. a table's order, "Duke's Office (locked)") — mouse-hover only, no click needed. |
+| Station picker panel            | Fridge/cabinet/cookware-closet panel open, listing that station's items as clickable buttons; owned cookware shown checked/disabled. |
+| Cooking mini-game               | Sweeping gauge overlay + "Cook!" button while a cook/bake action is active; walking away cancels it, ingredients preserved. |
+| Toast                           | Brief transient message (missing ingredient/cookware, Karen's opening line, her ripple notice, Mel's thank-you). |
 | Order missed / customer leaves  | Brief visual feedback (customer sprite leaves, table marked dirty); shift status flips to "upset". |
 | Wrong dish served               | Brief rejection feedback; dish removed from inventory; shift status flips to "upset". |
-| Closing — cleaning tables        | Dirty tables show a mess indicator; sink/shutdown point inactive until all tables clean. |
-| Closing — washing dishes          | Sink interactive once tables are clean; shows remaining dirty-dish count; shutdown point inactive until washed. |
-| Closing — shut down              | Shutdown point interactive only once tables are clean and dishes are washed. |
-| Boss's office                   | Door interactive only once shutdown is complete. |
+| Closing — cleaning tables        | Dirty tables show a mess indicator; clicking one auto-cleans over a short duration; cleaning closet/counter inactive until all tables clean. |
+| Closing — washing dishes          | Cleaning closet clickable once tables are clean; shows remaining dirty-dish count; counter inactive until washed. |
+| Closing — shut down              | Front counter clickable only once tables are clean and dishes are washed. |
+| Boss's office                   | Door clickable (and visually "open") only once shutdown is complete. |
 | Paycheck screen                 | Upset/no-upset outcome, this shift's Gard payout, month-to-date total, "Open Shop" / "Start Next Shift". |
 | Final paycheck (shift 20)        | Month summary, "Submit to leaderboard" field, "Start New Month". |
 | Shop                             | Upgrade list, affordable vs. too-expensive visually distinguished; buying disabled once balance can't cover next level. |
+| Fullscreen                       | Toggling the button enters/exits Fullscreen API on the game container; canvas keeps its aspect ratio either way. |
 | Leaderboard loading              | Local loading indicator while the fragment fetches. |
 | Leaderboard empty                | "No scores yet — be the first!" |
 | Leaderboard error                | Generic "couldn't load the leaderboard" message; rest of page still works. |
 | `localStorage` unavailable       | Game still fully playable for the session; progress resets to defaults each visit, small notice explains why — never a hard error. |
-| Reduced motion                   | Gameplay canvas itself can't fully honor `prefers-reduced-motion` (movement is the mechanic), but all surrounding UI transitions (shop, paycheck screens) do. |
-| No loaded sprite images (v1)      | N/A in v1 — every station/ingredient/dish renders as a canvas primitive + text label, so there's no image-load/failure state to handle yet (Visual Direction). Revisit once real sprite art lands. |
+| Reduced motion                   | Gameplay canvas itself can't fully honor `prefers-reduced-motion` (movement is the mechanic), but all surrounding UI transitions (shop, paycheck screens, panels) do. |
+| No loaded sprite images           | Every station/ingredient/dish/person renders as a canvas primitive, so there's no image-load/failure state to handle (Visual Direction). Revisit once real sprite art lands. |
 
 ---
 
@@ -321,15 +450,24 @@ site's CSP):
 * **Game loop**: `requestAnimationFrame`-driven canvas rendering of the
   floor plan, player movement, customer/order state, cook-timing gauge, HUD.
   Pauses automatically on `visibilitychange`, same as the Fishing Game.
-* **Movement and interaction**: arrow keys / WASD move the player at a
-  capped speed (boosted by the Running Shoes upgrade) around fixed station
-  positions (`floor-plan.js`, a pure module — station coordinates and
-  "is the player within interaction range of station X" checks, unit-tested
-  independent of canvas rendering the same way `world-scroll.js` is for the
-  Fishing Game). A single interact key (e.g. space/enter) acts on whichever
-  station is currently in range, resolved once per frame; if the player is
-  in range of more than one station at once (shouldn't normally happen given
-  station spacing, but not physically prevented), the nearest one wins.
+* **Click-to-move and click-to-interact** (v2, replacing an earlier
+  keyboard-arrows/WASD version — see the Status note): a single `click`
+  listener on the canvas hit-tests the click point against every station's
+  box (`floor-plan.js`'s `stationAtPoint`, pure/testable). Clicking a
+  station sets a walk target computed by `floor-plan.js`'s `approachPoint`
+  — a point just outside that station's box, along the line back toward
+  the player's current position, so the player always approaches from
+  whichever side they're already standing on and never overlaps the
+  station's sprite. Clicking empty floor just sets a walk target with no
+  station attached. Every frame, the player moves toward the current
+  target at a capped speed (boosted by Running Shoes); on arrival, if the
+  target had a station attached, `handleArrival()` dispatches on the
+  current shift phase and that station's kind (take/serve at a table, open
+  a picker panel at the fridge/cabinet/cookware closet, start cooking at
+  the stove/oven, or the phase-gated closing actions). A separate
+  `mousemove` listener drives the hover tooltip (`hoverHintFor()`) without
+  moving the player. Movement is paused (not read) while a station panel
+  is open.
 * **Order queue, upset tracking, and shift phases**: `engine-state.js`
   (pure, no DOM/canvas access) owns the order queue — adding an order,
   ticking down patience timers, auto-failing an expired order — plus a
@@ -337,27 +475,64 @@ site's CSP):
   missed or the wrong dish is served, and the shift-phase state machine
   (`playing` → `closing-clean` → `closing-dishes` → `closing-shutdown` →
   `paycheck`). Mirrors the Fishing Game's `engine-state.js` role for round
-  state.
-* **Cooking mini-game**: a sweeping gauge (0 to 1, ping-ponging) starts on
-  interacting with a stove/oven while holding the right ingredients; a
-  second interact press samples the gauge's current position against the
-  dish's success zone (`rules.js`) — inside it, the dish finishes; outside
-  it, the ingredients are ruined. Sweep speed and the zone's width are pure
+  state. `failOrderAt()` (added for Karen's ripple effect) forces a
+  specific table's order to fail the same way a patience timeout does,
+  callable directly rather than only via the clock.
+* **Station picker panels**: fridge/cabinet/cookware-closet arrival opens
+  a DOM overlay (`#cooking-station-panel`, not canvas-drawn — a real
+  picker needs real buttons) listing that station's full item set; each
+  click adds the ingredient to inventory (if capacity allows) or marks the
+  cookware as acquired for the rest of the shift. A "none"-station dish
+  (Garden Salad, Mel's order, Olive & Oliver's order) auto-assembles into
+  a held dish the moment its last ingredient is gathered — no separate
+  cooking step.
+* **Cooking mini-game**: a sweeping gauge (0 to 1, ping-ponging) starts
+  automatically on arriving at a stove/oven while holding the right
+  ingredients and cookware; clicking the "Cook!" button samples the
+  gauge's current position against the dish's success zone (`rules.js`) —
+  inside it, the dish finishes; outside it, the ingredients are ruined
+  (cookware is never consumed). Sweep speed and the zone's width are pure
   functions of shift number and the Sharp Knife gear level, so they're
   unit-testable the same way `descentSpeed()` is for the Fishing Game.
-* **Sprite image rendering**: same pattern as the Fishing Game's — an
-  in-memory `Map` cache keyed by sprite variety, `Image` objects created and
-  assigned `src` once per variety, falls back to a flat colored shape if not
-  yet loaded/failed, never blocks the game loop.
-* **Progress persistence**: a single `localStorage` key (e.g.
-  `cooking-game:v1`) holding `{monthToDateGard, currentShift, gear:
-  {...levels}, bestMonthTotal}`. Versioned key name, same rationale as the
-  Fishing Game's save key.
+  Clicking a new walk target elsewhere cancels an in-progress mini-game
+  (ingredients preserved); clicking the same stove/oven again while it's
+  running is a no-op, not a restart.
+* **Closing-sequence auto-timers**: arriving at a dirty table (in
+  `closing-clean`) or the cleaning closet (in `closing-dishes`) starts a
+  short timer (`cleaningDurationForSave`, shortened by Quick Clean) that
+  completes the real action (`cleanTable`/`washDishes`) automatically —
+  replacing the keyboard version's "hold the interact key" mechanic, which
+  doesn't map to a click. Clicking a different target before it completes
+  cancels it, no partial credit.
+* **Karen / Mel / Olive & Oliver**: `maybeSpawnCustomer()` special-cases
+  the first two spawns of every shift — the first is always Mel
+  (`MEL_DISH`, extra patience via `MEL_PATIENCE_BONUS_SECONDS`), the
+  second is always Olive & Oliver (`COUPLE_DISH`, rendered as two people at
+  one table) — before falling back to the normal random pool. Karen is
+  spawned once, immediately, only on `isKarenShift(currentShiftNumber)`
+  (shift 12), with her own short `KAREN_PATIENCE_SECONDS`. Her ripple
+  effect and Mel's/the couple's "stop tracking once resolved" cleanup both
+  compare `shiftState.orders` before/after each `tick()` call to detect a
+  timeout (a successful or wrong-dish serve is detected synchronously in
+  the table-arrival handler instead, since that doesn't go through `tick`).
+* **Security guard**: drawn every frame at a fixed canvas position,
+  independent of `stations`/`floor-plan.js` entirely — it's not
+  interactive, so it never needed to be a real station.
+* **Fullscreen**: `toggleFullscreen()` calls `requestFullscreen()`/
+  `exitFullscreen()` on the canvas's parent container (the same element
+  the CSS `aspect-[960/600]` box lives on), so the canvas keeps its true
+  proportions in both windowed and fullscreen display.
+* **Progress persistence**: a single `localStorage` key
+  (`cooking-game:v2` — bumped from `v1` since this redesign changes enough
+  client-only state shape that a stale v1 save isn't worth attempting to
+  migrate) holding `{monthToDateGard, currentShift, gear: {...levels},
+  bestMonthTotal}`.
 * **Reduced motion**: same accepted gap as the Fishing Game — gameplay
   canvas can't fully honor the preference, but every non-gameplay transition
-  (shop, paycheck screens) does.
+  (shop, paycheck, station-panel screens) does.
 * **Cleanup**: loop torn down (canceled `requestAnimationFrame`, listeners
-  removed) on HTMX nav-away, not just full page unload.
+  removed) on HTMX nav-away, not just full page unload; a pending toast
+  `setTimeout` is also cleared.
 
 ---
 
@@ -412,22 +587,33 @@ only voluntarily-submitted, already-finished month results.
   playtesting pass). Dishes carry no individual point value — see the Shift
   paycheck rule below for why:
 
-  | Shift range | Dish              | Station | Ingredients                      |
-  | ------------- | ------------------- | --------- | ----------------------------------- |
-  | 1–5             | Garden Salad          | none (cabinet/fridge only) | Lettuce + Tomato        |
-  | 1–5             | Grilled Cheese         | Stove     | Bread + Cheese                       |
-  | 6–10            | Burger                 | Stove     | Bun + Patty + Lettuce                 |
-  | 6–10            | Pancakes                | Stove     | Flour + Egg + Milk                    |
-  | 11–15           | Roast Chicken           | Oven      | Chicken + Herbs                       |
-  | 11–15           | Pasta                   | Stove     | Noodles + Sauce                       |
-  | 16–20           | Steak Dinner            | Stove     | Steak + Potato + Herbs                |
-  | 16–20           | Soufflé (signature)      | Oven      | Egg + Cheese + Flour                  |
+  | Shift range | Dish              | Station | Cookware | Ingredients                      |
+  | ------------- | ------------------- | --------- | ---------- | ----------------------------------- |
+  | 1–5             | Garden Salad          | none (cabinet/fridge only) | none | Lettuce + Tomato        |
+  | 1–5             | Grilled Cheese         | Stove     | Pan | Bread + Cheese                       |
+  | 6–10            | Burger                 | Stove     | Pan | Buns + Patty + Lettuce                 |
+  | 6–10            | Pancakes                | Stove     | Pan | Flour + Egg + Milk                    |
+  | 11–15           | Roast Chicken           | Oven      | Baking Tray | Chicken + Herbs                       |
+  | 11–15           | Pasta                   | Stove     | Pan | Noodles + Sauce                       |
+  | 16–20           | Steak Dinner            | Stove     | Pan | Steak + Potato + Herbs                |
+  | 16–20           | Soufflé (signature)      | Oven      | Baking Tray | Egg + Cheese + Flour                  |
 
   A dish's ingredients come from the Fridge (cold: Cheese, Milk, Chicken,
-  Patty, Steak, Lettuce, Tomato, Egg) or the Cabinet (dry: Bread, Flour,
-  Noodles, Herbs, Buns, Sauce, Potato). Which dishes customers can order is
-  drawn only from bands unlocked up to the current shift, same "grows, never
-  shrinks" shape as the Fishing Game's fish-band gating.
+  Patty, Steak, Lettuce, Tomato, Egg, Lemonade, Matcha) or the Cabinet (dry:
+  Bread, Flour, Noodles, Herbs, Buns, Sauce, Potato, Star Cake, Cake).
+  Which dishes customers can order is drawn only from bands unlocked up to
+  the current shift, same "grows, never shrinks" shape as the Fishing
+  Game's fish-band gating. Lemonade/Matcha/Star Cake/Cake exist only for
+  Mel's and Olive & Oliver's dedicated orders below — no `RECIPE_BANDS`
+  dish uses them, so they never show up in a normal random customer's
+  order.
+* **Cookware**: every Stove dish needs a Pan and every Oven dish needs a
+  Baking Tray (a Rice Cooker also lives in the Cookware Closet, present for
+  flavor but not required by any current dish). Unlike ingredients,
+  cookware is a one-time pickup per shift — acquired once from the
+  Cookware Closet, it's available for every dish that needs it for the
+  rest of the shift, never consumed or re-gathered, and a burned/ruined
+  dish only loses its ingredients, not its cookware.
 * **Cook-timing is a binary success zone**, not a graded quality tier: the
   sweeping gauge has one "success" window — a second interaction while the
   sweep is inside it finishes the dish; anywhere outside it burns/ruins the
@@ -457,21 +643,27 @@ only voluntarily-submitted, already-finished month results.
   lower-stakes than the Fishing Game by design (a workplace shift, not a
   survival descent): the tension is finishing the shift clean, not
   avoiding a game-over state.
-* **Shift clock and ramp**: each shift runs on a fixed countdown
-  (illustrative, tune during build); customer arrival rate increases and
-  patience timers shorten as shift number increases, and simultaneous
-  active tables/orders is capped by both physical table count and the
-  Extra Table Service gear level, whichever is lower.
+* **In-game clock**: the shift's real-time countdown (`SHIFT_CLOCK_SECONDS`,
+  illustrative, tune during build) is displayed as a restaurant time of
+  day, 8:30 AM at shift start to 11:30 PM when the clock hits zero
+  (`rules.js`'s `inGameTimeLabel`, a linear map from remaining clock
+  seconds onto that range) — a cosmetic display choice layered on the same
+  underlying countdown every other shift-timing function already uses, not
+  a second independent clock.
+* **Shift ramp**: customer arrival rate increases and patience timers
+  shorten as shift number increases, and simultaneous active tables/orders
+  is capped by both the physical table count (30) and the Extra Table
+  Service gear level, whichever is lower.
 * **Closing sequence order is enforced**, matching the explicit
   clean → wash dishes → shut down → get paid order from the feature
   request, not a cosmetic sequence the player could skip or reorder: the
-  sink isn't interactive until every table is clean, the shutdown point
-  isn't interactive until the sink's dirty-dish stack (one dish per serve —
-  successful, wrong, or missed doesn't matter, a dish or pan still got used
-  — accumulated that shift) is fully washed, and the boss's office door
-  isn't interactive until shutdown is complete.
+  cleaning closet isn't clickable until every table is clean, the front
+  counter isn't clickable until the cleaning closet's dirty-dish stack (one
+  dish per serve — successful, wrong, or missed doesn't matter, a dish or
+  pan still got used — accumulated that shift) is fully washed, and the
+  boss's office door isn't clickable until shutdown is complete.
 * **Gear upgrades** (illustrative costs/magnitudes, same "tune during build"
-  status as the recipe table above), 5 levels each, cost curve
+  status as the recipe table above), 5 levels each unless noted, cost curve
   `round(baseCost × costGrowth ^ currentLevel)`. Every upgrade here targets
   avoiding an upset customer or getting through closing faster — there's no
   "earn more Gard per dish" upgrade, since a shift's payout is flat
@@ -483,17 +675,56 @@ only voluntarily-submitted, already-finished month results.
   | Running Shoes            | +15% walking speed                                        |
   | Bigger Tray              | +1 carried ingredient slot                                 |
   | Sharp Knife               | Widens the cook-timing success zone                        |
-  | Extra Table Service        | +1 simultaneous active table/order slot                    |
+  | Extra Table Service        | +3 simultaneous active tables per level (8 levels, base 5 → capped at the physical 30) |
   | Regular's Patience          | +patience-timer duration per customer                      |
   | Quick Clean                | Reduces per-table cleaning and dish-washing time            |
 
+* **Karen, Mel, and Olive & Oliver** — three named customers layered on top
+  of the normal random-arrival pool (`availableDishes`), none of whom ever
+  come from that pool themselves:
+  * **Mel** (`MEL_DISH`, `"Mel's Usual"` — Lemonade, Star Cake, and Egg,
+    station `none`) is always the very first customer seated, every single
+    shift — not a random chance. Sweet, kind, and caring; favorite color
+    yellow, favorite flower a dandelion (both cosmetic, Visual Direction).
+    She gets `MEL_PATIENCE_BONUS_SECONDS` (15s) on top of the normal
+    patience for that shift, and serving her correctly shows
+    `MEL_THANK_YOU_LINE`. If she's mishandled (missed or served wrong),
+    that's a normal `shiftUpset` latch like anyone else — no extra
+    penalty; she's understanding, not vindictive.
+  * **Olive & Oliver** (`COUPLE_DISH`, `"Olive & Oliver's Order"` — Matcha
+    and Cake, station `none`) always arrive together right after Mel,
+    every shift — the second guaranteed spawn, before the random pool
+    resumes. An engaged couple sharing one table and one order, not two
+    separate orders. Olive: brave, smart, neat, favorite color green
+    (`OLIVE_FAVORITE_COLOR`), favorite flower tulips. Oliver: intelligent,
+    brave, favorite color blue (`OLIVER_FAVORITE_COLOR`), favorite flower
+    rose — his usual order is the same as his fiancée's, which is why they
+    share `COUPLE_DISH` rather than each getting their own. No special
+    patience/ripple mechanic; purely a recurring-cast/rendering distinction
+    (Visual Direction: rendered as two people at one table).
+  * **Karen** (`KAREN_SHIFT_NUMBER` = 12, one of the "12 or 18" the user
+    offered — picked to keep this a single well-defined trigger) appears
+    once, immediately at shift start, on that one shift only — not part of
+    the normal spawn timer. Her line (`KAREN_LINE`, shown the moment she's
+    seated): "HEY YOU THERE COME OVER HERE." Much shorter patience
+    (`KAREN_PATIENCE_SECONDS` = 12s) than a normal customer at that shift.
+    If her order isn't served correctly in time (missed or wrong dish),
+    that's a normal `shiftUpset` latch *plus* a ripple effect: one other
+    currently-active order (picked at random, if any exist) is force-failed
+    too (`engine-state.js`'s `failOrderAt`) — she's rude enough to sour the
+    mood for someone else. Served correctly, no ripple, business as usual.
+* **Security guard**: a stationary figure near the entrance/counter — "there's
+  security to protect the place." Cosmetic only: not a `floor-plan.js`
+  station, no click target, no interaction, no effect on Karen or anyone
+  else. Present every shift, unconditionally.
 * **Mid-month resume**: month-to-date Gard, current shift number, and shop
   levels persist across a reload; an in-progress shift's floor-plan state
-  (order queue, inventory, table/dish cleanliness, the `shiftUpset` flag)
-  does not — returning mid-shift restarts that shift from its beginning,
-  same forfeiture principle as the Fishing Game's abandoned-round rule, just
-  scoped to one shift instead of the whole run since a month is a much
-  longer investment to fully discard.
+  (order queue, inventory, acquired cookware, table/dish cleanliness, the
+  `shiftUpset` flag, and whether Mel/Karen/Olive & Oliver have already
+  appeared or been resolved this shift) does not — returning mid-shift
+  restarts that shift from its beginning, same forfeiture principle as the
+  Fishing Game's abandoned-round rule, just scoped to one shift instead of
+  the whole run since a month is a much longer investment to fully discard.
 * **Leaderboard**: top N (e.g. 20) by `total_earnings`, descending;
   submission is optional and only offered on the Final Paycheck screen
   (shift 20), never automatic, never mid-month.
@@ -544,20 +775,41 @@ only voluntarily-submitted, already-finished month results.
       dirty, and latches `shiftUpset` — without needing player input.
 * [ ] A wrong-dish serve latches `shiftUpset`, wastes the dish, and does not
       clear the order from the queue (the customer is still waiting).
+* [ ] `failOrderAt` fails the active order at a specific table on demand
+      (Karen's ripple effect), exactly like a patience timeout, and is a
+      no-op if that table has no active order or the shift has left
+      `playing`.
 * [ ] Shift-phase state machine (`engine-state.js`): `playing` only
-      transitions to `closing-clean` when the shift clock hits zero;
+      transitions to `closing-clean` when the shift clock hits zero (and
+      skips straight to `closing-dishes` if every table already happens to
+      be clean — the idle-shift soft-lock regression from the v1 pass);
       `closing-clean` only transitions to `closing-dishes` once every table
       is clean; `closing-dishes` only transitions to `closing-shutdown` once
-      the sink's dirty-dish stack is fully washed; `closing-shutdown` only
+      the dirty-dish stack is fully washed; `closing-shutdown` only
       transitions to `paycheck` after the shutdown action fires — each gate
       is independently unit-tested, not just the happy path through all
       four.
-* [ ] `floor-plan.js`: interaction-range checks correctly report in/out of
-      range for each station at representative player positions, and the
-      nearest-station tie-break resolves deterministically.
+* [ ] `floor-plan.js`: `stationAtPoint` correctly hit-tests each station's
+      box (including an exact-edge boundary case) and returns `null` for a
+      point over no station; `approachPoint` returns a point exactly
+      `standoffDistance` from the station center along the line back to the
+      player's current position, and returns the player's own position
+      unchanged if they're already within that distance.
 * [ ] Shift-to-shift ramp (customer arrival rate, patience duration, sweep
       speed) moves in the documented direction as shift number increases,
       unit-tested at representative shift numbers.
+* [ ] `inGameTimeLabel`: a full clock reads 8:30 AM, a zeroed clock reads
+      11:30 PM, the halfway point reads the halfway time of day, a noon
+      crossover reads "12:00 PM" (not "0:00 PM"), and out-of-range/
+      non-finite input clamps rather than producing a nonsense time.
+* [ ] Every `RECIPE_BANDS` dish's cookware matches its station (Pan for
+      Stove, Baking Tray for Oven, `null` for the station-less dish), and
+      every ingredient (including `MEL_DISH`'s and `COUPLE_DISH`'s) resolves
+      to a real `FRIDGE_INGREDIENTS`/`CABINET_INGREDIENTS` entry.
+* [ ] `MEL_DISH` and `COUPLE_DISH` are never present in `availableDishes`'s
+      output at any shift number — only the two scripted spawns ever order
+      them.
+* [ ] `isKarenShift` is true only at `KAREN_SHIFT_NUMBER`.
 * [ ] Month total accumulates correctly across shifts (sum of each shift's
       4,000/2,000 payout) and resets to 0 on "Start New Month" while shop
       gear levels persist.
@@ -573,15 +825,30 @@ only voluntarily-submitted, already-finished month results.
 * [ ] Rate limiting on `POST /kitchen-shift/score` rejects rapid repeated
       submissions from the same source.
 * [ ] `e2e/`: nav → Kitchen Shift → play through a full shift with zero
-      upsets (deterministic test mode as needed) → closing sequence (clean →
-      wash → shut down) → boss's office → paycheck screen shows 4,000 Gard →
-      shop purchase reflected next shift.
-* [ ] `e2e/`: play a shift that includes one missed or wrong-served order →
-      paycheck screen shows 2,000 Gard instead of 4,000.
-* [ ] `e2e/`: play all 20 shifts (or a fast-forward test hook) → Final
-      Paycheck screen → submit score → leaderboard shows the new entry →
-      test cleans up its own row.
-* [ ] No console errors (including no CSP violations) on `/kitchen-shift`.
+      upsets (real clicks, plus the `skipToClosing`/`collectPaycheck` test
+      hooks to fast-forward the closing sequence's real-time waits) →
+      paycheck screen shows 4,000 Gard → shop purchase reflected next
+      shift.
+* [ ] `e2e/`: play a shift that includes one missed or wrong-served order
+      (the `forceUpset` test hook, or a real wrong-dish click) → paycheck
+      screen shows 2,000 Gard instead of 4,000.
+* [ ] `e2e/`: play all 20 shifts (test hooks to fast-forward each closing
+      sequence) → Final Paycheck screen → submit score → leaderboard shows
+      the new entry → test cleans up its own row.
+* [ ] `e2e/`: click a station and confirm the player walks to it and the
+      correct action fires on arrival (station panel opens for fridge/
+      cabinet/cookware closet, order taken/served at a table); clicking
+      empty floor just walks there with no side effect.
+* [ ] `e2e/`: Mel is the first customer of a fresh shift and Olive & Oliver
+      the second, every time — not just probabilistically.
+* [ ] `e2e/`: the Recipe Book opens (before and during a shift), lists every
+      dish including Mel's and Olive & Oliver's, and its Close button is
+      always reachable regardless of viewport/canvas height (regression
+      coverage for the clipped-Close-button bug below).
+* [ ] No console errors (including no CSP violations) on `/kitchen-shift` —
+      specifically covers inline `style=""` attributes, which this shell's
+      CSP silently blocks (a real bug found during v2's manual
+      verification, see the Status note).
 
 ---
 
@@ -590,25 +857,48 @@ only voluntarily-submitted, already-finished month results.
 * Exact shift-clock duration and customer arrival/patience curves are all
   illustrative and need a real playtesting pass before being called final,
   the same status the Fishing Game's numbers started at.
-* Whether `/kitchen-shift` needs its own on-screen touch controls for
-  mobile/touch viewports the way the Fishing Game does, given this game
-  needs an explicit "interact" action in addition to movement (not just
-  directional steering) — likely yes, but the control scheme (virtual
-  d-pad + a button vs. tap-to-walk-to-station) isn't decided.
+* **Resolved**: touch controls — v2's click-only redesign already handles
+  this, since a tap and a click are the same pointer event; no separate
+  virtual d-pad/button scheme is needed the way keyboard-based movement
+  would have required.
 * Whether nav/`/projects`/landing-page integration (deliberately out of
-  scope for v1, see Scope) happens as an immediate fast-follow or waits
+  scope, see Scope) happens as an immediate fast-follow or waits
   indefinitely, same open-ended status the Fishing Game's own nav placement
   has been through multiple revisions of.
-* **Resolved**: dish washing is one interaction that clears the whole
-  shift's stack at once — implemented as a hold-to-complete action (hold
-  Space at the sink), with Quick Clean gear reducing the required hold
-  duration, matching table cleaning's same hold mechanic. Not scaled to
-  the number of dishes accumulated.
+* **Resolved (v1)**: dish washing is one interaction that clears the whole
+  shift's stack at once. **Superseded in v2**: with keyboard controls gone,
+  this is now an auto-timer that starts on arrival at the cleaning closet
+  and completes after a short duration (Quick Clean gear shortens it),
+  rather than a held key — same "clears the whole stack in one action" and
+  "not scaled to dish count" shape, different trigger mechanism.
 * Real hand-authored SVG sprite art (ingredients/dishes/stations),
-  deliberately deferred out of v1 in favor of canvas-drawn primitives +
-  text labels (Visual Direction) — left open the same way the Fishing
-  Game's own flat-circle-to-real-sprite upgrade was, rather than blocking
-  v1 on art production.
+  deliberately deferred in favor of the v2 pixel-art canvas-primitive
+  treatment (Visual Direction) — left open the same way the Fishing Game's
+  own flat-circle-to-real-sprite upgrade was, rather than blocking on art
+  production.
+* **Resolved**: a real, previously-shipped bug where any *new* Tailwind
+  utility class introduced only in a template (not already used elsewhere
+  in the codebase) silently did nothing until `make css` regenerated
+  `output.css` — Tailwind v4's `@source` scanning is a build step, not a
+  runtime one. Caught when the Recipe Book's and station panel's
+  `max-h-full` fix (below) appeared to have no effect at all until the CSS
+  was rebuilt. Not a design gap, just a reminder that a template-only edit
+  in this codebase isn't automatically live.
+* **Resolved**: the Recipe Book's (and the fridge/cabinet/cookware-closet
+  station panel's) card could be taller than the canvas itself — a real
+  risk since the canvas's rendered height varies with viewport/column
+  width while the card's content doesn't — and the parent's
+  `overflow-hidden` silently clipped the excess, including the Close
+  button, leaving it unclickable. Fixed by capping the whole card
+  (`max-h-full overflow-y-auto`), not just its inner list, on both panels.
+* Rice Cooker sits in the Cookware Closet but no current dish requires it
+  (Business Rules) — the user asked for it "e.g." alongside Pan, not as a
+  strict requirement; whether a future dish should use it, or whether it's
+  purely flavor/future-proofing, is left open.
+* Karen's shift was picked as 12 out of the "12 or 18" the user offered,
+  to keep this a single well-defined trigger; whether 18 should also get a
+  (the same or a different) scripted event, or Karen should move/duplicate
+  there instead, is left open.
 
 ---
 

@@ -6,90 +6,129 @@
 // purpose, mirroring rules.js/engine-state.js's contract, so it can be
 // unit-tested with `node --test` and imported unchanged by the canvas game
 // loop (cooking-game.js). It owns station coordinates on the fixed
-// 480x480 floor plan (matching cooking-game.html's canvas dimensions) and
-// "is the player within interaction range of station X" checks — the
-// station-interaction equivalent of the Fishing Game's world-scroll.js.
+// 960x600 floor plan (matching cooking-game.html's canvas dimensions) and
+// the click-to-move geometry: hit-testing a click/hover point against a
+// station's box, and computing where the player should stop when walking
+// up to interact with one (just outside its box, not dead-center on top
+// of it).
+//
+// v2 redesign: controls are click-only now (a prior keyboard-arrows/WASD
+// version existed; the user asked to replace it with point-and-click
+// movement/interaction, which is also what fixed a real "I can't move"
+// bug report — this module no longer exposes a circular
+// "nearestStation"-style proximity scan, since a click always commits to
+// one specific station or floor point as the current move target, and
+// "arrival" is judged against that one target, not a continuous
+// every-frame area scan the way keyboard movement needed.
 
 /** The floor plan's fixed canvas size, in pixels (matches cooking-game.html). */
-export const CANVAS_SIZE = 480;
+export const CANVAS_WIDTH = 960;
+export const CANVAS_HEIGHT = 600;
 
-/** How close (pixels, center-to-center) the player must be to interact with a station. */
-export const INTERACTION_RADIUS = 42;
+/** Box size (pixels, square) for door/fixture stations — fridge, cabinet, closets, stove, oven, counter, boss's office. */
+export const STATION_BOX_SIZE = 70;
+
+/** Box size (pixels, square) for a table — smaller, since 30 of them share the floor. */
+export const TABLE_BOX_SIZE = 50;
 
 /**
- * Builds the fixed set of stations for a floor plan with the given table
- * ids — everything the player can walk up to and interact with. Station
- * positions are hand-placed, not computed: fridge/cabinet along the top
- * corners, stove/oven along the bottom corners, the sink along the left
- * wall, tables in a grid in the middle, and the shutdown point/boss's
- * office along the vertical centerline (entrance at the bottom, office at
- * the top) — matching the doc's User Flow description of the room.
+ * How far outside a station's box edge the player stops when walking up
+ * to interact with it — close enough to read as "at the fridge," far
+ * enough that the player sprite never overlaps the station's box.
+ */
+export const PLAYER_STOP_MARGIN = 26;
+
+/** The player's starting position — just below the table grid, near the counter/entrance. */
+export const PLAYER_START = { x: 480, y: 500 };
+
+/**
+ * Builds the fixed set of non-table stations plus one entry per table id.
+ * Positions are hand-placed, not computed, mirroring the room the doc's
+ * User Flow describes: door-fixture stations along the left/right walls
+ * and top/bottom centerline, a 6x5 table grid filling the middle.
+ *
+ * Station kinds: 'fridge', 'cabinet', 'cleaning-closet' (doubles as the
+ * old "sink" — washes dishes, restyled as a door per the user's request),
+ * 'cookware-closet' (Pan/Baking Tray/Rice Cooker), 'stove', 'oven',
+ * 'counter' (the old "shutdown" light-switch/register point, restyled as
+ * a proper front counter), 'boss-office', and 'table' (one per id).
  *
  * @param {number[]} tableIds
- * @returns {{id: string, kind: string, x: number, y: number, tableId?: number}[]}
+ * @returns {{id: string, kind: string, x: number, y: number, size: number, tableId?: number}[]}
  */
 export function buildStations(tableIds) {
   const stations = [
-    { id: 'fridge', kind: 'fridge', x: 60, y: 60 },
-    { id: 'cabinet', kind: 'cabinet', x: 420, y: 60 },
-    { id: 'stove', kind: 'stove', x: 60, y: 420 },
-    { id: 'oven', kind: 'oven', x: 420, y: 420 },
-    { id: 'sink', kind: 'sink', x: 60, y: 240 },
-    { id: 'shutdown', kind: 'shutdown', x: 240, y: 450 },
-    { id: 'boss-office', kind: 'boss-office', x: 240, y: 30 },
+    { id: 'fridge', kind: 'fridge', x: 90, y: 80, size: STATION_BOX_SIZE },
+    { id: 'cabinet', kind: 'cabinet', x: 870, y: 80, size: STATION_BOX_SIZE },
+    { id: 'cleaning-closet', kind: 'cleaning-closet', x: 90, y: 300, size: STATION_BOX_SIZE },
+    { id: 'cookware-closet', kind: 'cookware-closet', x: 870, y: 300, size: STATION_BOX_SIZE },
+    { id: 'stove', kind: 'stove', x: 90, y: 520, size: STATION_BOX_SIZE },
+    { id: 'oven', kind: 'oven', x: 870, y: 520, size: STATION_BOX_SIZE },
+    { id: 'counter', kind: 'counter', x: 480, y: 560, size: STATION_BOX_SIZE },
+    { id: 'boss-office', kind: 'boss-office', x: 480, y: 40, size: STATION_BOX_SIZE },
   ];
 
-  const tableGridX = [180, 300];
-  const tableGridY = [180, 300];
+  const columnXs = [220, 324, 428, 532, 636, 740];
+  const rowYs = [130, 215, 300, 385, 470];
   tableIds.forEach((tableId, i) => {
-    const x = tableGridX[i % 2];
-    const y = tableGridY[Math.floor(i / 2) % 2];
-    stations.push({ id: `table-${tableId}`, kind: 'table', tableId, x, y });
+    const col = i % columnXs.length;
+    const row = Math.floor(i / columnXs.length) % rowYs.length;
+    stations.push({
+      id: `table-${tableId}`,
+      kind: 'table',
+      tableId,
+      x: columnXs[col],
+      y: rowYs[row],
+      size: TABLE_BOX_SIZE,
+    });
   });
 
   return stations;
 }
 
-/** The player's starting position — just below center, near the entrance/shutdown point. */
-export const PLAYER_START = { x: 240, y: 400 };
-
-function distance(ax, ay, bx, by) {
-  return Math.hypot(ax - bx, ay - by);
+/**
+ * The station whose box contains (x, y), if any — a rectangle hit-test
+ * used for both click-to-target and mouse-hover tooltips. `null` if the
+ * point isn't over any station.
+ *
+ * @param {number} x
+ * @param {number} y
+ * @param {{x: number, y: number, size: number}[]} stations
+ * @returns {object | null}
+ */
+export function stationAtPoint(x, y, stations) {
+  for (const station of stations) {
+    const half = station.size / 2;
+    if (x >= station.x - half && x <= station.x + half
+      && y >= station.y - half && y <= station.y + half) {
+      return station;
+    }
+  }
+  return null;
 }
 
 /**
- * Every station within `radius` of (playerX, playerY), nearest first.
+ * Where the player should walk to in order to interact with a station:
+ * a point `standoffDistance` outside the station's center, along the line
+ * toward the player's current position — so the player approaches from
+ * whichever side they're already on, rather than always attaching to one
+ * fixed edge. If the player is already within `standoffDistance`, they
+ * don't move at all (returns their current position unchanged).
  *
- * @param {number} playerX
- * @param {number} playerY
- * @param {{id: string, x: number, y: number}[]} stations
- * @param {number} [radius] - defaults to INTERACTION_RADIUS.
- * @returns {{id: string, x: number, y: number}[]}
+ * @param {number} stationX
+ * @param {number} stationY
+ * @param {number} fromX - the player's current x.
+ * @param {number} fromY - the player's current y.
+ * @param {number} standoffDistance - typically station.size / 2 + PLAYER_STOP_MARGIN.
+ * @returns {{x: number, y: number}}
  */
-export function stationsInRange(playerX, playerY, stations, radius = INTERACTION_RADIUS) {
-  return stations
-    .map((station) => ({ station, dist: distance(playerX, playerY, station.x, station.y) }))
-    .filter(({ dist }) => dist <= radius)
-    .sort((a, b) => a.dist - b.dist)
-    .map(({ station }) => station);
-}
-
-/**
- * The single station the player would interact with right now — the
- * nearest one within range, or `null` if none are in range. Deterministic
- * tie-break: on an exact distance tie, the station earlier in the input
- * array wins (Array.prototype.sort is stable, so equal-distance entries
- * keep their relative input order).
- *
- * @param {number} playerX
- * @param {number} playerY
- * @param {{id: string, x: number, y: number}[]} stations
- * @param {number} [radius] - defaults to INTERACTION_RADIUS.
- * @returns {{id: string, x: number, y: number} | null}
- */
-export function nearestStation(playerX, playerY, stations, radius = INTERACTION_RADIUS) {
-  const inRange = stationsInRange(playerX, playerY, stations, radius);
-  return inRange.length > 0 ? inRange[0] : null;
+export function approachPoint(stationX, stationY, fromX, fromY, standoffDistance) {
+  const dx = fromX - stationX;
+  const dy = fromY - stationY;
+  const dist = Math.hypot(dx, dy);
+  if (dist <= standoffDistance) return { x: fromX, y: fromY };
+  const ratio = standoffDistance / dist;
+  return { x: stationX + dx * ratio, y: stationY + dy * ratio };
 }
 
 /**
@@ -101,7 +140,8 @@ export function nearestStation(playerX, playerY, stations, radius = INTERACTION_
  * @param {number} [margin]
  * @returns {{x: number, y: number}}
  */
-export function clampToCanvas(x, y, margin = 16) {
-  const clamp = (value) => Math.min(CANVAS_SIZE - margin, Math.max(margin, value));
-  return { x: clamp(x), y: clamp(y) };
+export function clampToCanvas(x, y, margin = 20) {
+  const clampX = (value) => Math.min(CANVAS_WIDTH - margin, Math.max(margin, value));
+  const clampY = (value) => Math.min(CANVAS_HEIGHT - margin, Math.max(margin, value));
+  return { x: clampX(x), y: clampY(y) };
 }

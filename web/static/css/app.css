@@ -190,6 +190,18 @@ h1, h2, h3, h4, h5, h6 {
 	display: block;
 }
 
+/* Kitchen Shift's pixel-art canvas (docs/features/cooking-game.md's Visual
+   Direction): a plain style="image-rendering: pixelated" attribute on the
+   <canvas> is blocked by this shell's CSP (no style-src exception — see
+   this file's header comment on the same constraint for fonts), so this
+   lives here as a real class instead. Nearest-neighbor upscaling of the
+   canvas's fixed low internal resolution is what turns flat color blocks
+   into a blocky, retro look once CSS scales the element up. */
+.pixel-canvas {
+	image-rendering: pixelated;
+	image-rendering: crisp-edges;
+}
+
 /* Respect prefers-reduced-motion for this shell's own transitions (nav
    dropdowns, header background transition). See
    docs/features/home.md's Visual Direction and Client-side Behavior. */

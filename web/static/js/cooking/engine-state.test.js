@@ -9,6 +9,7 @@ import {
   cleanTable,
   washDishes,
   shutDown,
+  failOrderAt,
   SHIFT_CLOCK_SECONDS,
 } from './engine-state.js';
 
@@ -78,6 +79,41 @@ describe('serveDish', () => {
     const state = createInitialState(TABLE_IDS);
     const next = serveDish(state, 1, 'Burger');
     assert.equal(next.shiftUpset, true);
+  });
+});
+
+describe('failOrderAt', () => {
+  test('fails the active order at that table exactly like a patience timeout', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 999, 4);
+    const next = failOrderAt(state, 1);
+    assert.equal(next.orders.length, 0);
+    assert.deepEqual(next.tables[1], { occupied: false, dirty: true });
+    assert.equal(next.shiftUpset, true);
+  });
+
+  test('is a no-op if there is no active order at that table', () => {
+    const state = createInitialState(TABLE_IDS);
+    const next = failOrderAt(state, 1);
+    assert.deepEqual(next, state);
+  });
+
+  test('is a no-op once the shift has left playing', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 999, 4);
+    state = tick(state, SHIFT_CLOCK_SECONDS + 1);
+    const before = state;
+    const after = failOrderAt(state, 2);
+    assert.deepEqual(after, before);
+  });
+
+  test('does not affect other tables\' orders', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 999, 4);
+    state = addOrder(state, 2, 'Pancakes', 999, 4);
+    const next = failOrderAt(state, 1);
+    assert.equal(next.orders.length, 1);
+    assert.equal(next.orders[0].tableId, 2);
   });
 });
 

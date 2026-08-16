@@ -116,6 +116,28 @@ export function serveDish(state, tableId, dishName) {
   return { ...state, shiftUpset: true };
 }
 
+/**
+ * Force-fails whichever order (if any) is currently active at `tableId` —
+ * removed from the queue, table freed and marked dirty, `shiftUpset`
+ * latched — exactly like a patience timeout, but triggered directly by
+ * the caller rather than a clock tick. Used for the Karen event's ripple
+ * effect (docs/features/cooking-game.md's Business Rules): failing her
+ * order also fails one other random active table's order. A no-op if the
+ * shift isn't in 'playing' or there's no active order at that table.
+ *
+ * @param {ShiftState} state
+ * @param {number} tableId
+ * @returns {ShiftState}
+ */
+export function failOrderAt(state, tableId) {
+  if (state.phase !== 'playing') return state;
+  const order = state.orders.find((o) => o.tableId === tableId);
+  if (!order) return state;
+
+  const result = failOrder(state, order);
+  return { ...state, orders: result.orders, tables: result.tables, shiftUpset: true };
+}
+
 function allTablesClean(tables) {
   return Object.values(tables).every((t) => !t.dirty);
 }

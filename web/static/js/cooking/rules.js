@@ -22,8 +22,13 @@ export const SHIFT_PAYCHECK_FULL = 4000;
 /** Flat per-shift paycheck when at least one customer was upset. */
 export const SHIFT_PAYCHECK_UPSET = 2000;
 
-/** Physical tables on the floor plan — the hard cap on simultaneous orders regardless of gear. */
-export const PHYSICAL_TABLE_COUNT = 4;
+/**
+ * Physical tables on the floor plan — the hard cap on simultaneous orders
+ * regardless of gear. 30, not 4 — the user asked for a much bigger dining
+ * room once the game moved to a bigger, click-driven floor plan; see
+ * floor-plan.js's 6x5 table grid.
+ */
+export const PHYSICAL_TABLE_COUNT = 30;
 
 /**
  * Fixed per-shift countdown, in seconds (doc: "each shift runs on a fixed
@@ -32,6 +37,10 @@ export const PHYSICAL_TABLE_COUNT = 4;
  * rate, patience, sweep speed below) ramps with shift number.
  */
 export const SHIFT_CLOCK_SECONDS = 90;
+
+/** Startime Diner's shift hours, in minutes since midnight: 8:30 AM to 11:30 PM. */
+export const SHIFT_START_MINUTES = 8 * 60 + 30;
+export const SHIFT_END_MINUTES = 23 * 60 + 30;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -46,31 +55,57 @@ function clampShift(shiftNumber) {
 // 1. Recipes, gated by shift band
 // ---------------------------------------------------------------------------
 
-/** The shift-band / recipe table from the doc's Business Rules section. */
+/**
+ * The shift-band / recipe table from the doc's Business Rules section.
+ * `cookware` is `null` for the one station-less dish (Garden Salad — no
+ * cooking step, see Business Rules) and otherwise names the single
+ * COOKWARE_ITEMS entry that dish's station requires — Pan for every Stove
+ * dish, Baking Tray for every Oven dish (Rice Cooker exists in the
+ * Cookware Closet but isn't required by any dish yet; the user asked for
+ * it "e.g." alongside Pan, not as a strict requirement).
+ */
 export const RECIPE_BANDS = [
   { minShift: 1, dishes: [
-    { name: 'Garden Salad', station: 'none', ingredients: ['Lettuce', 'Tomato'] },
-    { name: 'Grilled Cheese', station: 'stove', ingredients: ['Bread', 'Cheese'] },
+    { name: 'Garden Salad', station: 'none', cookware: null, ingredients: ['Lettuce', 'Tomato'] },
+    { name: 'Grilled Cheese', station: 'stove', cookware: 'Pan', ingredients: ['Bread', 'Cheese'] },
   ] },
   { minShift: 6, dishes: [
-    { name: 'Burger', station: 'stove', ingredients: ['Buns', 'Patty', 'Lettuce'] },
-    { name: 'Pancakes', station: 'stove', ingredients: ['Flour', 'Egg', 'Milk'] },
+    { name: 'Burger', station: 'stove', cookware: 'Pan', ingredients: ['Buns', 'Patty', 'Lettuce'] },
+    { name: 'Pancakes', station: 'stove', cookware: 'Pan', ingredients: ['Flour', 'Egg', 'Milk'] },
   ] },
   { minShift: 11, dishes: [
-    { name: 'Roast Chicken', station: 'oven', ingredients: ['Chicken', 'Herbs'] },
-    { name: 'Pasta', station: 'stove', ingredients: ['Noodles', 'Sauce'] },
+    { name: 'Roast Chicken', station: 'oven', cookware: 'Baking Tray', ingredients: ['Chicken', 'Herbs'] },
+    { name: 'Pasta', station: 'stove', cookware: 'Pan', ingredients: ['Noodles', 'Sauce'] },
   ] },
   { minShift: 16, dishes: [
-    { name: 'Steak Dinner', station: 'stove', ingredients: ['Steak', 'Potato', 'Herbs'] },
-    { name: 'Soufflé', station: 'oven', ingredients: ['Egg', 'Cheese', 'Flour'] },
+    { name: 'Steak Dinner', station: 'stove', cookware: 'Pan', ingredients: ['Steak', 'Potato', 'Herbs'] },
+    { name: 'Soufflé', station: 'oven', cookware: 'Baking Tray', ingredients: ['Egg', 'Cheese', 'Flour'] },
   ] },
 ];
 
-/** Every ingredient name available at the Fridge (cold storage). */
-export const FRIDGE_INGREDIENTS = ['Cheese', 'Milk', 'Chicken', 'Patty', 'Steak', 'Lettuce', 'Tomato', 'Egg'];
+/**
+ * Every ingredient name available at the Fridge (cold storage). Lemonade
+ * and Matcha are cold drinks living here — Lemonade is only ever needed by
+ * Mel's Usual, Matcha only by Olive & Oliver's Order (both below), never
+ * by any RECIPE_BANDS dish.
+ */
+export const FRIDGE_INGREDIENTS = ['Cheese', 'Milk', 'Chicken', 'Patty', 'Steak', 'Lettuce', 'Tomato', 'Egg', 'Lemonade', 'Matcha'];
 
-/** Every ingredient name available at the Cabinet (dry storage). */
-export const CABINET_INGREDIENTS = ['Bread', 'Flour', 'Noodles', 'Herbs', 'Buns', 'Sauce', 'Potato'];
+/**
+ * Every ingredient name available at the Cabinet (dry storage). Star Cake
+ * and Cake are pre-made bakery items (no cooking step) — Star Cake is
+ * Mel's-Usual-only, plain Cake is Olive & Oliver's-Order-only, same
+ * scoping as Lemonade/Matcha above.
+ */
+export const CABINET_INGREDIENTS = ['Bread', 'Flour', 'Noodles', 'Herbs', 'Buns', 'Sauce', 'Potato', 'Star Cake', 'Cake'];
+
+/**
+ * Every cookware item available at the Cookware Closet. Acquiring one is a
+ * one-time pickup per shift, not consumed on use (rules.js has no
+ * "cookware inventory" concept of its own — cooking-game.js tracks which
+ * pieces the player has acquired this shift as a plain Set).
+ */
+export const COOKWARE_ITEMS = ['Pan', 'Baking Tray', 'Rice Cooker'];
 
 /**
  * Dishes a customer may order at `shiftNumber`. Bands only ever accumulate
@@ -94,6 +129,8 @@ export function availableDishes(shiftNumber) {
  * @returns {{name: string, station: string, ingredients: string[]} | null}
  */
 export function findDish(name) {
+  if (name === MEL_DISH.name) return MEL_DISH;
+  if (name === COUPLE_DISH.name) return COUPLE_DISH;
   for (const band of RECIPE_BANDS) {
     const dish = band.dishes.find((d) => d.name === name);
     if (dish) return dish;
@@ -209,7 +246,16 @@ export function customerPatienceSeconds(shiftNumber, regularsPatienceLevel) {
   return base + level * PATIENCE_SECONDS_PER_REGULARS_PATIENCE_LEVEL;
 }
 
-const BASE_TABLE_CAPACITY = 2;
+/**
+ * A new player only fields a handful of simultaneous tables out of the
+ * full 30-table room — Extra Table Service gear opens up more over many
+ * levels (see GEAR_DEFS in cooking-game.js), never all 30 at once without
+ * real investment.
+ */
+const BASE_TABLE_CAPACITY = 5;
+
+/** Extra Table Service adds this many active tables per level. */
+const TABLE_CAPACITY_PER_EXTRA_TABLE_SERVICE_LEVEL = 3;
 
 /**
  * Simultaneous active tables/orders allowed, capped by both the physical
@@ -221,7 +267,7 @@ const BASE_TABLE_CAPACITY = 2;
  */
 export function tableCapacity(extraTableServiceLevel) {
   const level = Number.isFinite(extraTableServiceLevel) && extraTableServiceLevel > 0 ? extraTableServiceLevel : 0;
-  return Math.min(PHYSICAL_TABLE_COUNT, BASE_TABLE_CAPACITY + level);
+  return Math.min(PHYSICAL_TABLE_COUNT, BASE_TABLE_CAPACITY + level * TABLE_CAPACITY_PER_EXTRA_TABLE_SERVICE_LEVEL);
 }
 
 // ---------------------------------------------------------------------------
@@ -249,4 +295,125 @@ export function shiftPaycheck(shiftUpset) {
  */
 export function monthTotal(shiftPaychecks) {
   return Array.isArray(shiftPaychecks) ? shiftPaychecks.reduce((sum, p) => sum + (Number.isFinite(p) ? p : 0), 0) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// 5. The Karen event — a one-time scripted customer on a single shift, not
+//    part of the normal random arrival pool. Picked as shift 12 out of the
+//    "12 or 18" the user offered, to keep this a single well-defined
+//    trigger rather than two; easy to move or duplicate later.
+// ---------------------------------------------------------------------------
+
+/** The one shift Karen shows up on. */
+export const KAREN_SHIFT_NUMBER = 12;
+
+/** Her opening line, shown the moment she's seated. */
+export const KAREN_LINE = 'HEY YOU THERE COME OVER HERE';
+
+/**
+ * Karen's patience is much shorter than a normal customer's at the same
+ * shift (`customerPatienceSeconds`) — she's not here to wait.
+ */
+export const KAREN_PATIENCE_SECONDS = 12;
+
+/**
+ * Whether this shift is Karen's shift.
+ *
+ * @param {number} shiftNumber
+ * @returns {boolean}
+ */
+export function isKarenShift(shiftNumber) {
+  return clampShift(shiftNumber) === KAREN_SHIFT_NUMBER;
+}
+
+// ---------------------------------------------------------------------------
+// 6. Mel — a recurring regular, the opposite of Karen: sweet, kind, and
+//    caring, and always the very first customer seated every single
+//    shift (not a random-chance appearance — the user described her as
+//    "always come[s] here"). Favorite color yellow, favorite flower
+//    dandelion — both show up as her look (cooking-game.js's rendering),
+//    not gameplay math.
+// ---------------------------------------------------------------------------
+
+/**
+ * Mel's usual order, every time — not part of RECIPE_BANDS/availableDishes,
+ * so no random customer ever orders it; only Mel does (cooking-game.js
+ * hardcodes it when spawning her). `station: 'none'` — it's assembled
+ * straight from the Fridge/Cabinet, no cooking step, since it's a
+ * ready-to-serve favorite, not something cooked to order.
+ */
+export const MEL_DISH = { name: "Mel's Usual", station: 'none', cookware: null, ingredients: ['Lemonade', 'Star Cake', 'Egg'] };
+
+/** Shown the moment Mel is served correctly. */
+export const MEL_THANK_YOU_LINE = 'Thank you so much — you always make my day!';
+
+/**
+ * How much extra patience Mel has on top of a normal customer's, at the
+ * same shift — she's kind and understanding, never in a rush, the
+ * opposite of Karen's shortened fuse.
+ */
+export const MEL_PATIENCE_BONUS_SECONDS = 15;
+
+/** Mel's favorite color — her sprite's marker color (cooking-game.js). */
+export const MEL_FAVORITE_COLOR = '#ffd23f';
+
+// ---------------------------------------------------------------------------
+// 7. Olive & Oliver — an engaged couple, recurring regulars who always
+//    arrive together (one table, two people) right after Mel every
+//    shift. Olive: brave, smart, neat, favorite color green, favorite
+//    flower tulips. Oliver: intelligent, brave, favorite color blue,
+//    favorite flower rose — his usual order is the same as his fiancée's.
+//    Both favorite-flower details are cosmetic only (no gameplay math
+//    hangs off them, same as Mel's dandelion) — cooking-game.js's
+//    rendering is where they'd show up if ever illustrated.
+// ---------------------------------------------------------------------------
+
+/**
+ * Their shared usual order — matcha and cake, ordered together as a
+ * single table order (they're a couple sharing one table, not two
+ * separate orders). Not part of RECIPE_BANDS/availableDishes, same
+ * "only this couple orders it" scoping as MEL_DISH. `station: 'none'` —
+ * assembled, not cooked, same reasoning as Mel's Usual.
+ */
+export const COUPLE_DISH = { name: "Olive & Oliver's Order", station: 'none', cookware: null, ingredients: ['Matcha', 'Cake'] };
+
+/** Olive's favorite color. */
+export const OLIVE_FAVORITE_COLOR = '#5a9b5a';
+
+/** Oliver's favorite color. */
+export const OLIVER_FAVORITE_COLOR = '#4a7fc9';
+
+// ---------------------------------------------------------------------------
+// 8. In-game clock display — Startime Diner's shift runs 8:30 AM to
+//    11:30 PM (SHIFT_START_MINUTES/SHIFT_END_MINUTES). The HUD shows this
+//    restaurant time-of-day instead of a countdown, mapped linearly onto
+//    the same real-time SHIFT_CLOCK_SECONDS countdown every other
+//    shift-timing function already uses — so "half the shift clock left"
+//    always means "3:30 PM," not two numbers that could drift apart.
+// ---------------------------------------------------------------------------
+
+/**
+ * Formats the current in-game restaurant time from how many real seconds
+ * are left on the shift clock.
+ *
+ * @param {number} clockSecondsRemaining - as tracked by engine-state.js's
+ *   `ShiftState.clockSeconds` (negative/non-finite treated as
+ *   SHIFT_CLOCK_SECONDS, i.e. "shift just started").
+ * @returns {string} e.g. "8:30 AM", "3:30 PM", "11:30 PM".
+ */
+export function inGameTimeLabel(clockSecondsRemaining) {
+  const remaining = Number.isFinite(clockSecondsRemaining)
+    ? clamp(clockSecondsRemaining, 0, SHIFT_CLOCK_SECONDS)
+    : SHIFT_CLOCK_SECONDS;
+  const elapsedFraction = 1 - remaining / SHIFT_CLOCK_SECONDS;
+  const totalMinutes = Math.round(
+    SHIFT_START_MINUTES + elapsedFraction * (SHIFT_END_MINUTES - SHIFT_START_MINUTES),
+  );
+
+  const hour24 = Math.floor(totalMinutes / 60) % 24;
+  const minute = totalMinutes % 60;
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+
+  return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
 }

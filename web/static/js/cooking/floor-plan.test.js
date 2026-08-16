@@ -3,71 +3,102 @@ import assert from 'node:assert/strict';
 
 import {
   buildStations,
-  stationsInRange,
-  nearestStation,
+  stationAtPoint,
+  approachPoint,
   clampToCanvas,
-  INTERACTION_RADIUS,
-  CANVAS_SIZE,
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  STATION_BOX_SIZE,
+  TABLE_BOX_SIZE,
 } from './floor-plan.js';
 
-const TABLE_IDS = [1, 2, 3, 4];
+const TABLE_IDS = Array.from({ length: 30 }, (_, i) => i + 1);
 
 describe('buildStations', () => {
   test('includes one entry per fixed station plus one per table id', () => {
     const stations = buildStations(TABLE_IDS);
     const kinds = stations.map((s) => s.kind);
-    for (const kind of ['fridge', 'cabinet', 'stove', 'oven', 'sink', 'shutdown', 'boss-office']) {
+    for (const kind of ['fridge', 'cabinet', 'cleaning-closet', 'cookware-closet', 'stove', 'oven', 'counter', 'boss-office']) {
       assert.ok(kinds.includes(kind), `missing station kind ${kind}`);
     }
     assert.equal(stations.filter((s) => s.kind === 'table').length, TABLE_IDS.length);
   });
+
+  test('every table gets a distinct position', () => {
+    const stations = buildStations(TABLE_IDS);
+    const tables = stations.filter((s) => s.kind === 'table');
+    const positions = new Set(tables.map((t) => `${t.x},${t.y}`));
+    assert.equal(positions.size, tables.length);
+  });
+
+  test('every station stays within the canvas bounds', () => {
+    const stations = buildStations(TABLE_IDS);
+    for (const s of stations) {
+      const half = s.size / 2;
+      assert.ok(s.x - half >= 0 && s.x + half <= CANVAS_WIDTH, `${s.id} out of horizontal bounds`);
+      assert.ok(s.y - half >= 0 && s.y + half <= CANVAS_HEIGHT, `${s.id} out of vertical bounds`);
+    }
+  });
 });
 
-describe('stationsInRange / nearestStation', () => {
+describe('stationAtPoint', () => {
   const stations = [
-    { id: 'a', x: 0, y: 0 },
-    { id: 'b', x: 100, y: 0 },
+    { id: 'a', x: 100, y: 100, size: 50 },
+    { id: 'b', x: 300, y: 100, size: 50 },
   ];
 
-  test('reports a station in range when the player stands on top of it', () => {
-    const inRange = stationsInRange(0, 0, stations);
-    assert.equal(inRange.length, 1);
-    assert.equal(inRange[0].id, 'a');
+  test('finds the station whose box contains the point', () => {
+    assert.equal(stationAtPoint(100, 100, stations).id, 'a');
+    assert.equal(stationAtPoint(90, 110, stations).id, 'a');
   });
 
-  test('reports no stations in range when the player is far from all of them', () => {
-    const inRange = stationsInRange(500, 500, stations);
-    assert.equal(inRange.length, 0);
-    assert.equal(nearestStation(500, 500, stations), null);
+  test('returns null when the point is over no station', () => {
+    assert.equal(stationAtPoint(200, 100, stations), null);
   });
 
-  test('a station exactly at the interaction radius boundary counts as in range', () => {
-    const boundaryStations = [{ id: 'a', x: INTERACTION_RADIUS, y: 0 }];
-    const inRange = stationsInRange(0, 0, boundaryStations);
-    assert.equal(inRange.length, 1);
+  test('a point exactly on the box edge counts as a hit', () => {
+    // box half-size is 25, so (125, 100) is exactly the right edge of station "a".
+    assert.equal(stationAtPoint(125, 100, stations).id, 'a');
   });
 
-  test('a station just past the interaction radius is out of range', () => {
-    const justPast = [{ id: 'a', x: INTERACTION_RADIUS + 0.5, y: 0 }];
-    assert.equal(stationsInRange(0, 0, justPast).length, 0);
+  test('a point just past the box edge is a miss', () => {
+    assert.equal(stationAtPoint(125.5, 100, stations), null);
   });
 
-  test('nearestStation returns the closest of several in-range stations', () => {
-    const close = [
-      { id: 'far', x: 30, y: 0 },
-      { id: 'near', x: 10, y: 0 },
+  test('boxes for different-sized stations (table vs door fixture) both hit-test correctly', () => {
+    const mixed = [
+      { id: 'table-1', kind: 'table', x: 0, y: 0, size: TABLE_BOX_SIZE },
+      { id: 'fridge', kind: 'fridge', x: 500, y: 0, size: STATION_BOX_SIZE },
     ];
-    const nearest = nearestStation(0, 0, close);
-    assert.equal(nearest.id, 'near');
+    assert.equal(stationAtPoint(TABLE_BOX_SIZE / 2 - 1, 0, mixed).id, 'table-1');
+    assert.equal(stationAtPoint(500 + STATION_BOX_SIZE / 2 - 1, 0, mixed).id, 'fridge');
+  });
+});
+
+describe('approachPoint', () => {
+  test('stops standoffDistance away from the station, along the line toward the player', () => {
+    // Player is due east of the station; approach point should also be due east.
+    const point = approachPoint(0, 0, 100, 0, 30);
+    assert.equal(point.y, 0);
+    assert.ok(Math.abs(point.x - 30) < 1e-9);
   });
 
-  test('an exact-distance tie resolves deterministically to the earlier input entry', () => {
-    const tied = [
-      { id: 'first', x: 10, y: 0 },
-      { id: 'second', x: -10, y: 0 },
-    ];
-    const nearest = nearestStation(0, 0, tied);
-    assert.equal(nearest.id, 'first');
+  test('if the player is already within standoffDistance, they do not move', () => {
+    const point = approachPoint(0, 0, 10, 0, 30);
+    assert.deepEqual(point, { x: 10, y: 0 });
+  });
+
+  test('approaches from whichever side the player currently stands on', () => {
+    const fromWest = approachPoint(0, 0, -100, 0, 30);
+    assert.ok(fromWest.x < 0);
+    const fromNorth = approachPoint(0, 0, 0, -100, 30);
+    assert.ok(fromNorth.y < 0);
+  });
+
+  test('the returned point is always exactly standoffDistance from the station when outside it', () => {
+    const point = approachPoint(50, 50, 200, 300, 40);
+    const dist = Math.hypot(point.x - 50, point.y - 50);
+    assert.ok(Math.abs(dist - 40) < 1e-9);
   });
 });
 
@@ -84,9 +115,9 @@ describe('clampToCanvas', () => {
     assert.equal(y, 16);
   });
 
-  test('clamps an out-of-bounds position down to canvas size minus the margin', () => {
-    const { x, y } = clampToCanvas(CANVAS_SIZE + 50, CANVAS_SIZE + 50, 16);
-    assert.equal(x, CANVAS_SIZE - 16);
-    assert.equal(y, CANVAS_SIZE - 16);
+  test('clamps an out-of-bounds position down to canvas size minus the margin, per axis', () => {
+    const { x, y } = clampToCanvas(CANVAS_WIDTH + 50, CANVAS_HEIGHT + 50, 16);
+    assert.equal(x, CANVAS_WIDTH - 16);
+    assert.equal(y, CANVAS_HEIGHT - 16);
   });
 });
