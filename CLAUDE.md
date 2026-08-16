@@ -27,9 +27,11 @@ A second mini-game, Kitchen Shift (a top-down restaurant-shift sim at
 collect a flat per-shift Gard paycheck from Duke across a 20-shift month),
 is implemented and covered by tests the same way — Postgres-backed public
 leaderboard, `localStorage`-persisted Gard/shop progress — see
-`docs/features/cooking-game.md`. Like the Fishing Game, it isn't linked
-from the header nav or `/projects`/landing page yet, reachable only at its
-own URL for now.
+`docs/features/cooking-game.md`. `/projects` now leads with two real cards
+— Fishing Game and Kitchen Shift, both linking straight into their games
+via "Play now" — but Kitchen Shift still isn't linked from the header nav
+or the landing page's "Selected work" section yet, same as the Fishing
+Game's own gradual nav rollout.
 The site's visual design system is "Organic" (warm cream ground,
 terracotta/sage accents, Caprasimo + Figtree), pulled in from a
 claude.ai/design project and adapted into Tailwind tokens — see
@@ -39,9 +41,9 @@ website and portfolio" project; a from-scratch restyle of page-specific
 components (resume, fishing game, carousel) to the new tokens is still
 open. The `/projects` page now renders a card grid too (same "Personal
 website and portfolio" pull — see `docs/features/projects.md`), currently
-just one real card linking into the Fishing Game — the design mockup's
-four fictional placeholder projects were removed rather than left sitting
-next to it. Blogs and About are still placeholders.
+two real cards linking into the Fishing Game and Kitchen Shift — the
+design mockup's four fictional placeholder projects were removed rather
+than left sitting next to them. Blogs and About are still placeholders.
 Update this file as decisions are made or change.
 
 ## What this is

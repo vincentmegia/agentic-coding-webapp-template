@@ -3,23 +3,27 @@
 ## Status
 
 `Shipped` — the page, route, template, and data model are implemented and
-visually verified in both light and dark mode. The grid currently has one
-card: a real, playable link into the Fishing Game
-(`docs/features/fishing-game.md`) at `/fishing-game`, via the
-`Project.External` field (see Data Model), with a real screenshot
-(`ImagePath: "/static/images/fishing/screenshot.png"`) — a live capture of
-an actual round in progress (boat, line, a fish, and a jellyfish hazard),
-not a mockup or a placeholder tile. The four fictional sample cards the
-pulled-in design mockup originally shipped with (Fieldnotes, Tidewatch,
-Loom UI, Nightlight) were deliberately removed rather than left sitting
-next to the one genuine project — see Open Questions for the reasoning and
-what replaces them over time. `e2e/projects.spec.js` covers the Fishing
-Game card, including its "Play now" link and HTMX navigation into the real
-game — see Testing Plan. `internal/handler/template_test.go`'s Go-side
-placeholder-route test still doesn't exercise the real `projects-content`
-template directly (see Testing Plan), mirroring
-`docs/features/landing-carousel.md`'s same gap for its own hand-authored
-placeholder content.
+visually verified in both light and dark mode. The grid currently has two
+cards, both real, playable links into this site's own mini-games via the
+`Project.External` field (see Data Model): the Fishing Game
+(`docs/features/fishing-game.md`) at `/fishing-game`, with a real
+screenshot (`ImagePath: "/static/images/fishing/screenshot.png"`) — a live
+capture of an actual round in progress (boat, line, a fish, and a
+jellyfish hazard); and Kitchen Shift (`docs/features/cooking-game.md`) at
+`/kitchen-shift`, added in a later pass once that game shipped, with its
+own real screenshot (`ImagePath: "/static/images/cooking/screenshot.png"`)
+— a live capture of the floor plan mid-shift (sink, all four tables, the
+player highlighting Table 2's interaction glow). Neither is a mockup or a
+placeholder tile. The four fictional sample cards the pulled-in design
+mockup originally shipped with (Fieldnotes, Tidewatch, Loom UI,
+Nightlight) were deliberately removed rather than left sitting next to
+real projects — see Open Questions for the reasoning and what replaces
+them over time. `e2e/projects.spec.js` covers both cards, including each
+one's "Play now" link and HTMX navigation into the real game — see Testing
+Plan. `internal/handler/template_test.go`'s Go-side placeholder-route test
+still doesn't exercise the real `projects-content` template directly (see
+Testing Plan), mirroring `docs/features/landing-carousel.md`'s same gap
+for its own hand-authored placeholder content.
 
 ## Summary
 
@@ -51,8 +55,8 @@ were removed rather than left in place until real replacements existed
   cards.
 * A `Project` data shape (title, description, tags, tag tint, optional live
   URL, an `External` flag distinguishing an internal route from an off-site
-  link, and optional image) and a hardcoded list — currently one real entry
-  (the Fishing Game).
+  link, and optional image) and a hardcoded list — currently two real
+  entries (Fishing Game, Kitchen Shift).
 * Responsive card grid: 1 column on mobile, 2 on `sm`, 3 on `lg`.
 * Per-card: an image area (real screenshot if `ImagePath` is set, otherwise
   a "Screenshot coming soon" placeholder tile), title, description, tag
@@ -383,15 +387,18 @@ from each other.
 ## Open Questions
 
 * **Resolved**: whether the four fictional placeholder cards (Fieldnotes/
-  Tidewatch/Loom UI/Nightlight) should stay next to the Fishing Game's one
+  Tidewatch/Loom UI/Nightlight) should stay next to the Fishing Game's
   genuine entry until real replacements were written, or be trimmed —
-  trimmed. They read as mostly fake work sitting next to the one real
-  project, so they were removed from `projectItems` outright rather than
-  kept as placeholders; the page currently has exactly one card. Real
-  projects get added here as they're written up, not restored placeholder
-  content.
-* Real project content — more of Vincent's actual work (copy, screenshots,
-  live links) to grow the grid beyond the one Fishing Game card.
+  trimmed. They read as mostly fake work sitting next to real projects, so
+  they were removed from `projectItems` outright rather than kept as
+  placeholders. Real projects get added here as they're written up, not
+  restored placeholder content.
+* **Resolved**: the grid grew beyond the one Fishing Game card — Kitchen
+  Shift (`docs/features/cooking-game.md`) was added as a second real entry
+  once that game shipped, following the exact same pattern (internal
+  `LiveURL`, real screenshot, no `External` flag).
+* More of Vincent's actual work (copy, screenshots, live links) to keep
+  growing the grid beyond these two mini-game cards.
 * Should `projectItems` move to Postgres, following the same path
   `docs/features/resume.md` took for resume content, once there's a
   concrete reason (e.g. an admin/CMS UI, or wanting to edit project content

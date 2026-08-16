@@ -1,10 +1,10 @@
 // /projects page: heading + subhead, and a grid of project cards
-// (internal/handler/pages.go's projectItems). The Fishing Game card is real
-// (this site's own shipped mini-game, linked via an internal "Play now" HTMX
-// nav link) — the pulled-in design mockup's four fictional sample cards
-// (Fieldnotes/Tidewatch/Loom UI/Nightlight, from a claude.ai/design
-// "Personal website and portfolio" project's Projects.dc.html) were removed
-// once a real project existed, so it's currently the grid's only entry. See
+// (internal/handler/pages.go's projectItems). Fishing Game and Kitchen
+// Shift are both real (this site's own shipped mini-games, each linked via
+// an internal "Play now" HTMX nav link) — the pulled-in design mockup's
+// four fictional sample cards (Fieldnotes/Tidewatch/Loom UI/Nightlight,
+// from a claude.ai/design "Personal website and portfolio" project's
+// Projects.dc.html) were removed once real projects existed. See
 // web/templates/pages/projects.html and internal/handler/template.go's
 // Project struct for the full contract.
 const { test, expect } = require('@playwright/test');
@@ -13,6 +13,11 @@ const PROJECTS = [
 	{
 		title: 'Fishing Game',
 		description: 'A canvas arcade mini-game — cast a line, dive for fish, and dodge hazards on the way down, with a public leaderboard for the best runs.',
+		tags: ['Go', 'Canvas', 'PostgreSQL'],
+	},
+	{
+		title: 'Kitchen Shift',
+		description: 'A top-down restaurant-shift sim — take orders, cook, and close up clean across a 20-shift month, with a public leaderboard for the best months.',
 		tags: ['Go', 'Canvas', 'PostgreSQL'],
 	},
 ];
@@ -39,27 +44,27 @@ test('direct page load renders heading, subhead, and all project cards', async (
 	}
 });
 
-// The only project (internal/handler/pages.go's projectItems) doesn't set
+// Neither current project (internal/handler/pages.go's projectItems) sets
 // External: true, so projects.html's `{{if .External}}` "Live demo" branch
-// never renders — the Fishing Game's LiveURL instead takes the `{{else}}`
-// "Play now" branch (tested separately below). Asserting the absence of
-// "Live demo" (rather than no test at all) still guards the conditional
-// itself — a future regression that renders it unconditionally would be
-// caught here.
-test('no "Live demo" link renders — the only project doesn\'t set External: true', async ({ page }) => {
+// never renders — both LiveURLs instead take the `{{else}}` "Play now"
+// branch (tested separately below). Asserting the absence of "Live demo"
+// (rather than no test at all) still guards the conditional itself — a
+// future regression that renders it unconditionally would be caught here.
+test('no "Live demo" link renders — neither project sets External: true', async ({ page }) => {
 	await page.goto('/projects');
 	await expect(page.getByRole('link', { name: 'Live demo' })).toHaveCount(0);
 });
 
-// The Fishing Game card is the one project with a LiveURL (External: false,
-// the default), so it alone gets projects.html's `{{else}}` "Play now"
-// branch instead of "Live demo".
-test('the Fishing Game card has a "Play now" link', async ({ page }) => {
-	await page.goto('/projects');
-	const card = page.locator('.project-card').filter({ hasText: 'Fishing Game' });
-	await expect(card.getByRole('link', { name: 'Play now' })).toBeVisible();
-	await expect(card.getByRole('link', { name: 'Live demo' })).toHaveCount(0);
-});
+// Both projects have a LiveURL (External: false, the default), so both get
+// projects.html's `{{else}}` "Play now" branch instead of "Live demo".
+for (const project of PROJECTS) {
+	test(`the ${project.title} card has a "Play now" link`, async ({ page }) => {
+		await page.goto('/projects');
+		const card = page.locator('.project-card').filter({ hasText: project.title });
+		await expect(card.getByRole('link', { name: 'Play now' })).toBeVisible();
+		await expect(card.getByRole('link', { name: 'Live demo' })).toHaveCount(0);
+	});
+}
 
 test('marks the Projects link as aria-current when on this page', async ({ page }) => {
 	await page.goto('/projects');
@@ -133,6 +138,35 @@ test.describe('the Fishing Game card\'s "Play now" link', () => {
 		// A full-bleed regression would make the post-swap container as wide
 		// as the viewport; the pre-swap (correctly full-page-rendered)
 		// container is the known-good width to compare against.
+		expect(after.width).toBeLessThanOrEqual(before.width + 2);
+
+		const nav = page.locator('#primary-nav');
+		await expect(nav.getByRole('link', { name: 'Home', exact: true })).not.toHaveAttribute('aria-current', 'page');
+		await expect(nav.getByRole('link', { name: 'Projects', exact: true })).not.toHaveAttribute('aria-current', 'page');
+		await expect(nav.getByRole('link', { name: 'About', exact: true })).not.toHaveAttribute('aria-current', 'page');
+	});
+});
+
+// Same regression coverage as the Fishing Game block above, applied to the
+// Kitchen Shift card's "Play now" link (docs/features/cooking-game.md).
+test.describe('the Kitchen Shift card\'s "Play now" link', () => {
+	test('navigates to /kitchen-shift via HTMX, renders the real game shell, and clears nav aria-current', async ({ page }) => {
+		await page.goto('/projects');
+		const before = await page.locator('#main-content').boundingBox();
+
+		await page.locator('.project-card').filter({ hasText: 'Kitchen Shift' }).getByRole('link', { name: 'Play now' }).click();
+		await page.waitForLoadState('networkidle');
+
+		await expect(page).toHaveURL(/\/kitchen-shift$/);
+		await expect(page.locator('#cooking-canvas')).toBeVisible();
+		await expect(page.locator('#cooking-start-screen')).toBeVisible();
+
+		const main = page.locator('#main-content');
+		await expect(main).toHaveCount(1); // outerHTML swap must not duplicate or drop it
+		await expect(main).toHaveClass(/mx-auto/);
+		await expect(main).toHaveClass(/max-w-5xl/);
+
+		const after = await main.boundingBox();
 		expect(after.width).toBeLessThanOrEqual(before.width + 2);
 
 		const nav = page.locator('#primary-nav');

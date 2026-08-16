@@ -144,11 +144,12 @@ func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
 }
 
 // projectItems is the hand-authored card list for /projects (docs/features/
-// projects.md). Fishing Game is the only entry — this site's own shipped
-// mini-game (docs/features/fishing-game.md) — after the pulled-in design's
-// four fictional sample entries (Fieldnotes/Tidewatch/Loom UI/Nightlight,
-// from Projects.dc.html) were removed rather than left sitting next to the
-// one genuine project; see Open Questions in projects.md for that call.
+// projects.md). Fishing Game and Kitchen Shift are this site's own shipped
+// mini-games (docs/features/fishing-game.md, docs/features/cooking-game.md)
+// — the pulled-in design's four fictional sample entries (Fieldnotes/
+// Tidewatch/Loom UI/Nightlight, from Projects.dc.html) were removed rather
+// than left sitting next to genuine projects; see Open Questions in
+// projects.md for that call.
 var projectItems = []Project{
 	{
 		Title:       "Fishing Game",
@@ -157,6 +158,14 @@ var projectItems = []Project{
 		TagTint:     "accent",
 		LiveURL:     "/fishing-game",
 		ImagePath:   "/static/images/fishing/screenshot.png",
+	},
+	{
+		Title:       "Kitchen Shift",
+		Description: "A top-down restaurant-shift sim — take orders, cook, and close up clean across a 20-shift month, with a public leaderboard for the best months.",
+		Tags:        []string{"Go", "Canvas", "PostgreSQL"},
+		TagTint:     "primary",
+		LiveURL:     "/kitchen-shift",
+		ImagePath:   "/static/images/cooking/screenshot.png",
 	},
 }
 
