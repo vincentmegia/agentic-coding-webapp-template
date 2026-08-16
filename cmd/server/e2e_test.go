@@ -237,6 +237,73 @@ func TestEndToEnd(t *testing.T) {
 		})
 	})
 
+	t.Run("kitchen shift routes round-trip through the real cooking_scores table", func(t *testing.T) {
+		resp, body := get(t, client, srv.URL+"/kitchen-shift")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /kitchen-shift: status = %d, want 200", resp.StatusCode)
+		}
+		if !strings.Contains(body, "Kitchen Shift") {
+			t.Errorf("GET /kitchen-shift missing its title/content: %s", body)
+		}
+
+		resp, body = get(t, client, srv.URL+"/kitchen-shift/leaderboard")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /kitchen-shift/leaderboard: status = %d, want 200", resp.StatusCode)
+		}
+		if !strings.Contains(body, `id="cooking-leaderboard"`) {
+			t.Errorf("leaderboard fragment missing its #cooking-leaderboard id: %s", body)
+		}
+
+		// Unique per test run, same reasoning as the fishing game
+		// subtest's playerName above.
+		playerName := fmt.Sprintf("e2e-%d", time.Now().UnixNano()%1_000_000)
+		t.Cleanup(func() {
+			if _, err := conn.Exec(`DELETE FROM cooking_scores WHERE player_name = $1`, playerName); err != nil {
+				t.Errorf("cleanup: delete test cooking_scores row: %v", err)
+			}
+		})
+
+		form := url.Values{"player_name": {playerName}, "total_earnings": {"78000"}, "shifts_completed": {"20"}}
+		resp, err := client.PostForm(srv.URL+"/kitchen-shift/score", form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = string(b)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("POST /kitchen-shift/score: status = %d, want 200, body: %s", resp.StatusCode, body)
+		}
+		// A real row actually round-tripped through
+		// CookingRepository.Insert -> Postgres -> CookingRepository.TopScores.
+		if !strings.Contains(body, playerName) || !strings.Contains(body, "78000 Gard") {
+			t.Errorf("POST /kitchen-shift/score response missing the newly inserted entry: %s", body)
+		}
+
+		t.Run("rejects an out-of-range submission with 400, not a raw DB error", func(t *testing.T) {
+			badForm := url.Values{"player_name": {"e2e-invalid"}, "total_earnings": {"99999999"}, "shifts_completed": {"20"}}
+			resp, err := client.PostForm(srv.URL+"/kitchen-shift/score", badForm)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			b, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := string(b)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400, body: %s", resp.StatusCode, body)
+			}
+			if strings.Contains(body, "constraint") || strings.Contains(body, "SQLSTATE") {
+				t.Errorf("error body looks like a raw DB error: %s", body)
+			}
+		})
+	})
+
 	t.Run("placeholder routes are unaffected by the resume feature", func(t *testing.T) {
 		for path, want := range map[string]string{
 			"/blogs": "Blog posts coming soon.",

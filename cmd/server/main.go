@@ -130,6 +130,9 @@ func newMux(conn *sql.DB) (*http.ServeMux, error) {
 	fishingService := service.NewFishingService(repository.NewFishingRepository(conn))
 	fishingGame := handler.NewFishingGameHandler(renderer, fishingService, Version)
 
+	cookingService := service.NewCookingService(repository.NewCookingRepository(conn))
+	cookingGame := handler.NewCookingGameHandler(renderer, cookingService, Version)
+
 	// See docs/features/home.md's Routes/Handlers table. This feature
 	// owns the shell and these routes; the real page content behind each
 	// is a separate, not-yet-built feature (placeholders for now).
@@ -139,6 +142,10 @@ func newMux(conn *sql.DB) (*http.ServeMux, error) {
 	mux.HandleFunc("GET /fishing-game", fishingGame.Index)
 	mux.HandleFunc("GET /fishing-game/leaderboard", fishingGame.Leaderboard)
 	mux.HandleFunc("POST /fishing-game/score", fishingGame.SubmitScore)
+	// See docs/features/cooking-game.md's Routes/Handlers table.
+	mux.HandleFunc("GET /kitchen-shift", cookingGame.Index)
+	mux.HandleFunc("GET /kitchen-shift/leaderboard", cookingGame.Leaderboard)
+	mux.HandleFunc("POST /kitchen-shift/score", cookingGame.SubmitScore)
 	mux.HandleFunc("GET /projects", pages.Projects)
 	mux.HandleFunc("GET /blogs", pages.Blogs)
 	mux.HandleFunc("GET /about", pages.About)

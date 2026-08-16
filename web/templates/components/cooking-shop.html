@@ -1,0 +1,152 @@
+{{/* Gear upgrade shop (docs/features/cooking-game.md's UI: "Shop" state and
+     Business Rules "Gear upgrades" table). One row per web/static/js/
+     cooking-game.js's GEAR_DEFS key, in that exact order (runningShoes,
+     biggerTray, sharpKnife, extraTableService, regularsPatience,
+     quickClean) — labels/descriptions are hardcoded static English strings
+     here, not passed through from Go, since GEAR_DEFS itself lives in JS
+     and this template has no server-side gear data to render (all of it is
+     localStorage-driven). Mirrors fishing-shop.html's exact structure and
+     DOM contract (data-gear-key, [data-gear-level], [data-gear-cost],
+     [data-gear-buy]) — see that file's header comment for the full
+     reasoning, which applies unchanged here. */}}
+{{define "cooking-shop"}}
+<div id="cooking-shop-screen" class="hidden absolute inset-0 overflow-y-auto p-4">
+	<div class="mx-auto w-full max-w-sm space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
+		<div class="flex items-center justify-between gap-2">
+			<h2 class="text-lg font-semibold text-ink">Upgrade Shop</h2>
+			<button
+				type="button"
+				id="cooking-shop-close-button"
+				class="shrink-0 rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+			>Close</button>
+		</div>
+
+		<div class="flex items-center justify-between rounded-card border border-line bg-surface-2 px-3 py-2 text-sm">
+			<span class="text-muted">Gard</span>
+			<span id="cooking-shop-gard" class="font-mono tabular-nums text-ink">0</span>
+		</div>
+
+		<ul class="space-y-3">
+			{{/* Running Shoes: +15% walking speed per level. */}}
+			<li data-gear-key="runningShoes" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Running Shoes</p>
+						<p class="text-xs text-muted">+15% walking speed per level</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> Gard</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Bigger Tray: +1 carried ingredient slot per level. */}}
+			<li data-gear-key="biggerTray" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Bigger Tray</p>
+						<p class="text-xs text-muted">+1 carried ingredient slot per level</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> Gard</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Sharp Knife: widens the cook-timing success zone per level. */}}
+			<li data-gear-key="sharpKnife" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Sharp Knife</p>
+						<p class="text-xs text-muted">Widens the cook-timing success zone</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> Gard</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Extra Table Service: +1 simultaneous active table/order slot per level. */}}
+			<li data-gear-key="extraTableService" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Extra Table Service</p>
+						<p class="text-xs text-muted">+1 simultaneous active table per level</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> Gard</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Regular's Patience: +patience-timer duration per customer per level. */}}
+			<li data-gear-key="regularsPatience" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Regular's Patience</p>
+						<p class="text-xs text-muted">Customers wait longer before leaving upset</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> Gard</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+
+			{{/* Quick Clean: reduces per-table cleaning and dish-washing time per level. */}}
+			<li data-gear-key="quickClean" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Quick Clean</p>
+						<p class="text-xs text-muted">Faster table cleaning and dish washing</p>
+					</div>
+					<div class="shrink-0 text-right text-xs text-muted">
+						<p>Level <span data-gear-level class="font-mono tabular-nums text-ink">0</span></p>
+						<p class="font-mono tabular-nums text-ink"><span data-gear-cost>0</span> Gard</p>
+					</div>
+				</div>
+				<button
+					type="button"
+					data-gear-buy
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+				>Buy</button>
+			</li>
+		</ul>
+
+		<button
+			type="button"
+			id="cooking-shop-reset-button"
+			class="w-full rounded-card border border-danger px-3 py-2 text-sm font-medium text-danger transition-colors duration-150 hover:bg-danger/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-danger"
+		>Reset Progress</button>
+	</div>
+</div>
+{{end}}

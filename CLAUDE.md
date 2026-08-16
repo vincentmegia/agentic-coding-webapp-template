@@ -22,6 +22,14 @@ game (`docs/features/landing-page.md`). A
 Fishing Game mini-game (canvas-based, Postgres-backed public leaderboard,
 gear upgrades via `localStorage`-persisted fishing tokens) is implemented
 and covered by tests at `/fishing-game` — see `docs/features/fishing-game.md`.
+A second mini-game, Kitchen Shift (a top-down restaurant-shift sim at
+`/kitchen-shift` — take orders, gather ingredients, cook, then close up and
+collect a flat per-shift Gard paycheck from Duke across a 20-shift month),
+is implemented and covered by tests the same way — Postgres-backed public
+leaderboard, `localStorage`-persisted Gard/shop progress — see
+`docs/features/cooking-game.md`. Like the Fishing Game, it isn't linked
+from the header nav or `/projects`/landing page yet, reachable only at its
+own URL for now.
 The site's visual design system is "Organic" (warm cream ground,
 terracotta/sage accents, Caprasimo + Figtree), pulled in from a
 claude.ai/design project and adapted into Tailwind tokens — see

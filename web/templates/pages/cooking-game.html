@@ -1,0 +1,237 @@
+{{/* /kitchen-shift page: canvas game shell (HUD + start/paycheck/shop
+     overlays) + leaderboard, per docs/features/cooking-game.md's UI and
+     HTMX Interactions sections. Defines "cooking-game-content", not
+     "content" — reusing "content" would silently take over the shared
+     placeholder every other still-placeholder route renders. Mirrors
+     fishing-game.html's exact structure/reasoning (see that file's header
+     comment for the full explanation of the outerHTML-swap requirement,
+     the type="module" script placement, and the pre-JS default-visibility
+     convention) — only the game-specific content differs below.
+
+     Dot is PageData; this page reads none of its fields directly (no
+     server-side fetch — all player state is localStorage-driven, per
+     cooking-game.js's header comment) beyond passing dot through to
+     {{template "cooking-shop" .}}, which itself needs no page data either. */}}
+{{define "cooking-game-content"}}
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<div class="space-y-6">
+		<section class="space-y-2">
+			<h1 class="text-2xl font-semibold text-ink">Kitchen Shift</h1>
+			<p class="text-muted">
+				Work a shift at Startime Diner: take orders from the tables, gather ingredients from the fridge and
+				cabinet, cook them up, and serve before a customer's patience runs out. Close up clean — clear the
+				tables, wash the dishes, shut down — and the boss pays 4,000 Gard, or only 2,000 if anyone left upset.
+				Twenty shifts make a month.
+			</p>
+		</section>
+
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
+			<div class="space-y-4">
+				{{/* HUD: always present in the DOM (cooking-game.js updates its
+				     text nodes every frame but never manages visibility itself) —
+				     sits above the canvas as normal dark-mode-aware chrome
+				     (bg-surface-2/text-ink), unlike the canvas box below it.
+				     Tabular-nums + font-mono for the same reason as the Fishing
+				     Game's HUD numbers (docs/features/cooking-game.md's Visual
+				     Direction). */}}
+				<dl class="grid grid-cols-3 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Shift</dt>
+						<dd id="cooking-hud-shift" class="font-mono text-sm tabular-nums text-ink sm:text-base">1/20</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Clock</dt>
+						<dd id="cooking-hud-clock" class="font-mono text-sm tabular-nums text-ink sm:text-base">0:00</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Status</dt>
+						<dd id="cooking-hud-status" class="text-sm font-medium text-ink sm:text-base">Going well</dd>
+					</div>
+				</dl>
+
+				{{/* Order queue: variable-length, so cooking-game.js repopulates
+				     this list's innerHTML directly (unlike the fixed HUD numbers
+				     above) rather than this template pre-rendering any rows. Empty
+				     by default until a customer places an order. */}}
+				<div class="rounded-card border border-line bg-surface-2 px-3 py-2">
+					<p class="text-[10px] font-medium uppercase tracking-wide text-muted sm:text-xs">Orders</p>
+					<ul id="cooking-order-queue" class="mt-1 space-y-1 text-sm text-ink">
+						<li class="text-muted">No orders yet.</li>
+					</ul>
+				</div>
+
+				{{/* Station interaction hint — hidden by default, shown by
+				     cooking-game.js when the player is within range of an
+				     interactable station (mirrors the Fishing Game's Sonar
+				     callout: role="status"/aria-live so it's announced without
+				     requiring focus). */}}
+				<p id="cooking-interact-hint" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
+
+				{{/* Canvas game box: a fixed warm "diner" scene regardless of the
+				     site's light/dark mode toggle (docs/features/cooking-game.md's
+				     Visual Direction), same fixed-palette-scene pattern as the
+				     Fishing Game's canvas. touch-none prevents touch input from
+				     also scrolling the page on mobile. */}}
+				<div class="relative mx-auto w-full max-w-[480px] overflow-hidden rounded-card border border-line bg-[#2b1a12] shadow-sm">
+					<canvas
+						id="cooking-canvas"
+						width="480"
+						height="480"
+						class="block h-auto w-full touch-none"
+						role="img"
+						aria-label="Kitchen Shift play area"
+					>Your browser doesn't support the canvas element needed to play this game.</canvas>
+
+					{{/* Start screen — visible by default (see file header comment). */}}
+					<div id="cooking-start-screen" class="absolute inset-0 flex items-center justify-center p-4">
+						<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 text-center shadow-lg">
+							<h2 class="text-lg font-semibold text-ink">Startime Diner</h2>
+							<dl class="space-y-1.5 text-sm">
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Month-to-date</dt>
+									<dd id="cooking-start-gard" class="font-mono tabular-nums text-ink">0 Gard</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Best month</dt>
+									<dd id="cooking-start-best-month" class="font-mono tabular-nums text-ink">0 Gard</dd>
+								</div>
+							</dl>
+							{{/* Unhidden by cooking-game.js's init() when
+							     probeStorageAvailable() fails (private browsing /
+							     disabled storage), matching the Fishing Game's
+							     equivalent notice. */}}
+							<p id="cooking-storage-notice" class="hidden rounded-card border border-line bg-surface-2 px-3 py-2 text-xs text-muted">
+								Your progress won't be saved in this browser.
+							</p>
+							<p class="text-xs text-muted">
+								Arrow keys / WASD to move, Space or Enter to interact with whatever's nearest.
+							</p>
+							<div class="flex flex-col gap-2 pt-1">
+								<button
+									type="button"
+									id="cooking-start-shift-button"
+									class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Start Shift</button>
+								<button
+									type="button"
+									id="cooking-start-shop-button"
+									class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Open Shop</button>
+							</div>
+						</div>
+					</div>
+
+					{{/* Paycheck screen — hidden by default; cooking-game.js's
+					     endShift() unhides it and sets data-outcome="ok"|"upset" on
+					     this root, plus data-final="true" on shift 20 to reveal the
+					     leaderboard-submission block below instead of "Start Next
+					     Shift". */}}
+					<div id="cooking-paycheck-screen" class="hidden absolute inset-0 flex items-center justify-center overflow-y-auto p-4">
+						<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
+							<h2 id="cooking-paycheck-title" class="text-center text-lg font-semibold text-ink">Duke's office</h2>
+
+							<dl class="space-y-1.5 text-sm">
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Outcome</dt>
+									<dd id="cooking-paycheck-outcome" class="font-medium text-ink">Went well</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">This shift</dt>
+									<dd id="cooking-paycheck-shift-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Month-to-date</dt>
+									<dd id="cooking-paycheck-month-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
+								</div>
+							</dl>
+
+							{{/* Final Paycheck of the Month — hidden except on shift 20
+							     (cooking-game.js toggles this block via the root's
+							     data-final attribute). Submit to leaderboard — real
+							     HTML form + hx-post, per the doc's HTMX Interactions
+							     table. hx-swap="outerHTML" matches #cooking-leaderboard's
+							     own fragment root swap below, same reasoning as the
+							     Fishing Game's round-over form. */}}
+							<div id="cooking-final-paycheck-block" class="hidden space-y-2 border-t border-line pt-4">
+								<p class="text-sm font-medium text-ink">Final Paycheck of the Month</p>
+								<form
+									hx-post="/kitchen-shift/score"
+									hx-target="#cooking-leaderboard"
+									hx-swap="outerHTML"
+									hx-indicator="#leaderboard-loading"
+									class="space-y-2"
+								>
+									<label for="cooking-paycheck-name-input" class="block text-xs font-medium text-muted">
+										Submit to leaderboard (optional)
+									</label>
+									<div class="flex gap-2">
+										<input
+											type="text"
+											id="cooking-paycheck-name-input"
+											name="player_name"
+											maxlength="20"
+											required
+											placeholder="Your name"
+											class="w-full min-w-0 rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+										>
+										<button
+											type="submit"
+											id="cooking-paycheck-submit-button"
+											class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+										>Submit</button>
+									</div>
+									<input type="hidden" id="cooking-paycheck-earnings-input" name="total_earnings" value="0">
+									<input type="hidden" id="cooking-paycheck-shifts-input" name="shifts_completed" value="20">
+								</form>
+							</div>
+
+							<div class="flex gap-2 pt-1">
+								<button
+									type="button"
+									id="cooking-paycheck-next-shift-button"
+									class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Start Next Shift</button>
+								<button
+									type="button"
+									id="cooking-paycheck-new-month-button"
+									class="hidden w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Start New Month</button>
+								<button
+									type="button"
+									id="cooking-paycheck-shop-button"
+									class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Open Shop</button>
+							</div>
+						</div>
+					</div>
+
+					{{template "cooking-shop" .}}
+				</div>
+			</div>
+
+			<aside class="space-y-3">
+				<div class="flex items-center justify-between gap-2">
+					<h2 class="text-lg font-semibold text-ink">Leaderboard</h2>
+					<span id="leaderboard-loading" class="htmx-indicator text-xs text-muted">Loading…</span>
+				</div>
+
+				{{/* Leaderboard: same self-replacing-target pattern as the Fishing
+				     Game's #fishing-leaderboard (see that file's comment for why
+				     outerHTML on a self-carrying id avoids a duplicate-id bug). */}}
+				<div
+					id="cooking-leaderboard"
+					hx-get="/kitchen-shift/leaderboard"
+					hx-trigger="load"
+					hx-target="this"
+					hx-swap="outerHTML"
+					hx-indicator="#leaderboard-loading"
+				>
+					<p class="rounded-card border border-line bg-surface px-4 py-3 text-sm text-muted">Loading leaderboard…</p>
+				</div>
+			</aside>
+		</div>
+	</div>
+</main>
+
+<script type="module" src="/static/js/cooking-game.js"></script>
+{{end}}

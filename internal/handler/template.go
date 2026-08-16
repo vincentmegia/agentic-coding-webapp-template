@@ -237,6 +237,9 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "fishing-leaderboard.html"),
 		filepath.Join(templatesDir, "components", "fishing-shop.html"),
 		filepath.Join(templatesDir, "pages", "fishing-game.html"),
+		filepath.Join(templatesDir, "components", "cooking-leaderboard.html"),
+		filepath.Join(templatesDir, "components", "cooking-shop.html"),
+		filepath.Join(templatesDir, "pages", "cooking-game.html"),
 	}
 	return template.New(filepath.Base(files[0])).Funcs(templateFuncs).ParseFiles(files...)
 }
