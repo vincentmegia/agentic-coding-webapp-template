@@ -287,3 +287,39 @@ h1, h2, h3, h4, h5, h6 {
 		box-shadow: none !important;
 	}
 }
+
+/* Kitchen Shift fullscreen (cooking-game.js's toggleFullscreen/
+   requestFullscreen target #cooking-game-container by id via the
+   Fullscreen API — not canvas.parentElement, which is the narrower
+   #cooking-canvas-wrapper one level in, so the Orders bar sitting above
+   the canvas as #cooking-game-container's other child stays inside the
+   fullscreen element too ("orders on the same window" as the game).
+   Without this override, the container's own max-w-[900px] utility (and
+   the wrapper's aspect-[960/600]) keep winning inside :fullscreen too —
+   the UA's fullscreen sizing is normal-specificity same as any other
+   rule, and these author classes come later in the cascade — so
+   "Fullscreen" would visually do nothing beyond centering the same small
+   box on a black backdrop. #cooking-canvas-wrapper switches from its
+   normal aspect-ratio-derived height to flex-filling whatever vertical
+   space is left under the Orders bar, and object-fit: contain on the
+   canvas itself (a fixed 960x600 drawing buffer, scaled for display only
+   — see onCanvasClick's getBoundingClientRect math, which already scales
+   pointer coords by the rendered size, so this is purely visual)
+   letterboxes it to fit that space's aspect ratio instead of stretching
+   or cropping it. Tailwind's Lightning CSS build already adds any
+   vendor-prefixed :fullscreen fallback its configured browser targets
+   need, so this only needs to name the standard selector. */
+#cooking-game-container:fullscreen {
+	width: 100vw;
+	max-width: 100vw;
+	height: 100vh;
+}
+#cooking-game-container:fullscreen #cooking-canvas-wrapper {
+	aspect-ratio: auto;
+	width: 100%;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+#cooking-game-container:fullscreen #cooking-canvas {
+	object-fit: contain;
+}

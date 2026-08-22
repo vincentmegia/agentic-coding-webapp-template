@@ -44,59 +44,33 @@
 				     Direction). "Time" shows the in-game restaurant clock
 				     (rules.js's inGameTimeLabel, 8:30 AM-11:30 PM), not a
 				     countdown. */}}
-				<div class="flex flex-wrap items-center justify-between gap-2">
-					<dl class="grid flex-1 grid-cols-3 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
-						<div>
-							<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Shift</dt>
-							<dd id="cooking-hud-shift" class="font-mono text-sm tabular-nums text-ink sm:text-base">1/20</dd>
-						</div>
-						<div>
-							<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Time</dt>
-							<dd id="cooking-hud-clock" class="font-mono text-sm tabular-nums text-ink sm:text-base">8:30 AM</dd>
-						</div>
-						<div>
-							<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Status</dt>
-							<dd id="cooking-hud-status" class="text-sm font-medium text-ink sm:text-base">Going well</dd>
-						</div>
-					</dl>
-					{{/* Toggles between the Dining room and the Kitchen (v3.1's room
-					     split) instantly, from anywhere — a shortcut alongside the
-					     canvas's own kitchen-door/dining-door stations, which need a
-					     walk-up click. cooking-game.js's updateRoomButton() flips both
-					     the label and aria-pressed to reflect the current room. */}}
-					<button
-						type="button"
-						id="cooking-room-button"
-						aria-pressed="false"
-						class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-					>Enter Kitchen</button>
-					<button
-						type="button"
-						id="cooking-recipe-book-button"
-						class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-					>Recipes</button>
-					<button
-						type="button"
-						id="cooking-fullscreen-button"
-						class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-					>Fullscreen</button>
-				</div>
+				{{/* The Shift/Time/Status HUD plus the Enter Kitchen/Recipes/
+				     Fullscreen buttons now live inside #cooking-game-container
+				     itself (see below), not out here — once Fullscreen engages,
+				     #cooking-game-container is the only element still on-screen
+				     (the Fullscreen API renders its target in the browser's own
+				     top layer, above everything else in the page), so anything
+				     left out here — including these buttons — becomes completely
+				     unclickable the moment a shift starts (startShift() requests
+				     Fullscreen automatically). A real, previously-shipped bug: the
+				     Orders bar got this same treatment first (v3.4) but these
+				     buttons didn't, so "Enter Kitchen"/"Recipes"/"Fullscreen"
+				     itself all silently stopped responding to clicks — the user's
+				     "when i press my mouse its not working" report — for the
+				     entire rest of every shift once Fullscreen kicked in. */}}
 
 				{{/* Sanity is drawn inside the canvas scene itself (cooking-game.js's
 				     drawSanityBar, top-left corner of the floor plan), not as
 				     external HUD chrome — moved on-canvas per the user's "add the
 				     sanity bar inside the game instead of outside". */}}
 
-				{{/* Order queue: variable-length, so cooking-game.js repopulates
-				     this list's innerHTML directly (unlike the fixed HUD numbers
-				     above) rather than this template pre-rendering any rows. Empty
-				     by default until a customer places an order. */}}
-				<div class="rounded-card border border-line bg-surface-2 px-3 py-2">
-					<p class="text-[10px] font-medium uppercase tracking-wide text-muted sm:text-xs">Orders</p>
-					<ul id="cooking-order-queue" class="mt-1 max-h-32 space-y-1 overflow-y-auto text-sm text-ink">
-						<li class="text-muted">No orders yet.</li>
-					</ul>
-				</div>
+				{{/* Order queue now lives inside #cooking-game-container itself
+				     (see below), not out here — the user asked for "the orders on
+				     the same window", i.e. still visible once Fullscreen is
+				     engaged. Only #cooking-game-container (the Fullscreen API
+				     target) stays on-screen in that mode, so anything left out
+				     here in the surrounding page chrome would disappear behind
+				     it. */}}
 
 				{{/* Hover tooltip — hidden by default, shown by cooking-game.js
 				     when the mouse hovers a station (not a "press key" prompt;
@@ -114,256 +88,327 @@
 				{{/* Canvas game box: a fixed warm "diner" scene regardless of the
 				     site's light/dark mode toggle (docs/features/cooking-game.md's
 				     Visual Direction), same fixed-palette-scene pattern as the
-				     Fishing Game's canvas. This element itself is the Fullscreen
-				     API target (cooking-game.js's toggleFullscreen reads
-				     canvas.parentElement) — aspect-[960/600] keeps the canvas's
-				     true proportions whether it's sized by the grid column below
-				     (up to max-w-[900px], though in practice the shared #main-content
-				     max-w-5xl container — docs/features/home.md's Container width
-				     rule, which this page doesn't get an exception from — caps it
-				     narrower than that on desktop) or stretched to fill the screen
-				     in fullscreen, where the 900px cap doesn't apply. Either way
-				     it's a meaningfully bigger play area than v1's fixed 480x480.
-				     No image-rendering override on the canvas itself — v3's
-				     "coquette" art style (soft pastel, rounded shapes, bows/stars,
-				     see cooking-game.js's header comment) wants smooth scaling,
-				     the opposite of v2's blocky pixel-art look. touch-none
-				     prevents touch input from also scrolling the page on mobile;
+				     Fishing Game's canvas. #cooking-game-container itself (not just
+				     the canvas's immediate parent — cooking-game.js's
+				     toggleFullscreen/requestFullscreen look it up by this id) is the
+				     Fullscreen API target, so a slim Orders bar can sit above the
+				     canvas and stay visible in fullscreen too (see the comment just
+				     above). aspect-[960/600] now lives on the inner
+				     #cooking-canvas-wrapper instead of this outer container, which
+				     needs to size itself from the Orders bar's natural height plus
+				     the aspect-locked wrapper below it, not a fixed ratio of its own
+				     — up to max-w-[900px] (though in practice the shared
+				     #main-content max-w-5xl container — docs/features/home.md's
+				     Container width rule, which this page doesn't get an exception
+				     from — caps it narrower than that on desktop) or stretched to
+				     fill the screen in fullscreen (app.css's :fullscreen override),
+				     where the 900px cap doesn't apply. Either way it's a
+				     meaningfully bigger play area than v1's fixed 480x480. No
+				     image-rendering override on the canvas itself — v3's "coquette"
+				     art style (soft pastel, rounded shapes, bows/stars, see
+				     cooking-game.js's header comment) wants smooth scaling, the
+				     opposite of v2's blocky pixel-art look. touch-none prevents
+				     touch input from also scrolling the page on mobile;
 				     cursor-pointer signals the whole scene is clickable, since v2
 				     has no keyboard controls at all. */}}
-				<div class="relative mx-auto aspect-[960/600] w-full max-w-[900px] overflow-hidden rounded-card border border-line bg-[#fbeef1] shadow-sm">
-					<canvas
-						id="cooking-canvas"
-						width="960"
-						height="600"
-						class="block h-full w-full cursor-pointer touch-none"
-						role="img"
-						aria-label="Kitchen Shift play area"
-					>Your browser doesn't support the canvas element needed to play this game.</canvas>
-
-					{{/* One-time intro dialogue — hidden by default; cooking-game.js's
-					     playIntro() unhides it the very first time ever "Start Shift"
-					     is clicked on this device (gated on the localStorage save's
-					     hasSeenIntro flag), while the player character walks in from
-					     the entrance across the floor plan behind it. "Continue"
-					     dismisses it (and finishes the walk instantly, if it hasn't
-					     already) and starts the shift for real; it never shows again
-					     after that first time. Positioned at the bottom, like the
-					     cook-timing gauge below, so the walk-in animation stays
-					     visible above it rather than being covered by a centered
-					     card. */}}
-					<div id="cooking-intro-screen" class="hidden absolute inset-x-0 bottom-4 mx-auto w-[92%] max-w-md space-y-3 rounded-card border border-line bg-surface p-4 shadow-lg">
-						<p id="cooking-intro-line" class="text-sm text-ink"></p>
+				<div id="cooking-game-container" class="relative mx-auto flex w-full max-w-[900px] flex-col overflow-hidden rounded-card border border-line bg-[#fbeef1] shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2/95 px-3 py-2">
+						<dl class="grid flex-1 grid-cols-3 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
+							<div>
+								<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Shift</dt>
+								<dd id="cooking-hud-shift" class="font-mono text-sm tabular-nums text-ink sm:text-base">1/30</dd>
+							</div>
+							<div>
+								<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Time</dt>
+								<dd id="cooking-hud-clock" class="font-mono text-sm tabular-nums text-ink sm:text-base">8:30 AM</dd>
+							</div>
+							<div>
+								<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Status</dt>
+								<dd id="cooking-hud-status" class="text-sm font-medium text-ink sm:text-base">Going well</dd>
+							</div>
+						</dl>
+						{{/* Toggles between the Dining room and the Kitchen (v3.1's room
+						     split) instantly, from anywhere — a shortcut alongside the
+						     canvas's own kitchen-door/dining-door stations, which need a
+						     walk-up click. cooking-game.js's updateRoomButton() flips both
+						     the label and aria-pressed to reflect the current room. */}}
 						<button
 							type="button"
-							id="cooking-intro-continue-button"
-							class="w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-						>Let's get to work!</button>
-					</div>
-
-					{{/* Cook-timing mini-game overlay — hidden by default;
-					     cooking-game.js's handleCookArrival() unhides it once the
-					     player has arrived at a stove/oven with the right
-					     ingredients (and cookware) in hand. Clicking the button
-					     samples the sweeping gauge (cooking-game.js's
-					     sampleCookGauge()) — a click-compatible replacement for the
-					     old "press Space at the right moment" mechanic. */}}
-					<div id="cooking-gauge" class="hidden absolute inset-x-0 bottom-4 mx-auto w-full max-w-xs space-y-2 rounded-card border border-line bg-surface p-3 shadow-lg">
-						<div class="h-3 overflow-hidden rounded-full bg-surface-2">
-							<div id="cooking-gauge-fill" class="h-full w-0 bg-primary"></div>
-						</div>
+							id="cooking-room-button"
+							aria-pressed="false"
+							class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>Enter Kitchen</button>
 						<button
 							type="button"
-							id="cooking-gauge-button"
-							class="w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-						>Cook!</button>
+							id="cooking-recipe-book-button"
+							class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>Recipes</button>
+						<button
+							type="button"
+							id="cooking-fullscreen-button"
+							class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>Fullscreen</button>
 					</div>
 
-					{{/* Station picker panel — fridge/cabinet/cookware closet.
-					     Hidden by default; cooking-game.js's openPanel() unhides it
-					     and populates #cooking-station-panel-list with one button
-					     per item at that station (renderPanel()). Positioned as an
-					     absolute inset-0 overlay, matching the start/paycheck/shop
-					     screens below — only one "screen" is ever visible at a
-					     time. max-h-full + overflow-y-auto on the whole card, not
-					     just the list — see the Recipe Book's identical comment
-					     just below for the real clipped-Close-button bug this
-					     avoids; the Fridge now has 10 items (Lemonade/Matcha added
-					     for Mel/Olive & Oliver), so this card is just as tall a
-					     risk. */}}
-					<div id="cooking-station-panel" class="hidden absolute inset-0 flex items-center justify-center p-4">
-						<div class="flex w-full max-w-xs flex-col space-y-3 rounded-card border border-line bg-surface p-6 shadow-lg max-h-full overflow-y-auto">
-							<div class="flex items-center justify-between gap-2">
-								<h2 id="cooking-station-panel-title" class="text-lg font-semibold text-ink">Fridge</h2>
-								<button
-									type="button"
-									id="cooking-station-panel-close-button"
-									class="shrink-0 rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-								>Close</button>
-							</div>
-							<ul id="cooking-station-panel-list" class="space-y-2"></ul>
+					{{/* Order queue: variable-length, so cooking-game.js repopulates
+					     this list's innerHTML directly (unlike the fixed HUD numbers
+					     above the canvas) rather than this template pre-rendering any
+					     rows. Empty by default until a customer places an order. A slim
+					     bar above the canvas, not an overlay on top of it — the floor
+					     plan's top row of stations already fills that space, and an
+					     opaque overlay there would block clicks from ever reaching
+					     them. */}}
+					<div class="flex items-start gap-3 border-b border-line bg-surface-2/95 px-4 py-2.5">
+						<p class="shrink-0 pt-0.5 text-xs font-medium uppercase tracking-wide text-muted sm:text-sm">Orders</p>
+						<ul id="cooking-order-queue" class="max-h-28 flex-1 space-y-1 overflow-y-auto text-sm text-ink sm:text-base">
+							<li class="text-muted">No orders yet.</li>
+						</ul>
+					</div>
+
+					{{/* Everything below — canvas + every overlay screen — lives inside
+					     this aspect-locked inner wrapper (id needed so app.css's
+					     :fullscreen override can target it directly rather than
+					     `#cooking-game-container > div`), so the Orders bar above stays
+					     a fixed-height sibling rather than getting stretched by
+					     flex/aspect-ratio math meant for the canvas. */}}
+					<div id="cooking-canvas-wrapper" class="relative aspect-[960/600] w-full overflow-hidden">
+						<canvas
+							id="cooking-canvas"
+							width="960"
+							height="600"
+							class="block h-full w-full cursor-pointer touch-none"
+							role="img"
+							aria-label="Kitchen Shift play area"
+						>Your browser doesn't support the canvas element needed to play this game.</canvas>
+
+						{{/* One-time intro dialogue — hidden by default; cooking-game.js's
+						     playIntro() unhides it the very first time ever "Start Shift"
+						     is clicked on this device (gated on the localStorage save's
+						     hasSeenIntro flag), while the player character walks in from
+						     the entrance across the floor plan behind it. "Continue"
+						     dismisses it (and finishes the walk instantly, if it hasn't
+						     already) and starts the shift for real; it never shows again
+						     after that first time. Positioned at the bottom, like the
+						     cook-timing gauge below, so the walk-in animation stays
+						     visible above it rather than being covered by a centered
+						     card. */}}
+						<div id="cooking-intro-screen" class="hidden absolute inset-x-0 bottom-4 mx-auto w-[92%] max-w-md space-y-3 rounded-card border border-line bg-surface p-4 shadow-lg">
+							<p id="cooking-intro-line" class="text-sm text-ink"></p>
+							<button
+								type="button"
+								id="cooking-intro-continue-button"
+								class="w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+							>Let's get to work!</button>
 						</div>
-					</div>
 
-					{{/* Recipe book — a reference list of every known dish (station,
-					     cookware, ingredients), so the player doesn't have to
-					     memorize the Business Rules table. Hidden by default;
-					     cooking-game.js's openRecipeBook() unhides it and populates
-					     #cooking-recipe-book-list once (static content — the list
-					     doesn't change mid-shift). Reachable via the "Recipes" button
-					     both before and during a shift; opening it pauses movement
-					     the same way a station panel does. */}}
-					<div id="cooking-recipe-book" class="hidden absolute inset-0 flex items-center justify-center p-4">
-						{{/* max-h-full + overflow-y-auto on the whole card (not just the
-						     list) — a real, previously-shipped bug: with only the inner
-						     <ul> capped, this card could be taller than the canvas
-						     itself (a real risk here since the canvas's rendered height
-						     varies with viewport/column width, unlike this card's
-						     content, which is fixed), and the parent's overflow-hidden
-						     clipped the excess — including the Close button, pushed
-						     above the visible area and left unclickable. Capping the
-						     whole card guarantees Close always stays visible and
-						     reachable regardless of how much room the canvas actually
-						     has. */}}
-						<div class="flex w-full max-w-sm flex-col space-y-3 rounded-card border border-line bg-surface p-6 shadow-lg max-h-full overflow-y-auto">
-							<div class="flex items-center justify-between gap-2">
-								<h2 class="text-lg font-semibold text-ink">Recipe Book</h2>
-								<button
-									type="button"
-									id="cooking-recipe-book-close-button"
-									class="shrink-0 rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-								>Close</button>
+						{{/* Cook-timing mini-game overlay — hidden by default;
+						     cooking-game.js's handleCookArrival() unhides it once the
+						     player has arrived at a stove/oven with the right
+						     ingredients (and cookware) in hand. Clicking the button
+						     samples the sweeping gauge (cooking-game.js's
+						     sampleCookGauge()) — a click-compatible replacement for the
+						     old "press Space at the right moment" mechanic. */}}
+						<div id="cooking-gauge" class="hidden absolute inset-x-0 bottom-4 mx-auto w-full max-w-xs space-y-2 rounded-card border border-line bg-surface p-3 shadow-lg">
+							<div class="h-3 overflow-hidden rounded-full bg-surface-2">
+								<div id="cooking-gauge-fill" class="h-full w-0 bg-primary"></div>
 							</div>
-							<ul id="cooking-recipe-book-list" class="space-y-2 text-sm"></ul>
+							<button
+								type="button"
+								id="cooking-gauge-button"
+								class="w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+							>Cook!</button>
 						</div>
-					</div>
 
-					{{/* Start screen — visible by default (see file header comment). */}}
-					<div id="cooking-start-screen" class="absolute inset-0 flex items-center justify-center p-4">
-						<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 text-center shadow-lg">
-							<h2 class="text-lg font-semibold text-ink">Startime Diner</h2>
-							<dl class="space-y-1.5 text-sm">
-								<div class="flex items-center justify-between">
-									<dt class="text-muted">Month-to-date</dt>
-									<dd id="cooking-start-gard" class="font-mono tabular-nums text-ink">0 Gard</dd>
+						{{/* Station picker panel — fridge/cabinet/cookware closet.
+						     Hidden by default; cooking-game.js's openPanel() unhides it
+						     and populates #cooking-station-panel-list with one button
+						     per item at that station (renderPanel()). Positioned as an
+						     absolute inset-0 overlay, matching the start/paycheck/shop
+						     screens below — only one "screen" is ever visible at a
+						     time. max-h-full + overflow-y-auto on the whole card, not
+						     just the list — see the Recipe Book's identical comment
+						     just below for the real clipped-Close-button bug this
+						     avoids; the Fridge now has 10 items (Lemonade/Matcha added
+						     for Mel/Olive & Oliver), so this card is just as tall a
+						     risk. */}}
+						<div id="cooking-station-panel" class="hidden absolute inset-0 flex items-center justify-center p-4">
+							<div class="flex w-full max-w-xs flex-col space-y-3 rounded-card border border-line bg-surface p-6 shadow-lg max-h-full overflow-y-auto">
+								<div class="flex items-center justify-between gap-2">
+									<h2 id="cooking-station-panel-title" class="text-lg font-semibold text-ink">Fridge</h2>
+									<button
+										type="button"
+										id="cooking-station-panel-close-button"
+										class="shrink-0 rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Close</button>
 								</div>
-								<div class="flex items-center justify-between">
-									<dt class="text-muted">Best month</dt>
-									<dd id="cooking-start-best-month" class="font-mono tabular-nums text-ink">0 Gard</dd>
-								</div>
-							</dl>
-							{{/* Unhidden by cooking-game.js's init() when
-							     probeStorageAvailable() fails (private browsing /
-							     disabled storage), matching the Fishing Game's
-							     equivalent notice. */}}
-							<p id="cooking-storage-notice" class="hidden rounded-card border border-line bg-surface-2 px-3 py-2 text-xs text-muted">
-								Your progress won't be saved in this browser.
-							</p>
-							<p class="text-xs text-muted">
-								Click where you want to walk. Click a station — a table, the fridge, the stove, anywhere —
-								to walk over and use it automatically.
-							</p>
-							<div class="flex flex-col gap-2 pt-1">
-								<button
-									type="button"
-									id="cooking-start-shift-button"
-									class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-								>Start Shift</button>
-								<button
-									type="button"
-									id="cooking-start-shop-button"
-									class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-								>Open Shop</button>
+								<ul id="cooking-station-panel-list" class="space-y-2"></ul>
 							</div>
 						</div>
-					</div>
 
-					{{/* Paycheck screen — hidden by default; cooking-game.js's
-					     endShift() unhides it and sets data-outcome="ok"|"upset" on
-					     this root, plus data-final="true" on shift 20 to reveal the
-					     leaderboard-submission block below instead of "Start Next
-					     Shift". */}}
-					<div id="cooking-paycheck-screen" class="hidden absolute inset-0 flex items-center justify-center overflow-y-auto p-4">
-						<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
-							<h2 id="cooking-paycheck-title" class="text-center text-lg font-semibold text-ink">Duke's office</h2>
+						{{/* Recipe book — a reference list of every known dish (station,
+						     cookware, ingredients), so the player doesn't have to
+						     memorize the Business Rules table. Hidden by default;
+						     cooking-game.js's openRecipeBook() unhides it and populates
+						     #cooking-recipe-book-list once (static content — the list
+						     doesn't change mid-shift). Reachable via the "Recipes" button
+						     both before and during a shift; opening it pauses movement
+						     the same way a station panel does. */}}
+						<div id="cooking-recipe-book" class="hidden absolute inset-0 flex items-center justify-center p-4">
+							{{/* max-h-full + overflow-y-auto on the whole card (not just the
+							     list) — a real, previously-shipped bug: with only the inner
+							     <ul> capped, this card could be taller than the canvas
+							     itself (a real risk here since the canvas's rendered height
+							     varies with viewport/column width, unlike this card's
+							     content, which is fixed), and the parent's overflow-hidden
+							     clipped the excess — including the Close button, pushed
+							     above the visible area and left unclickable. Capping the
+							     whole card guarantees Close always stays visible and
+							     reachable regardless of how much room the canvas actually
+							     has. */}}
+							<div class="flex w-full max-w-sm flex-col space-y-3 rounded-card border border-line bg-surface p-6 shadow-lg max-h-full overflow-y-auto">
+								<div class="flex items-center justify-between gap-2">
+									<h2 class="text-lg font-semibold text-ink">Recipe Book</h2>
+									<button
+										type="button"
+										id="cooking-recipe-book-close-button"
+										class="shrink-0 rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Close</button>
+								</div>
+								<ul id="cooking-recipe-book-list" class="space-y-2 text-sm"></ul>
+							</div>
+						</div>
 
-							<dl class="space-y-1.5 text-sm">
-								<div class="flex items-center justify-between">
-									<dt class="text-muted">Outcome</dt>
-									<dd id="cooking-paycheck-outcome" class="font-medium text-ink">Went well</dd>
-								</div>
-								<div class="flex items-center justify-between">
-									<dt class="text-muted">This shift</dt>
-									<dd id="cooking-paycheck-shift-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
-								</div>
-								<div class="flex items-center justify-between">
-									<dt class="text-muted">Month-to-date</dt>
-									<dd id="cooking-paycheck-month-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
-								</div>
-							</dl>
-
-							{{/* Final Paycheck of the Month — hidden except on shift 20
-							     (cooking-game.js toggles this block via the root's
-							     data-final attribute). Submit to leaderboard — real
-							     HTML form + hx-post, per the doc's HTMX Interactions
-							     table. hx-swap="outerHTML" matches #cooking-leaderboard's
-							     own fragment root swap below, same reasoning as the
-							     Fishing Game's round-over form. */}}
-							<div id="cooking-final-paycheck-block" class="hidden space-y-2 border-t border-line pt-4">
-								<p class="text-sm font-medium text-ink">Final Paycheck of the Month</p>
-								<form
-									hx-post="/kitchen-shift/score"
-									hx-target="#cooking-leaderboard"
-									hx-swap="outerHTML"
-									hx-indicator="#leaderboard-loading"
-									class="space-y-2"
-								>
-									<label for="cooking-paycheck-name-input" class="block text-xs font-medium text-muted">
-										Submit to leaderboard (optional)
-									</label>
-									<div class="flex gap-2">
-										<input
-											type="text"
-											id="cooking-paycheck-name-input"
-											name="player_name"
-											maxlength="20"
-											required
-											placeholder="Your name"
-											class="w-full min-w-0 rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-										>
-										<button
-											type="submit"
-											id="cooking-paycheck-submit-button"
-											class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
-										>Submit</button>
+						{{/* Start screen — visible by default (see file header comment). */}}
+						<div id="cooking-start-screen" class="absolute inset-0 flex items-center justify-center p-4">
+							<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 text-center shadow-lg">
+								<h2 class="text-lg font-semibold text-ink">Startime Diner</h2>
+								<dl class="space-y-1.5 text-sm">
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">Month-to-date</dt>
+										<dd id="cooking-start-gard" class="font-mono tabular-nums text-ink">0 Gard</dd>
 									</div>
-									<input type="hidden" id="cooking-paycheck-earnings-input" name="total_earnings" value="0">
-									<input type="hidden" id="cooking-paycheck-shifts-input" name="shifts_completed" value="20">
-								</form>
-							</div>
-
-							<div class="flex gap-2 pt-1">
-								<button
-									type="button"
-									id="cooking-paycheck-next-shift-button"
-									class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-								>Start Next Shift</button>
-								<button
-									type="button"
-									id="cooking-paycheck-new-month-button"
-									class="hidden w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-								>Start New Month</button>
-								<button
-									type="button"
-									id="cooking-paycheck-shop-button"
-									class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-								>Open Shop</button>
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">Best month</dt>
+										<dd id="cooking-start-best-month" class="font-mono tabular-nums text-ink">0 Gard</dd>
+									</div>
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">Server level</dt>
+										<dd id="cooking-start-level" class="font-mono tabular-nums text-ink">★☆☆☆☆</dd>
+									</div>
+								</dl>
+								{{/* Unhidden by cooking-game.js's init() when
+								     probeStorageAvailable() fails (private browsing /
+								     disabled storage), matching the Fishing Game's
+								     equivalent notice. */}}
+								<p id="cooking-storage-notice" class="hidden rounded-card border border-line bg-surface-2 px-3 py-2 text-xs text-muted">
+									Your progress won't be saved in this browser.
+								</p>
+								<p class="text-xs text-muted">
+									Click where you want to walk. Click a station — a table, the fridge, the stove, anywhere —
+									to walk over and use it automatically.
+								</p>
+								<div class="flex flex-col gap-2 pt-1">
+									<button
+										type="button"
+										id="cooking-start-shift-button"
+										class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Start Shift</button>
+									<button
+										type="button"
+										id="cooking-start-shop-button"
+										class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Open Shop</button>
+								</div>
 							</div>
 						</div>
-					</div>
 
-					{{template "cooking-shop" .}}
-				</div>
+						{{/* Paycheck screen — hidden by default; cooking-game.js's
+						     endShift() unhides it and sets data-outcome="ok"|"upset" on
+						     this root, plus data-final="true" on shift 30 to reveal the
+						     leaderboard-submission block below instead of "Start Next
+						     Shift". */}}
+						<div id="cooking-paycheck-screen" class="hidden absolute inset-0 flex items-center justify-center overflow-y-auto p-4">
+							<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
+								<h2 id="cooking-paycheck-title" class="text-center text-lg font-semibold text-ink">Duke's office</h2>
+
+								<dl class="space-y-1.5 text-sm">
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">Outcome</dt>
+										<dd id="cooking-paycheck-outcome" class="font-medium text-ink">Went well</dd>
+									</div>
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">This shift</dt>
+										<dd id="cooking-paycheck-shift-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
+									</div>
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">Month-to-date</dt>
+										<dd id="cooking-paycheck-month-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
+									</div>
+								</dl>
+
+								{{/* Final Paycheck of the Month — hidden except on shift 30
+								     (cooking-game.js toggles this block via the root's
+								     data-final attribute). Submit to leaderboard — real
+								     HTML form + hx-post, per the doc's HTMX Interactions
+								     table. hx-swap="outerHTML" matches #cooking-leaderboard's
+								     own fragment root swap below, same reasoning as the
+								     Fishing Game's round-over form. */}}
+								<div id="cooking-final-paycheck-block" class="hidden space-y-2 border-t border-line pt-4">
+									<p class="text-sm font-medium text-ink">Final Paycheck of the Month</p>
+									<form
+										hx-post="/kitchen-shift/score"
+										hx-target="#cooking-leaderboard"
+										hx-swap="outerHTML"
+										hx-indicator="#leaderboard-loading"
+										class="space-y-2"
+									>
+										<label for="cooking-paycheck-name-input" class="block text-xs font-medium text-muted">
+											Submit to leaderboard (optional)
+										</label>
+										<div class="flex gap-2">
+											<input
+												type="text"
+												id="cooking-paycheck-name-input"
+												name="player_name"
+												maxlength="20"
+												required
+												placeholder="Your name"
+												class="w-full min-w-0 rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+											>
+											<button
+												type="submit"
+												id="cooking-paycheck-submit-button"
+												class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+											>Submit</button>
+										</div>
+										<input type="hidden" id="cooking-paycheck-earnings-input" name="total_earnings" value="0">
+										<input type="hidden" id="cooking-paycheck-shifts-input" name="shifts_completed" value="30">
+									</form>
+								</div>
+
+								<div class="flex gap-2 pt-1">
+									<button
+										type="button"
+										id="cooking-paycheck-next-shift-button"
+										class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Start Next Shift</button>
+									<button
+										type="button"
+										id="cooking-paycheck-new-month-button"
+										class="hidden w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Start New Month</button>
+									<button
+										type="button"
+										id="cooking-paycheck-shop-button"
+										class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Open Shop</button>
+								</div>
+							</div>
+						</div>
+
+						{{template "cooking-shop" .}}
+					</div>
+			</div>
 			</div>
 
 			<aside class="space-y-3">

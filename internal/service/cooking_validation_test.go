@@ -19,7 +19,7 @@ func TestValidateCookingScoreSubmission(t *testing.T) {
 			name:            "valid submission",
 			playerName:      "Vince",
 			totalEarnings:   80000,
-			shiftsCompleted: 20,
+			shiftsCompleted: 30,
 			wantTrimmed:     "Vince",
 		},
 		{
@@ -67,14 +67,14 @@ func TestValidateCookingScoreSubmission(t *testing.T) {
 		{
 			name:            "earnings at the max boundary is valid",
 			playerName:      "Vince",
-			totalEarnings:   100000,
+			totalEarnings:   150000,
 			shiftsCompleted: 1,
 			wantTrimmed:     "Vince",
 		},
 		{
 			name:            "earnings over the max",
 			playerName:      "Vince",
-			totalEarnings:   100001,
+			totalEarnings:   150001,
 			shiftsCompleted: 1,
 			wantErr:         ErrCookingScoreEarningsOutOfRange,
 		},
@@ -86,17 +86,17 @@ func TestValidateCookingScoreSubmission(t *testing.T) {
 			wantErr:         ErrCookingScoreShiftsOutOfRange,
 		},
 		{
-			name:            "shifts completed at the 20-shift cap is valid",
+			name:            "shifts completed at the 30-shift cap is valid",
 			playerName:      "Vince",
 			totalEarnings:   0,
-			shiftsCompleted: 20,
+			shiftsCompleted: 30,
 			wantTrimmed:     "Vince",
 		},
 		{
-			name:            "shifts completed over the 20-shift cap",
+			name:            "shifts completed over the 30-shift cap",
 			playerName:      "Vince",
 			totalEarnings:   0,
-			shiftsCompleted: 21,
+			shiftsCompleted: 31,
 			wantErr:         ErrCookingScoreShiftsOutOfRange,
 		},
 	}

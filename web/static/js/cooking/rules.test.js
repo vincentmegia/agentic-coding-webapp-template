@@ -15,7 +15,8 @@ import {
   isKarenShift,
   inGameTimeLabel,
   SHIFT_PAYCHECK_FULL,
-  SHIFT_PAYCHECK_UPSET,
+  SHIFT_PAYCHECK_PENALTY_PER_MISTAKE,
+  SHIFT_PAYCHECK_MIN,
   SHIFT_CLOCK_SECONDS,
   PHYSICAL_TABLE_COUNT,
   RECIPE_BANDS,
@@ -29,6 +30,21 @@ import {
   clampSanity,
   walkSpeedMultiplierForSanity,
   SANITY_MAX,
+  REPUTATION_MAX,
+  REPUTATION_DRAIN_PER_MISTAKE,
+  clampReputation,
+  patienceMultiplierForReputation,
+  SHIFTS_PER_MONTH,
+  ROUND_TIER_COUNT,
+  ROUND_TIER_SHIFT_SPAN,
+  ROUND_TIER_CLOCK_SECONDS,
+  TABLES_PER_FLOOR_LEVEL,
+  roundTier,
+  roundTierStars,
+  shiftClockSecondsForShift,
+  tableUnlockLevelForShift,
+  unlockedTableCountForShift,
+  baseCapacityForShift,
 } from './rules.js';
 
 describe('RECIPE_BANDS ingredient and cookware names', () => {
@@ -169,34 +185,209 @@ describe('customerPatienceSeconds', () => {
 });
 
 describe('tableCapacity', () => {
-  test('never exceeds the physical table count regardless of gear level', () => {
-    assert.equal(tableCapacity(99), PHYSICAL_TABLE_COUNT);
+  test('tier 3 (shift 21+) reproduces the pre-v3.13 numbers exactly, for every gear level', () => {
+    // Regression guard: base 5 + 3/gear-level, capped at the physical 30,
+    // same shape the original flat tableCapacity(gearLevel) had.
+    for (let gearLevel = 0; gearLevel <= 8; gearLevel++) {
+      assert.equal(tableCapacity(30, gearLevel), Math.min(PHYSICAL_TABLE_COUNT, 5 + gearLevel * 3));
+    }
+    assert.equal(tableCapacity(999, 99), PHYSICAL_TABLE_COUNT);
   });
 
-  test('increases with gear level up to the physical cap', () => {
-    assert.ok(tableCapacity(1) > tableCapacity(0));
+  test('shift 1 with no gear caps at exactly 1', () => {
+    assert.equal(tableCapacity(1, 0), 1);
+  });
+
+  test('gear can still raise a tier-1 shift\'s capacity, but never past that tier\'s unlocked table count', () => {
+    // Tier 1 has 6 tables open; gear can use more of them sooner, but
+    // can't reach a 7th table that doesn't exist yet.
+    assert.equal(tableCapacity(1, 1), 4); // base 1 + 3
+    assert.equal(tableCapacity(1, 2), 6); // base 1 + 6, capped at 6 open tables
+    assert.equal(tableCapacity(1, 99), 6); // huge gear still capped at 6
+  });
+
+  test('capacity increases with shift number even at zero gear', () => {
+    assert.ok(tableCapacity(11, 0) > tableCapacity(1, 0));
+    assert.ok(tableCapacity(21, 0) > tableCapacity(11, 0));
+  });
+
+  test('never exceeds the physical table count regardless of shift or gear', () => {
+    assert.equal(tableCapacity(999, 99), PHYSICAL_TABLE_COUNT);
+  });
+});
+
+describe('roundTier', () => {
+  test('shift 1 is tier 1', () => {
+    assert.equal(roundTier(1), 1);
+  });
+
+  test('correct tier at every band boundary', () => {
+    assert.equal(roundTier(ROUND_TIER_SHIFT_SPAN), 1);
+    assert.equal(roundTier(ROUND_TIER_SHIFT_SPAN + 1), 2);
+    assert.equal(roundTier(ROUND_TIER_SHIFT_SPAN * 2), 2);
+    assert.equal(roundTier(ROUND_TIER_SHIFT_SPAN * 2 + 1), 3);
+    assert.equal(roundTier(SHIFTS_PER_MONTH), ROUND_TIER_COUNT);
+  });
+
+  test('never exceeds ROUND_TIER_COUNT, however large the shift number', () => {
+    assert.equal(roundTier(1000), ROUND_TIER_COUNT);
+  });
+
+  test('is monotonically non-decreasing across the whole month', () => {
+    let previous = roundTier(1);
+    for (let shift = 2; shift <= SHIFTS_PER_MONTH; shift++) {
+      const tier = roundTier(shift);
+      assert.ok(tier >= previous);
+      previous = tier;
+    }
+  });
+
+  test('treats a non-positive or non-finite shift number as shift 1', () => {
+    assert.equal(roundTier(0), 1);
+    assert.equal(roundTier(-5), 1);
+    assert.equal(roundTier(NaN), 1);
+    assert.equal(roundTier(undefined), 1);
+  });
+});
+
+describe('roundTierStars', () => {
+  test('is all-filled at max tier and all-empty-but-one at tier 1', () => {
+    assert.equal(roundTierStars(1), '★☆☆');
+    assert.equal(roundTierStars(ROUND_TIER_COUNT), '★★★');
+  });
+
+  test('is always ROUND_TIER_COUNT characters long', () => {
+    for (let tier = 1; tier <= ROUND_TIER_COUNT; tier++) {
+      assert.equal(roundTierStars(tier).length, ROUND_TIER_COUNT);
+    }
+  });
+
+  test('clamps out-of-range or non-finite input into [1, ROUND_TIER_COUNT]', () => {
+    assert.equal(roundTierStars(0), '★☆☆');
+    assert.equal(roundTierStars(99), '★★★');
+    assert.equal(roundTierStars(NaN), '★☆☆');
+  });
+});
+
+describe('shiftClockSecondsForShift', () => {
+  test('matches ROUND_TIER_CLOCK_SECONDS at the start of each tier', () => {
+    assert.equal(shiftClockSecondsForShift(1), ROUND_TIER_CLOCK_SECONDS[0]);
+    assert.equal(shiftClockSecondsForShift(ROUND_TIER_SHIFT_SPAN + 1), ROUND_TIER_CLOCK_SECONDS[1]);
+    assert.equal(shiftClockSecondsForShift(ROUND_TIER_SHIFT_SPAN * 2 + 1), ROUND_TIER_CLOCK_SECONDS[2]);
+  });
+
+  test('shrinks (or stays equal) as the shift number increases — never gets easier', () => {
+    let previous = shiftClockSecondsForShift(1);
+    for (let shift = 2; shift <= SHIFTS_PER_MONTH; shift++) {
+      const seconds = shiftClockSecondsForShift(shift);
+      assert.ok(seconds <= previous);
+      previous = seconds;
+    }
+  });
+});
+
+describe('tableUnlockLevelForShift / unlockedTableCountForShift', () => {
+  test('tier 1 opens exactly TABLES_PER_FLOOR_LEVEL tables, tier 3 opens all of them', () => {
+    assert.equal(unlockedTableCountForShift(1), TABLES_PER_FLOOR_LEVEL);
+    assert.equal(unlockedTableCountForShift(SHIFTS_PER_MONTH), PHYSICAL_TABLE_COUNT);
+  });
+
+  test('grows monotonically across the month and never exceeds the physical count', () => {
+    let previous = unlockedTableCountForShift(1);
+    for (let shift = 2; shift <= SHIFTS_PER_MONTH; shift++) {
+      const count = unlockedTableCountForShift(shift);
+      assert.ok(count >= previous);
+      assert.ok(count <= PHYSICAL_TABLE_COUNT);
+      previous = count;
+    }
+  });
+});
+
+describe('baseCapacityForShift', () => {
+  test('grows monotonically across the month and never exceeds ROUND_TIER_FLOOR_LEVEL\'s max', () => {
+    let previous = baseCapacityForShift(1);
+    for (let shift = 2; shift <= SHIFTS_PER_MONTH; shift++) {
+      const capacity = baseCapacityForShift(shift);
+      assert.ok(capacity >= previous);
+      previous = capacity;
+    }
+    assert.equal(baseCapacityForShift(SHIFTS_PER_MONTH), 5);
+  });
+
+  test('is exactly 1 at shift 1 — literally one table at a time', () => {
+    assert.equal(baseCapacityForShift(1), 1);
   });
 });
 
 describe('shiftPaycheck', () => {
-  test('pays the full amount when no customer was upset', () => {
-    assert.equal(shiftPaycheck(false), SHIFT_PAYCHECK_FULL);
+  test('pays the full amount when there were no mistakes', () => {
+    assert.equal(shiftPaycheck(0), SHIFT_PAYCHECK_FULL);
   });
 
-  test('pays only the reduced amount when a customer was upset', () => {
-    assert.equal(shiftPaycheck(true), SHIFT_PAYCHECK_UPSET);
+  test('deducts SHIFT_PAYCHECK_PENALTY_PER_MISTAKE for each mistake', () => {
+    assert.equal(shiftPaycheck(1), SHIFT_PAYCHECK_FULL - SHIFT_PAYCHECK_PENALTY_PER_MISTAKE);
+    assert.equal(shiftPaycheck(3), SHIFT_PAYCHECK_FULL - 3 * SHIFT_PAYCHECK_PENALTY_PER_MISTAKE);
+  });
+
+  test('never pays less than SHIFT_PAYCHECK_MIN, however many mistakes', () => {
+    assert.equal(shiftPaycheck(50), SHIFT_PAYCHECK_MIN);
+  });
+
+  test('treats a negative or non-finite mistake count as 0', () => {
+    assert.equal(shiftPaycheck(-3), SHIFT_PAYCHECK_FULL);
+    assert.equal(shiftPaycheck(NaN), SHIFT_PAYCHECK_FULL);
+    assert.equal(shiftPaycheck(undefined), SHIFT_PAYCHECK_FULL);
   });
 });
 
 describe('monthTotal', () => {
-  test('sums a full month of flat per-shift paychecks', () => {
+  test('sums a full month of clean-shift paychecks', () => {
     const paychecks = Array(20).fill(SHIFT_PAYCHECK_FULL);
     assert.equal(monthTotal(paychecks), 20 * SHIFT_PAYCHECK_FULL);
   });
 
-  test('mixes full and upset shifts correctly', () => {
-    const paychecks = [SHIFT_PAYCHECK_FULL, SHIFT_PAYCHECK_UPSET, SHIFT_PAYCHECK_FULL];
-    assert.equal(monthTotal(paychecks), SHIFT_PAYCHECK_FULL * 2 + SHIFT_PAYCHECK_UPSET);
+  test('mixes clean and mistake-penalized shifts correctly', () => {
+    const oneMistake = shiftPaycheck(1);
+    const paychecks = [SHIFT_PAYCHECK_FULL, oneMistake, SHIFT_PAYCHECK_FULL];
+    assert.equal(monthTotal(paychecks), SHIFT_PAYCHECK_FULL * 2 + oneMistake);
+  });
+});
+
+describe('clampReputation', () => {
+  test('leaves an in-range value unchanged', () => {
+    assert.equal(clampReputation(50), 50);
+  });
+
+  test('clamps above REPUTATION_MAX down to it', () => {
+    assert.equal(clampReputation(REPUTATION_MAX + 10), REPUTATION_MAX);
+  });
+
+  test('clamps below 0 up to it', () => {
+    assert.equal(clampReputation(-10), 0);
+  });
+
+  test('treats a non-finite value as 0', () => {
+    assert.equal(clampReputation(NaN), 0);
+  });
+});
+
+describe('patienceMultiplierForReputation', () => {
+  test('is 1.0 at full reputation', () => {
+    assert.equal(patienceMultiplierForReputation(REPUTATION_MAX), 1);
+  });
+
+  test('is below 1.0 and above the floor at partial reputation', () => {
+    const mult = patienceMultiplierForReputation(REPUTATION_MAX / 2);
+    assert.ok(mult < 1 && mult > 0.6);
+  });
+
+  test('bottoms out at the documented floor at 0 reputation', () => {
+    assert.equal(patienceMultiplierForReputation(0), 0.6);
+  });
+
+  test('four mistakes worth of drain reaches the floor', () => {
+    const reputation = clampReputation(REPUTATION_MAX - 4 * REPUTATION_DRAIN_PER_MISTAKE);
+    assert.equal(patienceMultiplierForReputation(reputation), 0.6);
   });
 });
 
@@ -237,6 +428,13 @@ describe('inGameTimeLabel', () => {
     assert.equal(inGameTimeLabel(-5), '11:30 PM');
     assert.equal(inGameTimeLabel(SHIFT_CLOCK_SECONDS + 100), '8:30 AM');
     assert.equal(inGameTimeLabel(NaN), '8:30 AM');
+  });
+
+  test('honors an explicit totalClockSeconds (v3.14: varies by round tier)', () => {
+    const total = ROUND_TIER_CLOCK_SECONDS[0]; // Tier 1's 300s, not the legacy 90s default
+    assert.equal(inGameTimeLabel(total, total), '8:30 AM');
+    assert.equal(inGameTimeLabel(0, total), '11:30 PM');
+    assert.equal(inGameTimeLabel(total / 2, total), '4:00 PM');
   });
 });
 

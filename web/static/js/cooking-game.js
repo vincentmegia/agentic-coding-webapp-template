@@ -26,6 +26,34 @@
 // Only the active room's stations render or hit-test at any moment
 // (`stationsInRoom`, floor-plan.js) — see `currentRoom`/`switchRoom` below.
 //
+// v3.3: characters drawn bigger (every drawPixelPerson/drawMel call site's
+// `scale` raised) and given an "anime art style" face — this project has
+// no sprite/image assets anywhere (canvas-primitives-only, same as every
+// other visual here), so "anime style" means procedurally drawing big
+// vertical-oval eyes with a sparkle highlight, thin eyebrows, cheek blush,
+// and a small smile via drawAnimeFace(), folded into drawPixelPerson
+// itself so every character (player, generic customers, Karen, Olive &
+// Oliver, the security guard, and Mel via her drawMel wrapper) gets one
+// automatically rather than needing a separate opt-in per call site.
+//
+// v3.14 round tiers: SUPERSEDES the earlier v3.13 lifetime-shifts-based
+// food server leveling. The month now runs 30 shifts (was 20), split into
+// three 10-shift tiers, each with its own real-time shift-clock budget
+// (`shiftClockSecondsForShift`) and dining-room size
+// (`tableUnlockLevelForShift`, read live via `currentTableUnlockLevel`) —
+// driven directly by the current shift number, so (unlike v3.13) it
+// resets to Tier 1 every "Start New Month" rather than persisting across
+// a save's lifetime. See `./cooking/rules.js`'s "Round tiers" section and
+// docs/features/cooking-game-food-server-leveling.md.
+//
+// v3.16: tables draw as circles instead of rounded squares (drawStation),
+// per the user's explicit request — every other station kind is
+// unchanged. Table geometry (seated-customer sprite, patience bar, order
+// bubble) now reads each table's own `station.size` instead of a flat
+// `TABLE_BOX_SIZE` constant, since floor-plan.js's `tableBoxSizeForLevel`
+// makes table size scale with the round tier (smaller at Tier 1, growing
+// to the original full size at Tier 3) rather than staying fixed.
+//
 // This file owns everything HTMX cannot model for /kitchen-shift: the
 // `requestAnimationFrame` loop, click-driven movement/station-interaction,
 // customer spawning, HUD/order-queue updates, and the single
@@ -58,7 +86,6 @@ import {
   isKarenShift,
   inGameTimeLabel,
   SHIFTS_PER_MONTH,
-  SHIFT_CLOCK_SECONDS,
   PHYSICAL_TABLE_COUNT,
   FRIDGE_INGREDIENTS,
   CABINET_INGREDIENTS,
@@ -73,6 +100,12 @@ import {
   OLIVE_FAVORITE_COLOR,
   OLIVER_FAVORITE_COLOR,
   walkSpeedMultiplierForSanity,
+  patienceMultiplierForReputation,
+  roundTier,
+  roundTierStars,
+  shiftClockSecondsForShift,
+  tableUnlockLevelForShift,
+  unlockedTableCountForShift,
 } from './cooking/rules.js';
 import {
   createInitialState,
@@ -85,6 +118,7 @@ import {
   failOrderAt,
   restoreSanity,
   SANITY_MAX,
+  REPUTATION_MAX,
 } from './cooking/engine-state.js';
 import {
   buildStations,
@@ -100,7 +134,8 @@ import {
   DINING_ENTRY_POINT,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
-  TABLE_BOX_SIZE,
+  isTableUnlocked,
+  unlockedStations,
 } from './cooking/floor-plan.js';
 
 // ---------------------------------------------------------------------------
@@ -124,7 +159,14 @@ export const GEAR_DEFS = {
 function defaultSave() {
   const gear = {};
   Object.keys(GEAR_DEFS).forEach((key) => { gear[key] = 0; });
-  return { version: 1, monthToDateGard: 0, currentShift: 1, gear, bestMonthTotal: 0, hasSeenIntro: false };
+  return {
+    version: 1,
+    monthToDateGard: 0,
+    currentShift: 1,
+    gear,
+    bestMonthTotal: 0,
+    hasSeenIntro: false,
+  };
 }
 
 /** Feature-detects a real, usable localStorage (private browsing / disabled storage safe). */
@@ -287,6 +329,21 @@ const FLOOR_COLOR = '#fbeef1';
 const FLOOR_TILE_COLOR = '#f5dbe2';
 const FLOOR_TILE_SIZE = 40;
 
+// v3.7 dish icons + carrying animation: how fast drawPlayerHolding's held
+// tray/upper-body bobs while walking with something held (radians/sec fed
+// into Math.sin — not a real-world unit) and how far it moves (px, before
+// the * scale drawPlayerHolding applies). Per the reviewed mockup: a light
+// bounce, not a full walk-cycle bob.
+const CARRY_BOB_SPEED = 8;
+const CARRY_BOB_AMPLITUDE = 3;
+
+/**
+ * v3.12: how long the speech-bubble popup showing a customer's order stays
+ * on screen once the player arrives and the order is taken — see
+ * drawOrderBubble/updateOrderBubble.
+ */
+const ORDER_BUBBLE_SECONDS = 2.5;
+
 const STATION_COLORS = {
   fridge: '#bcdcf2',
   cabinet: '#f7e2b8',
@@ -371,23 +428,769 @@ function drawStar(ctx, cx, cy, outerRadius, innerRadius, color) {
   ctx.fill();
 }
 
+// ---------------------------------------------------------------------------
+// Dish icons — flat, canvas-drawn (no image assets exist anywhere in this
+// project — see the v3.3 anime-face changelog note above for why) icons for
+// every finished dish, replacing the plain dish-name text that used to be
+// the only visual for a held/served dish. Ported from a reviewed design
+// mockup (a claude.ai/design canvas the user approved before this landed).
+// Each drawX(ctx) function assumes it's already been translated/scaled into
+// a local 100x100 coordinate box (see drawDishIcon's dispatcher below) —
+// coordinates are lifted directly from that mockup's SVG.
+// ---------------------------------------------------------------------------
+
+/** A closed blob from a moveTo through one or more quadratic-curve segments — e.g. a leaf or petal shape. `points` is [x0,y0, cx1,cy1,x1,y1, cx2,cy2,x2,y2, ...]. */
+function drawQuadBlob(ctx, points, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(points[0], points[1]);
+  for (let i = 2; i < points.length; i += 4) {
+    ctx.quadraticCurveTo(points[i], points[i + 1], points[i + 2], points[i + 3]);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** A wavy strip (lettuce, a bottom bun edge): curve out, straight down, curve back. */
+function drawWaveStrip(ctx, x0, y0, cx1, cy1, x1, y1, x2, y2, cx3, cy3, x3, y3, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.quadraticCurveTo(cx1, cy1, x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.quadraticCurveTo(cx3, cy3, x3, y3);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawGardenSaladIcon(ctx) {
+  ctx.fillStyle = '#fdf1e4';
+  ctx.strokeStyle = '#e0c9a6';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(50, 66, 36, 20, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  drawQuadBlob(ctx, [34, 54, 30, 40, 40, 38, 44, 48, 40, 56], '#8fbf7f');
+  drawQuadBlob(ctx, [50, 52, 48, 36, 58, 36, 60, 48, 54, 56], '#a3cf8f');
+  drawQuadBlob(ctx, [62, 56, 62, 42, 70, 42, 72, 52, 66, 58], '#8fbf7f');
+  ctx.fillStyle = '#e0685a';
+  ctx.beginPath();
+  ctx.arc(42, 58, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(60, 60, 5.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath();
+  ctx.arc(40.5, 56, 1.4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawGrilledCheeseIcon(ctx) {
+  ctx.fillStyle = '#e0a458';
+  ctx.fillRect(20, 34, 58, 10);
+  ctx.fillStyle = '#f7d774';
+  ctx.fillRect(20, 44, 58, 8);
+  ctx.fillStyle = '#e0a458';
+  ctx.fillRect(20, 52, 58, 14);
+  ctx.fillStyle = '#f7d774';
+  ctx.beginPath();
+  ctx.moveTo(78, 44);
+  ctx.quadraticCurveTo(84, 48, 78, 52);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawBurgerIcon(ctx) {
+  ctx.fillStyle = '#e8b968';
+  ctx.beginPath();
+  ctx.moveTo(22, 44);
+  ctx.quadraticCurveTo(22, 26, 50, 26);
+  ctx.quadraticCurveTo(78, 26, 78, 44);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#fff8ea';
+  for (const [x, y] of [[36, 34], [50, 30], [64, 34]]) {
+    ctx.beginPath();
+    ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  drawWaveStrip(ctx, 20, 46, 50, 54, 80, 46, 78, 52, 50, 60, 22, 52, '#8fbf7f');
+  drawRoundRect(ctx, 21, 52, 58, 12, 4, '#8a5a3a');
+  ctx.fillStyle = '#f7d774';
+  ctx.beginPath();
+  ctx.moveTo(66, 52);
+  ctx.lineTo(76, 46);
+  ctx.lineTo(78, 54);
+  ctx.closePath();
+  ctx.fill();
+  drawWaveStrip(ctx, 21, 66, 50, 74, 79, 66, 79, 72, 50, 80, 21, 72, '#e0a458');
+}
+
+function drawPancakesIcon(ctx) {
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = '#c67139';
+  ctx.beginPath();
+  ctx.ellipse(50, 66, 30, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#e8c073';
+  ctx.strokeStyle = '#c9985a';
+  ctx.lineWidth = 1.5;
+  for (const y of [58, 47, 36]) {
+    ctx.beginPath();
+    ctx.ellipse(50, y, 30, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  drawRoundRect(ctx, 42, 28, 16, 9, 2.5, '#fff3c4');
+  ctx.strokeStyle = '#c67139';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(30, 30);
+  ctx.quadraticCurveTo(40, 38, 34, 46);
+  ctx.quadraticCurveTo(46, 52, 40, 60);
+  ctx.quadraticCurveTo(54, 66, 48, 72);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+}
+
+function drawRoastChickenIcon(ctx) {
+  ctx.fillStyle = '#fdf1e4';
+  ctx.strokeStyle = '#e0c9a6';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(50, 68, 34, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#d99a5b';
+  ctx.beginPath();
+  ctx.ellipse(50, 52, 24, 17, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(198,113,57,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(50, 46, 24, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#7a8a5e';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  for (const [bx, by, angle] of [[62, 38, -0.5], [70, 43, -0.2]]) {
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.moveTo(0, 7);
+    ctx.lineTo(0, -6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-4, -4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -3);
+    ctx.lineTo(4, -6);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.lineCap = 'butt';
+}
+
+function drawPastaIcon(ctx) {
+  ctx.fillStyle = '#fdf1e4';
+  ctx.strokeStyle = '#e0c9a6';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(50, 66, 34, 18, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = '#f0d9a0';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(26, 58);
+  ctx.quadraticCurveTo(34, 48, 30, 40);
+  ctx.quadraticCurveTo(44, 46, 40, 56);
+  ctx.quadraticCurveTo(52, 50, 48, 40);
+  ctx.quadraticCurveTo(62, 48, 58, 58);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = '#c65f7c';
+  for (const [x, y, r] of [[38, 58, 3], [52, 62, 2.6], [60, 56, 2.2]]) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = '#7a8a5e';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(44, 52);
+  ctx.lineTo(40, 48);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+}
+
+function drawSteakDinnerIcon(ctx) {
+  ctx.fillStyle = '#fdf1e4';
+  ctx.strokeStyle = '#e0c9a6';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(50, 66, 34, 18, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#7a4a32';
+  ctx.beginPath();
+  ctx.moveTo(24, 56);
+  ctx.quadraticCurveTo(40, 46, 58, 54);
+  ctx.quadraticCurveTo(68, 58, 62, 66);
+  ctx.quadraticCurveTo(44, 74, 28, 66);
+  ctx.quadraticCurveTo(20, 62, 24, 56);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(90,50,34,0.7)';
+  ctx.lineWidth = 1.6;
+  for (const [x1, y1, x2, y2] of [[32, 54, 40, 62], [42, 52, 50, 60], [52, 52, 58, 58]]) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#e8d4a0';
+  ctx.beginPath();
+  ctx.arc(68, 62, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#7a8a5e';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(66, 56);
+  ctx.quadraticCurveTo(62, 48, 56, 46);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+}
+
+function drawSouffleIcon(ctx) {
+  ctx.fillStyle = '#c67139';
+  ctx.beginPath();
+  ctx.moveTo(32, 70);
+  ctx.lineTo(36, 40);
+  ctx.quadraticCurveTo(50, 34, 64, 40);
+  ctx.lineTo(68, 70);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#a35a2c';
+  ctx.beginPath();
+  ctx.moveTo(33, 62);
+  ctx.lineTo(67, 62);
+  ctx.lineTo(67, 70);
+  ctx.quadraticCurveTo(50, 74, 33, 70);
+  ctx.closePath();
+  ctx.fill();
+  // Puffy risen top: a cluster of overlapping soft circles reads as
+  // "fluffy" far more clearly than a single traced outline did.
+  ctx.fillStyle = '#fff3c4';
+  ctx.strokeStyle = '#f2e2b0';
+  ctx.lineWidth = 1;
+  for (const [cx, cy, r] of [[50, 32, 13], [36, 38, 9], [64, 38, 9], [43, 24, 8], [57, 24, 8]]) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+function drawMelsUsualIcon(ctx) {
+  drawRoundRect(ctx, 14, 62, 72, 10, 5, '#fdf1e4');
+  ctx.strokeStyle = '#c9a35a';
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(20, 34, 16, 30);
+  drawRoundRect(ctx, 21.5, 42, 13, 21, 2, '#e8b84b');
+  ctx.beginPath();
+  ctx.moveTo(28, 30);
+  ctx.lineTo(28, 38);
+  ctx.stroke();
+  ctx.fillStyle = '#f7b8cf';
+  ctx.beginPath();
+  ctx.moveTo(52, 62);
+  ctx.lineTo(66, 34);
+  ctx.lineTo(80, 62);
+  ctx.closePath();
+  ctx.fill();
+  drawStar(ctx, 66, 45, 5, 2, '#ffffff');
+  ctx.fillStyle = '#fdf1e4';
+  ctx.strokeStyle = '#e6d3b8';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(45, 58, 7, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath();
+  ctx.arc(45, 58, 3.4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCoupleOrderIcon(ctx) {
+  drawRoundRect(ctx, 10, 62, 80, 10, 5, '#fdf1e4');
+  ctx.strokeStyle = '#8a9a6e';
+  ctx.lineWidth = 2.2;
+  ctx.strokeRect(16, 36, 14, 26);
+  drawRoundRect(ctx, 17.5, 42, 11, 19, 2, '#7a8a5e');
+  ctx.strokeRect(38, 36, 14, 26);
+  drawRoundRect(ctx, 39.5, 42, 11, 19, 2, '#7a8a5e');
+  ctx.fillStyle = '#f7b8cf';
+  ctx.beginPath();
+  ctx.moveTo(58, 60);
+  ctx.lineTo(71, 32);
+  ctx.lineTo(84, 60);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(90,155,90,0.8)';
+  ctx.beginPath();
+  ctx.moveTo(58, 60);
+  ctx.lineTo(71, 32);
+  ctx.lineTo(71, 60);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** Dish name -> icon drawer, one entry per RECIPE_BANDS/MEL_DISH/COUPLE_DISH name (rules.js). */
+const DISH_ICON_DRAWERS = {
+  'Garden Salad': drawGardenSaladIcon,
+  'Grilled Cheese': drawGrilledCheeseIcon,
+  'Burger': drawBurgerIcon,
+  'Pancakes': drawPancakesIcon,
+  'Roast Chicken': drawRoastChickenIcon,
+  'Pasta': drawPastaIcon,
+  'Steak Dinner': drawSteakDinnerIcon,
+  'Soufflé': drawSouffleIcon,
+  "Mel's Usual": drawMelsUsualIcon,
+  "Olive & Oliver's Order": drawCoupleOrderIcon,
+};
+
+// v3.9: raw ingredients (Fridge/Cabinet items, held before they're cooked
+// or assembled into a finished dish) also get icons — see that changelog
+// note for why this was originally scoped out, then brought back in after
+// the user pointed out that carrying raw ingredients (e.g. "Cheese, Milk"
+// walking to the stove) is what a player actually sees far more often than
+// the brief moment of holding a finished dish. One small icon function per
+// FRIDGE_INGREDIENTS/CABINET_INGREDIENTS name (rules.js) — deliberately
+// simpler than the dish icons above (1-2 shapes, not a whole composed
+// scene), since these render much smaller, several at once in a row.
+
+function drawCheeseIcon(ctx) {
+  ctx.fillStyle = '#f7d774';
+  ctx.beginPath();
+  ctx.moveTo(30, 40);
+  ctx.lineTo(75, 55);
+  ctx.lineTo(75, 76);
+  ctx.lineTo(30, 76);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#e0a458';
+  for (const [x, y, r] of [[50, 58, 3], [63, 68, 2.5], [40, 66, 2]]) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawMilkIcon(ctx) {
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#d8dce0';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(35, 30);
+  ctx.lineTo(65, 30);
+  ctx.lineTo(65, 40);
+  ctx.lineTo(72, 50);
+  ctx.lineTo(72, 78);
+  ctx.lineTo(28, 78);
+  ctx.lineTo(28, 50);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#bcdcf2';
+  ctx.fillRect(28, 58, 44, 12);
+}
+
+function drawChickenIcon(ctx) {
+  ctx.fillStyle = '#e8b8a0';
+  ctx.beginPath();
+  ctx.ellipse(54, 55, 20, 16, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#f4e0d0';
+  ctx.beginPath();
+  ctx.ellipse(28, 68, 8, 5, 0.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawPattyIcon(ctx) {
+  ctx.fillStyle = '#c98a72';
+  ctx.strokeStyle = '#a86a54';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(50, 55, 26, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawSteakIngredientIcon(ctx) {
+  ctx.fillStyle = '#b2564a';
+  ctx.beginPath();
+  ctx.moveTo(28, 50);
+  ctx.quadraticCurveTo(40, 35, 60, 42);
+  ctx.quadraticCurveTo(75, 48, 70, 62);
+  ctx.quadraticCurveTo(55, 72, 35, 66);
+  ctx.quadraticCurveTo(24, 60, 28, 50);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(50, 54, 14, 7, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawLettuceIcon(ctx) {
+  ctx.fillStyle = '#8fbf7f';
+  ctx.beginPath();
+  ctx.arc(50, 55, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#6fa060';
+  ctx.lineWidth = 1.5;
+  for (const [x, y] of [[38, 44], [60, 46], [44, 66], [62, 62]]) {
+    ctx.beginPath();
+    ctx.moveTo(50, 55);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+}
+
+function drawTomatoIcon(ctx) {
+  ctx.fillStyle = '#e0685a';
+  ctx.beginPath();
+  ctx.arc(50, 58, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#8fbf7f';
+  ctx.beginPath();
+  ctx.moveTo(42, 38);
+  ctx.lineTo(50, 30);
+  ctx.lineTo(58, 38);
+  ctx.lineTo(50, 42);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath();
+  ctx.arc(42, 50, 4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawEggIcon(ctx) {
+  ctx.fillStyle = '#fdf1e4';
+  ctx.strokeStyle = '#e6d3b8';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(50, 55, 20, 26, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath();
+  ctx.arc(50, 55, 10, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawLemonadeIcon(ctx) {
+  ctx.strokeStyle = '#c9a35a';
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(34, 28, 32, 50);
+  ctx.fillStyle = '#e8b84b';
+  ctx.fillRect(37, 42, 26, 34);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(58, 18);
+  ctx.lineTo(58, 32);
+  ctx.stroke();
+}
+
+function drawMatchaIcon(ctx) {
+  ctx.strokeStyle = '#8a9a6e';
+  ctx.lineWidth = 2.2;
+  ctx.strokeRect(32, 32, 36, 44);
+  ctx.fillStyle = '#7a8a5e';
+  ctx.fillRect(35, 44, 30, 30);
+}
+
+function drawBreadIcon(ctx) {
+  ctx.fillStyle = '#e0a458';
+  ctx.beginPath();
+  ctx.moveTo(26, 72);
+  ctx.lineTo(26, 52);
+  ctx.quadraticCurveTo(26, 32, 50, 30);
+  ctx.quadraticCurveTo(74, 32, 74, 52);
+  ctx.lineTo(74, 72);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#c9985a';
+  ctx.lineWidth = 1.5;
+  for (const x of [36, 50, 64]) {
+    ctx.beginPath();
+    ctx.moveTo(x, 40);
+    ctx.lineTo(x, 60);
+    ctx.stroke();
+  }
+}
+
+function drawFlourIcon(ctx) {
+  ctx.fillStyle = '#fdf6ea';
+  ctx.strokeStyle = '#e6d9bc';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(32, 34);
+  ctx.lineTo(68, 34);
+  ctx.lineTo(72, 76);
+  ctx.lineTo(28, 76);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = '#c9a35a';
+  ctx.beginPath();
+  ctx.moveTo(36, 34);
+  ctx.lineTo(40, 24);
+  ctx.moveTo(64, 34);
+  ctx.lineTo(60, 24);
+  ctx.stroke();
+  ctx.fillStyle = '#c9a35a';
+  ctx.fillRect(40, 50, 20, 12);
+}
+
+function drawNoodlesIcon(ctx) {
+  ctx.strokeStyle = '#f0d9a0';
+  ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(28, 45);
+  ctx.quadraticCurveTo(45, 30, 40, 50);
+  ctx.quadraticCurveTo(55, 60, 50, 42);
+  ctx.quadraticCurveTo(65, 50, 60, 68);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+}
+
+function drawHerbsIcon(ctx) {
+  ctx.strokeStyle = '#7a8a5e';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(50, 75);
+  ctx.lineTo(50, 30);
+  ctx.stroke();
+  for (const [x, y, dir] of [[50, 45, -1], [50, 55, 1], [50, 65, -1]]) {
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + dir * 14, y - 8);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y + 6);
+    ctx.lineTo(x - dir * 14, y - 2);
+    ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+}
+
+function drawBunsIcon(ctx) {
+  ctx.fillStyle = '#e8b968';
+  ctx.beginPath();
+  ctx.arc(38, 55, 16, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(64, 55, 16, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSauceIcon(ctx) {
+  ctx.strokeStyle = '#a35a2c';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(38, 30);
+  ctx.lineTo(62, 30);
+  ctx.lineTo(62, 38);
+  ctx.lineTo(70, 46);
+  ctx.lineTo(70, 74);
+  ctx.lineTo(30, 74);
+  ctx.lineTo(30, 46);
+  ctx.lineTo(38, 38);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.fillStyle = '#c65f7c';
+  ctx.fillRect(32, 50, 36, 22);
+}
+
+function drawPotatoIcon(ctx) {
+  ctx.fillStyle = '#e8d4a0';
+  ctx.beginPath();
+  ctx.ellipse(50, 55, 24, 18, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(180,140,80,0.4)';
+  for (const [x, y] of [[40, 50], [58, 60], [45, 64]]) {
+    ctx.beginPath();
+    ctx.arc(x, y, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawStarCakeIcon(ctx) {
+  ctx.fillStyle = '#f7b8cf';
+  ctx.beginPath();
+  ctx.moveTo(30, 75);
+  ctx.lineTo(50, 25);
+  ctx.lineTo(70, 75);
+  ctx.closePath();
+  ctx.fill();
+  // Gold, not white — a white star this small on pink was indistinguishable
+  // from plain Cake's icon (both read as an identical pink triangle) in a
+  // real render check; gold matches the egg yolk color and reads clearly
+  // even at a tiny size.
+  drawStar(ctx, 50, 48, 13, 5.5, '#ffd23f');
+}
+
+function drawCakeIcon(ctx) {
+  ctx.fillStyle = '#f7b8cf';
+  ctx.beginPath();
+  ctx.moveTo(30, 75);
+  ctx.lineTo(50, 25);
+  ctx.lineTo(70, 75);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(38, 60);
+  ctx.lineTo(62, 60);
+  ctx.stroke();
+}
+
+/** Raw ingredient name -> icon drawer, one entry per FRIDGE_INGREDIENTS/CABINET_INGREDIENTS name (rules.js). */
+const INGREDIENT_ICON_DRAWERS = {
+  Cheese: drawCheeseIcon,
+  Milk: drawMilkIcon,
+  Chicken: drawChickenIcon,
+  Patty: drawPattyIcon,
+  Steak: drawSteakIngredientIcon,
+  Lettuce: drawLettuceIcon,
+  Tomato: drawTomatoIcon,
+  Egg: drawEggIcon,
+  Lemonade: drawLemonadeIcon,
+  Matcha: drawMatchaIcon,
+  Bread: drawBreadIcon,
+  Flour: drawFlourIcon,
+  Noodles: drawNoodlesIcon,
+  Herbs: drawHerbsIcon,
+  Buns: drawBunsIcon,
+  Sauce: drawSauceIcon,
+  Potato: drawPotatoIcon,
+  'Star Cake': drawStarCakeIcon,
+  Cake: drawCakeIcon,
+};
+
+/** Runs `drawer` translated/scaled so it can draw in its native 100x100 box centered at (cx, cy), `size` px square. */
+function drawIconAt(ctx, cx, cy, size, drawer) {
+  const s = size / 100;
+  ctx.save();
+  ctx.translate(cx - size / 2, cy - size / 2);
+  ctx.scale(s, s);
+  drawer(ctx);
+  ctx.restore();
+}
+
+/**
+ * Draws `dishName`'s icon centered at (cx, cy), `size` px square. No-op
+ * (draws nothing) for an unrecognized name rather than throwing, so a
+ * future dish added to rules.js without a matching icon here just shows
+ * nothing instead of crashing the render loop.
+ */
+function drawDishIcon(ctx, cx, cy, dishName, size) {
+  const drawer = DISH_ICON_DRAWERS[dishName];
+  if (drawer) drawIconAt(ctx, cx, cy, size, drawer);
+}
+
+/** Same contract as drawDishIcon, for a raw ingredient name instead. */
+function drawIngredientIcon(ctx, cx, cy, ingredientName, size) {
+  const drawer = INGREDIENT_ICON_DRAWERS[ingredientName];
+  if (drawer) drawIconAt(ctx, cx, cy, size, drawer);
+}
+
+/**
+ * An "anime art style" face — big vertical-oval eyes (white sclera, a
+ * colored iris, a small sparkle highlight), thin eyebrows, two blush
+ * ovals, and a small curved smile — drawn on the lower half of
+ * drawPixelPerson's head circle. Canvas primitives only, matching every
+ * other visual in this file (see the "v3 restyle" changelog note above,
+ * by the Coquette rendering constants): no image assets exist anywhere in
+ * this project to draw an actual sprite from.
+ */
+function drawAnimeFace(ctx, x, y, scale, eyeColor) {
+  const s = scale;
+  const headCenterY = y - 32 * s;
+  const eyeY = headCenterY + 1 * s;
+
+  for (const dir of [-1, 1]) {
+    const ex = x + dir * 3.3 * s;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(ex, eyeY, 1.9 * s, 2.6 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = eyeColor; // iris + pupil, shifted slightly down for a soft gaze
+    ctx.beginPath();
+    ctx.arc(ex, eyeY + 0.4 * s, 1.3 * s, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff'; // sparkle highlight
+    ctx.beginPath();
+    ctx.arc(ex - 0.5 * s, eyeY - 0.4 * s, 0.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = eyeColor;
+    ctx.lineWidth = Math.max(1, 0.6 * s);
+    ctx.beginPath();
+    ctx.moveTo(ex - 1.6 * s, eyeY - 3.4 * s);
+    ctx.lineTo(ex + 1.6 * s, eyeY - 3.8 * s);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = 'rgba(247,155,175,0.55)'; // blush
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(x + dir * 5.6 * s, headCenterY + 3.2 * s, 1.6 * s, 1 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = '#c65f7c'; // small smile
+  ctx.lineWidth = Math.max(1, 0.7 * s);
+  ctx.beginPath();
+  ctx.arc(x, headCenterY + 4.5 * s, 1.6 * s, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+}
+
 /**
  * A soft, round-headed pixel-person: rounded-rect limbs/torso (pants,
- * shirt), a circular head, an optional hair "cap" (upper-half circle) and
- * a bow accent — reused for the player, customers, Karen/Olive & Oliver,
- * and the security guard. Mel gets her own `drawMel` instead of this
- * generic version (see below) — her look has specific accessories the
- * user described, not just a recolor.
+ * shirt), a circular head with an anime-style face (see drawAnimeFace),
+ * an optional hair "cap" (upper-half circle) and a bow accent — reused
+ * for the player, customers, Karen/Olive & Oliver, and the security
+ * guard. Mel gets her own `drawMel` instead of this generic version (see
+ * below) — her look has specific accessories the user described, not
+ * just a recolor.
  */
-function drawPixelPerson(ctx, x, y, { bodyColor, headColor, pantsColor = null, hairColor = null, scale = 1, marker = null, bowColor = null }) {
-  const s = scale;
-  const pants = pantsColor || bodyColor;
-  drawRoundRect(ctx, x - 8 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pants); // left leg
-  drawRoundRect(ctx, x + 2 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pants); // right leg
-  drawRoundRect(ctx, x - 12 * s, y - 22 * s, 6 * s, 16 * s, 3 * s, bodyColor); // left arm
-  drawRoundRect(ctx, x + 6 * s, y - 22 * s, 6 * s, 16 * s, 3 * s, bodyColor); // right arm
-  drawRoundRect(ctx, x - 11 * s, y - 24 * s, 22 * s, 20 * s, 6 * s, bodyColor); // torso (shirt)
-
+/**
+ * The head/hair/face/bow/marker stack shared by drawPixelPerson and
+ * drawPlayerCarrying (below) — factored out so the carrying pose, which
+ * needs different arm/torso positioning, doesn't have to duplicate the
+ * anime-face rendering.
+ */
+function drawPersonHead(ctx, x, y, s, { headColor, hairColor = null, marker = null, bowColor = null, eyeColor = '#3a2a2a' }) {
   ctx.fillStyle = headColor;
   ctx.beginPath();
   ctx.arc(x, y - 32 * s, 9 * s, 0, Math.PI * 2);
@@ -399,6 +1202,9 @@ function drawPixelPerson(ctx, x, y, { bodyColor, headColor, pantsColor = null, h
     ctx.arc(x, y - 35 * s, 9.5 * s, Math.PI, 0); // an upper-half "cap" over the head
     ctx.fill();
   }
+
+  drawAnimeFace(ctx, x, y, s, eyeColor);
+
   if (bowColor) drawBow(ctx, x + 8 * s, y - 43 * s, bowColor, s * 0.8);
   if (marker) {
     ctx.fillStyle = marker;
@@ -406,6 +1212,18 @@ function drawPixelPerson(ctx, x, y, { bodyColor, headColor, pantsColor = null, h
     ctx.arc(x, y - 46 * s, 3 * s, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+function drawPixelPerson(ctx, x, y, { bodyColor, headColor, pantsColor = null, hairColor = null, scale = 1, marker = null, bowColor = null, eyeColor = '#3a2a2a' }) {
+  const s = scale;
+  const pants = pantsColor || bodyColor;
+  drawRoundRect(ctx, x - 8 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pants); // left leg
+  drawRoundRect(ctx, x + 2 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pants); // right leg
+  drawRoundRect(ctx, x - 12 * s, y - 22 * s, 6 * s, 16 * s, 3 * s, bodyColor); // left arm
+  drawRoundRect(ctx, x + 6 * s, y - 22 * s, 6 * s, 16 * s, 3 * s, bodyColor); // right arm
+  drawRoundRect(ctx, x - 11 * s, y - 24 * s, 22 * s, 20 * s, 6 * s, bodyColor); // torso (shirt)
+
+  drawPersonHead(ctx, x, y, s, { headColor, hairColor, marker, bowColor, eyeColor });
 }
 
 /**
@@ -476,7 +1294,7 @@ function drawMel(ctx, x, y, scale) {
  *   recipeBook: { root, list, closeButton } — a static reference list of every known dish, rendered once.
  *   cookGauge: { root, button }   — the cook-timing mini-game's click-to-sample overlay.
  *   stationPanel: { root, title, list, closeButton } — fridge/cabinet/cookware-closet's browsable item picker.
- *   startScreen: { root, gard, bestMonth, storageNotice (optional), shiftButton, shopButton (optional) }
+ *   startScreen: { root, gard, bestMonth, level (optional), storageNotice (optional), shiftButton, shopButton (optional) }
  *   paycheckScreen: {
  *     root, title, outcome, shiftTotal, monthTotal,
  *     finalBlock, nameInput (optional), earningsInput (optional),
@@ -506,13 +1324,28 @@ export function init(canvas, elements) {
 
   const random = Math.random;
   const world = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
-  const stations = buildStations(TABLE_IDS);
+  // v3.15: table positions are laid out fresh per round tier (floor-plan.js's
+  // buildStations now takes a level and lays out only the unlocked tables in
+  // a centered box grid) — rebuilt in beginShift()/playIntro() below
+  // whenever a shift (and therefore its tier) starts, not just once here.
+  let stations = buildStations(TABLE_IDS, 1);
 
   let currentShiftNumber = save.currentShift;
+
+  /** The floor-plan row level unlocked by the round tier `currentShiftNumber` falls in — read live everywhere table-unlocking gates behavior (capacity, spawn eligibility, hit-testing, rendering). */
+  function currentTableUnlockLevel() {
+    return tableUnlockLevelForShift(currentShiftNumber);
+  }
+
+  /** Rebuilds `stations`' table entries for the tier `currentShiftNumber` currently falls in — call after `currentShiftNumber` is set/changed, before anything reads `stations`. */
+  function rebuildStationsForCurrentTier() {
+    stations = buildStations(TABLE_IDS, currentTableUnlockLevel());
+  }
   let shiftState = null;
   let player = { ...PLAYER_START };
   let currentRoom = ROOM_DINING; // ROOM_DINING | ROOM_KITCHEN — only this room's stations render/hit-test
   let moveTarget = null; // { x, y, station: station|null }
+  let carryBobPhase = 0; // advances while walking; drives drawPlayerCarrying's up/down bob when heldDish is set
   let hoverStation = null;
   let pendingCustomers = {}; // { [tableId]: dishName }
   let inventory = []; // raw ingredient names
@@ -528,6 +1361,7 @@ export function init(canvas, elements) {
   let melSpawnedThisShift = false; // she's always the first customer seated every shift
   let couple = null; // { tableId } while Olive & Oliver's order is live and unresolved this shift
   let coupleSpawnedThisShift = false; // they always arrive right after Mel every shift
+  let orderBubble = null; // { tableId, dishName, remaining } — a brief speech bubble shown the moment an order is taken (v3.12)
   let timeSinceCustomerSpawn = 0;
   let running = false;
   let rafHandle = null;
@@ -555,6 +1389,9 @@ export function init(canvas, elements) {
   function renderStartScreen() {
     elements.startScreen.gard.textContent = `${save.monthToDateGard} Gard`;
     elements.startScreen.bestMonth.textContent = `${save.bestMonthTotal} Gard`;
+    if (elements.startScreen.level) {
+      elements.startScreen.level.textContent = roundTierStars(roundTier(save.currentShift));
+    }
     elements.startScreen.shiftButton.textContent = save.currentShift > 1
       ? `Resume Shift ${save.currentShift}`
       : 'Start Shift';
@@ -613,7 +1450,7 @@ export function init(canvas, elements) {
 
   function renderHud() {
     elements.hud.shift.textContent = `${currentShiftNumber}/${SHIFTS_PER_MONTH}`;
-    elements.hud.clock.textContent = inGameTimeLabel(shiftState.clockSeconds);
+    elements.hud.clock.textContent = inGameTimeLabel(shiftState.clockSeconds, shiftClockSecondsForShift(currentShiftNumber));
     elements.hud.status.textContent = shiftState.shiftUpset ? 'Customer upset' : 'Going well';
   }
 
@@ -678,8 +1515,10 @@ export function init(canvas, elements) {
 
   function updateHoverHint() {
     const text = hoverHintFor(hoverStation);
+    // "(Enter)" surfaces the keyboard shortcut onKeyDown implements — click
+    // this station, or press Enter while it's hovered, do the same thing.
     if (text) {
-      elements.hoverHint.textContent = text;
+      elements.hoverHint.textContent = `${text} (Enter)`;
       elements.hoverHint.classList.remove('hidden');
     } else {
       elements.hoverHint.classList.add('hidden');
@@ -819,6 +1658,7 @@ export function init(canvas, elements) {
   // intro replays once after a reset too — consistent with treating reset
   // as a fresh save, not a special case.
   function startShift() {
+    requestFullscreen();
     if (!save.hasSeenIntro) {
       playIntro(beginShift);
     } else {
@@ -834,7 +1674,8 @@ export function init(canvas, elements) {
     // fresh one afterward, so this one is only ever used for these
     // intro-scene frames.
     currentShiftNumber = save.currentShift;
-    shiftState = createInitialState(TABLE_IDS);
+    rebuildStationsForCurrentTier();
+    shiftState = createInitialState(TABLE_IDS, { clockSeconds: shiftClockSecondsForShift(currentShiftNumber) });
     pendingCustomers = {};
     karen = null;
     mel = null;
@@ -894,7 +1735,8 @@ export function init(canvas, elements) {
 
   function beginShift() {
     currentShiftNumber = save.currentShift;
-    shiftState = createInitialState(TABLE_IDS);
+    rebuildStationsForCurrentTier();
+    shiftState = createInitialState(TABLE_IDS, { clockSeconds: shiftClockSecondsForShift(currentShiftNumber) });
     player = { ...PLAYER_START };
     currentRoom = ROOM_DINING;
     updateRoomButton();
@@ -931,20 +1773,37 @@ export function init(canvas, elements) {
       rafHandle = null;
     }
 
-    const paycheck = shiftPaycheck(shiftState.shiftUpset);
+    // v3.11: the payout now scales with mistakeCount (see rules.js's
+    // shiftPaycheck) instead of the old flat 4,000/2,000 split — shiftUpset
+    // itself is unchanged and still drives dataset.outcome below, kept for
+    // that binary ok/upset UI state and the test hooks that already key off
+    // it.
+    const paycheck = shiftPaycheck(shiftState.mistakeCount);
     save.monthToDateGard += paycheck;
     const isFinalShift = currentShiftNumber >= SHIFTS_PER_MONTH;
     if (isFinalShift) {
       save.bestMonthTotal = Math.max(save.bestMonthTotal, save.monthToDateGard);
     } else {
+      // Round tiers (v3.14): driven directly by the shift about to start,
+      // not a persisted lifetime stat — so this naturally resets to Tier 1
+      // every "Start New Month" along with currentShift itself. See
+      // docs/features/cooking-game-food-server-leveling.md.
+      const tierBeforeNextShift = roundTier(currentShiftNumber);
       save.currentShift = currentShiftNumber + 1;
+      const tierAfterNextShift = roundTier(save.currentShift);
+      if (tierAfterNextShift > tierBeforeNextShift) {
+        showToast(
+          `Tier up! ${roundTierStars(tierAfterNextShift)} — ${unlockedTableCountForShift(save.currentShift)} tables now open, less time on the clock`,
+          4,
+        );
+      }
     }
     persistSave(storageAvailable, save);
 
     elements.paycheckScreen.root.dataset.outcome = shiftState.shiftUpset ? 'upset' : 'ok';
     elements.paycheckScreen.root.dataset.final = isFinalShift ? 'true' : 'false';
-    elements.paycheckScreen.outcome.textContent = shiftState.shiftUpset
-      ? "Duke isn't thrilled — a customer left upset"
+    elements.paycheckScreen.outcome.textContent = shiftState.mistakeCount > 0
+      ? `${shiftState.mistakeCount} mistake${shiftState.mistakeCount === 1 ? '' : 's'} — Duke saw the reviews`
       : 'Duke says great job';
     elements.paycheckScreen.shiftTotal.textContent = `${paycheck} Gard`;
     elements.paycheckScreen.monthTotal.textContent = `${save.monthToDateGard} Gard`;
@@ -981,11 +1840,41 @@ export function init(canvas, elements) {
 
   // -- Movement + station interaction --------------------------------
 
+  // The canvas's own CSS layout box (getBoundingClientRect) isn't always
+  // the same aspect ratio as its fixed 960x600 drawing buffer — in
+  // fullscreen especially (app.css's :fullscreen override lets
+  // #cooking-canvas-wrapper flex-fill whatever space is under the Orders/
+  // HUD bars, which is essentially never exactly 960:600 on a real
+  // screen), object-fit: contain letterboxes the actual visible content
+  // inside that box, with empty bars on either the sides or top/bottom.
+  // getBoundingClientRect still reports the *full* box, bars included, so
+  // naively scaling a click by rect.width/rect.height maps it to the
+  // wrong world position by however much bar padding exists — a real,
+  // previously-shipped bug ("its not working when i click it or press
+  // enter"): on a typical 16:9 monitor in fullscreen, that's easily
+  // ~200px of unaccounted-for pillarboxing on each side, enough to miss
+  // nearly everything. This computes the actual rendered content
+  // rectangle within the box (mirroring what object-fit: contain draws)
+  // and maps against that instead. In non-fullscreen play the box is
+  // already aspect-[960/600]-locked, so this is a no-op there (offsetX/Y
+  // stay 0) — purely corrective for the letterboxed case.
   function canvasCoordsFromEvent(e) {
     const rect = canvas.getBoundingClientRect();
+    const worldAspect = world.width / world.height;
+    let contentWidth = rect.width;
+    let contentHeight = rect.height;
+    let offsetX = 0;
+    let offsetY = 0;
+    if (rect.width / rect.height > worldAspect) {
+      contentWidth = rect.height * worldAspect;
+      offsetX = (rect.width - contentWidth) / 2;
+    } else {
+      contentHeight = rect.width / worldAspect;
+      offsetY = (rect.height - contentHeight) / 2;
+    }
     return {
-      x: ((e.clientX - rect.left) / rect.width) * world.width,
-      y: ((e.clientY - rect.top) / rect.height) * world.height,
+      x: ((e.clientX - rect.left - offsetX) / contentWidth) * world.width,
+      y: ((e.clientY - rect.top - offsetY) / contentHeight) * world.height,
     };
   }
 
@@ -994,11 +1883,11 @@ export function init(canvas, elements) {
     elements.cookGauge.root.classList.add('hidden');
   }
 
-  function onCanvasClick(e) {
-    if (activePanel || recipeBookOpen || !running) return;
-    const { x, y } = canvasCoordsFromEvent(e);
-    const station = stationAtPoint(x, y, stationsInRoom(stations, currentRoom));
-
+  // Shared by both the click and Enter-key paths below: commits to
+  // walking toward (and, on arrival, interacting with) `station`, or —
+  // click only, since Enter has no floor point to fall back to — just
+  // walking to `rawPoint` when there's no station under it.
+  function commitStationTarget(station, rawPoint) {
     if (cookMiniGame) {
       if (station && station.kind === cookMiniGame.station) return; // still cooking here — ignore
       cancelCookMiniGame();
@@ -1011,22 +1900,50 @@ export function init(canvas, elements) {
       const standoff = station.size / 2 + PLAYER_STOP_MARGIN;
       const approach = approachPoint(station.x, station.y, player.x, player.y, standoff);
       moveTarget = { x: approach.x, y: approach.y, station };
-    } else {
-      moveTarget = { x, y, station: null };
+    } else if (rawPoint) {
+      moveTarget = { x: rawPoint.x, y: rawPoint.y, station: null };
     }
+  }
+
+  function onCanvasClick(e) {
+    if (activePanel || recipeBookOpen || !running) return;
+    const { x, y } = canvasCoordsFromEvent(e);
+    const station = stationAtPoint(x, y, unlockedStations(stationsInRoom(stations, currentRoom), currentTableUnlockLevel()));
+    commitStationTarget(station, { x, y });
   }
 
   function onCanvasMouseMove(e) {
     const { x, y } = canvasCoordsFromEvent(e);
-    hoverStation = stationAtPoint(x, y, stationsInRoom(stations, currentRoom));
+    hoverStation = stationAtPoint(x, y, unlockedStations(stationsInRoom(stations, currentRoom), currentTableUnlockLevel()));
   }
 
   function onCanvasMouseLeave() {
     hoverStation = null;
   }
 
+  // Enter key as an alternate to clicking — same interaction, targeting
+  // whichever station the mouse is currently hovering (already tracked by
+  // onCanvasMouseMove above), so a player who's lined the cursor up on a
+  // customer/station but whose click didn't land can just press Enter
+  // instead. Requested by the user after "i click on them but i cant" —
+  // a real click hit-test bug (see TABLE_HIT_EXTEND_DOWN in floor-plan.js)
+  // was the root cause there, but Enter is a useful fallback regardless.
+  // Guarded the same way onCanvasClick is (no panel/recipe book open, a
+  // shift actually running) so it's a no-op everywhere else on the page —
+  // including the Final Paycheck screen's leaderboard name `<input>`,
+  // where `running` is already false and Enter should submit that form
+  // normally, not be intercepted here.
+  function onKeyDown(e) {
+    if (e.key !== 'Enter') return;
+    if (!hoverStation) return;
+    if (activePanel || recipeBookOpen || !running) return;
+    e.preventDefault();
+    commitStationTarget(hoverStation, null);
+  }
+
   function updatePlayer(deltaSeconds) {
     if (!moveTarget) return;
+    carryBobPhase += deltaSeconds * CARRY_BOB_SPEED; // only read while heldDish is set (drawPlayerCarrying); harmless to advance otherwise
     const dx = moveTarget.x - player.x;
     const dy = moveTarget.y - player.y;
     const dist = Math.hypot(dx, dy);
@@ -1059,12 +1976,23 @@ export function init(canvas, elements) {
       let patience = customerPatienceSeconds(currentShiftNumber, save.gear.regularsPatience);
       if (isKarenTable) patience = KAREN_PATIENCE_SECONDS;
       else if (isMelTable) patience += MEL_PATIENCE_BONUS_SECONDS;
-      const maxOrders = tableCapacity(save.gear.extraTableService);
+      // v3.11: a mistake this shift drains the restaurant's reputation, and
+      // every order taken *after* that (not just the mistaken one) gets
+      // shorter patience as a result — Karen and Mel aren't exempt, same as
+      // sanity's walk-speed penalty applies to everyone regardless of who
+      // caused it.
+      patience *= patienceMultiplierForReputation(shiftState.reputation);
+      const maxOrders = tableCapacity(currentShiftNumber, save.gear.extraTableService);
       const next = addOrder(shiftState, tableId, pendingDish, patience, maxOrders);
       if (next !== shiftState) {
         shiftState = next;
         delete pendingCustomers[tableId];
         activeOrderTableId = tableId;
+        // v3.12: a brief speech-bubble popup showing what was just ordered
+        // — replaces the previous silent hand-off (the table's own
+        // "wants to order" text just disappearing and a patience bar
+        // appearing in its place) with a clearer, in-the-moment cue.
+        orderBubble = { tableId, dishName: pendingDish, remaining: ORDER_BUBBLE_SECONDS };
       }
       return;
     }
@@ -1195,11 +2123,12 @@ export function init(canvas, elements) {
     if (timeSinceCustomerSpawn < interval) return;
     timeSinceCustomerSpawn = 0;
 
-    const maxOrders = tableCapacity(save.gear.extraTableService);
+    const maxOrders = tableCapacity(currentShiftNumber, save.gear.extraTableService);
     const activeCount = shiftState.orders.length + Object.keys(pendingCustomers).length;
     if (activeCount >= maxOrders) return;
 
-    const availableTableIds = TABLE_IDS.filter((id) => !shiftState.tables[id].occupied && !pendingCustomers[id]);
+    const level = currentTableUnlockLevel();
+    const availableTableIds = TABLE_IDS.filter((id) => isTableUnlocked(id, level) && !shiftState.tables[id].occupied && !pendingCustomers[id]);
     if (availableTableIds.length === 0) return;
 
     const tableId = availableTableIds[Math.floor(random() * availableTableIds.length)];
@@ -1245,6 +2174,13 @@ export function init(canvas, elements) {
       else shiftState = washDishes(shiftState);
       closingTimer = null;
     }
+  }
+
+  /** v3.12: counts down and clears the order speech-bubble popup — see handleTableArrival/drawOrderBubble. */
+  function updateOrderBubble(deltaSeconds) {
+    if (!orderBubble) return;
+    orderBubble.remaining -= deltaSeconds;
+    if (orderBubble.remaining <= 0) orderBubble = null;
   }
 
   // -- Rendering ----------------------------------------------------------
@@ -1318,15 +2254,15 @@ export function init(canvas, elements) {
     const isKarenTable = karen && karen.tableId === tableId;
     const isMelTable = mel && mel.tableId === tableId;
     const isCoupleTable = couple && couple.tableId === tableId;
-    const half = TABLE_BOX_SIZE / 2;
+    const half = station.size / 2;
 
     if (pendingDish || order) {
       if (isMelTable) {
-        drawMel(ctx, 0, half + 8, 0.85);
+        drawMel(ctx, 0, half + 8, 1.05);
       } else if (isCoupleTable) {
         // Olive & Oliver: a couple sharing one table — two people, not one.
-        drawPixelPerson(ctx, -17, half + 8, { bodyColor: OLIVE_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#fdf1e4', hairColor: '#7a4a2e', bowColor: '#ffffff', scale: 0.78 });
-        drawPixelPerson(ctx, 17, half + 8, { bodyColor: OLIVER_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#2c3140', hairColor: '#33261a', scale: 0.78 });
+        drawPixelPerson(ctx, -17, half + 8, { bodyColor: OLIVE_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#fdf1e4', hairColor: '#7a4a2e', bowColor: '#ffffff', scale: 0.95 });
+        drawPixelPerson(ctx, 17, half + 8, { bodyColor: OLIVER_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#2c3140', hairColor: '#33261a', scale: 0.95 });
       } else {
         drawPixelPerson(ctx, 0, half + 8, {
           bodyColor: isKarenTable ? '#e88ba0' : '#f2c88a',
@@ -1334,17 +2270,20 @@ export function init(canvas, elements) {
           pantsColor: isKarenTable ? '#2a2a2a' : '#5a3a22',
           hairColor: isKarenTable ? '#3a2a2a' : '#6b4a30',
           bowColor: isKarenTable ? '#2a2a2a' : null,
-          scale: 0.85,
+          scale: 1.05,
           marker: isKarenTable ? '#ffe066' : null,
         });
       }
     }
 
     if (order) {
-      let patienceMax = customerPatienceSeconds(currentShiftNumber, save.gear.regularsPatience);
-      if (isKarenTable) patienceMax = KAREN_PATIENCE_SECONDS;
-      else if (isMelTable) patienceMax += MEL_PATIENCE_BONUS_SECONDS;
-      const frac = Math.max(0, Math.min(1, order.patienceRemainingSeconds / patienceMax));
+      // v3.11: read the order's own patienceMaxSeconds (fixed at the moment
+      // it was taken, reputation multiplier already folded in — see
+      // handleTableArrival/engine-state.js's addOrder) rather than
+      // recomputing it here — recomputing with the *current* reputation
+      // would drift for an older order if reputation has changed since,
+      // making its patience bar's fraction wrong.
+      const frac = Math.max(0, Math.min(1, order.patienceRemainingSeconds / order.patienceMaxSeconds));
       drawRoundRect(ctx, -16, -half - 14, 32, 4, 2, 'rgba(90,50,60,0.2)');
       drawRoundRect(ctx, -16, -half - 14, 32 * frac, 4, 2, frac > 0.3 ? '#7fd68a' : '#e06a5b');
     } else if (tableState.dirty) {
@@ -1379,19 +2318,12 @@ export function init(canvas, elements) {
     ctx.fillText(text, cx, cy + 0.5);
   }
 
-  // Star-themed "pillows" on the chairs around each table, per the user's
-  // "star themed pillows on the chairs" request.
-  const PILLOW_COLOR = '#f7b8cf';
-  function drawChairPillows(half) {
-    const chairs = [
-      { dx: -half - 11, dy: 4 },
-      { dx: half + 11, dy: 4 },
-      { dx: 0, dy: -half - 11 },
-    ];
-    chairs.forEach(({ dx, dy }) => drawStar(ctx, dx, dy, 6, 3, PILLOW_COLOR));
-  }
-
   function drawStation(station) {
+    // Locked (not-yet-unlocked-this-tier) tables render nothing at all —
+    // not even dimmed — per the user's explicit "tables not available
+    // should not be visible."
+    if (station.kind === 'table' && !isTableUnlocked(station.tableId, currentTableUnlockLevel())) return;
+
     const isHovered = hoverStation && hoverStation.id === station.id;
     const isTarget = moveTarget && moveTarget.station && moveTarget.station.id === station.id;
     const size = station.size;
@@ -1400,40 +2332,57 @@ export function init(canvas, elements) {
     ctx.save();
     ctx.translate(Math.round(station.x), Math.round(station.y));
 
-    if (station.kind === 'table') {
-      drawChairPillows(half);
-    }
-
+    const isTable = station.kind === 'table';
     const open = isStationOpen(station);
     const baseColor = STATION_COLORS[station.kind] || '#8a6a4a';
-    drawRoundRect(ctx, -half, -half, size, size, STATION_CORNER_RADIUS, open ? '#fbf3df' : baseColor);
+    const fillColor = open ? '#fbf3df' : baseColor;
 
-    if (DOOR_KINDS.has(station.kind)) {
-      // Door handle: a small round knob, and (while "open") an inset panel reading as an ajar door.
-      if (open) {
-        drawRoundRect(ctx, -half + 6, -half + 6, size - 12, size - 12, STATION_CORNER_RADIUS - 4, baseColor);
-      }
-      ctx.fillStyle = '#7a5a4a';
+    if (isTable) {
+      // v3.16: tables draw as circles instead of rounded squares, per the
+      // user's explicit request — every other station kind keeps its
+      // existing rounded-rect look below.
+      ctx.fillStyle = fillColor;
       ctx.beginPath();
-      ctx.arc(half - 9, 0, 3, 0, Math.PI * 2);
+      ctx.arc(0, 0, half, 0, Math.PI * 2);
       ctx.fill();
-    } else if (station.kind === 'counter') {
-      drawRoundRect(ctx, -half, -half + 10, size, 10, 4, '#e8b95a');
+    } else {
+      drawRoundRect(ctx, -half, -half, size, size, STATION_CORNER_RADIUS, fillColor);
+
+      if (DOOR_KINDS.has(station.kind)) {
+        // Door handle: a small round knob, and (while "open") an inset panel reading as an ajar door.
+        if (open) {
+          drawRoundRect(ctx, -half + 6, -half + 6, size - 12, size - 12, STATION_CORNER_RADIUS - 4, baseColor);
+        }
+        ctx.fillStyle = '#7a5a4a';
+        ctx.beginPath();
+        ctx.arc(half - 9, 0, 3, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (station.kind === 'counter') {
+        drawRoundRect(ctx, -half, -half + 10, size, 10, 4, '#e8b95a');
+      }
     }
 
     ctx.strokeStyle = isTarget ? '#ffb3c6' : (isHovered ? '#f2d98a' : 'rgba(90,50,60,0.3)');
     ctx.lineWidth = isTarget || isHovered ? 3 : 2;
     ctx.beginPath();
-    ctx.roundRect(-half + 1, -half + 1, size - 2, size - 2, STATION_CORNER_RADIUS - 1);
+    if (isTable) {
+      ctx.arc(0, 0, half - 1, 0, Math.PI * 2);
+    } else {
+      ctx.roundRect(-half + 1, -half + 1, size - 2, size - 2, STATION_CORNER_RADIUS - 1);
+    }
     ctx.stroke();
 
     // Flip the label above the box for stations hugging the bottom edge
     // (counter/coffee-machine) — otherwise the chip would draw partly or
     // fully off-canvas and become invisible, same root cause as "where is
-    // the coffee machine???".
-    const labelBelowFits = station.y + half + 13 + 7 <= CANVAS_HEIGHT;
-    const labelY = labelBelowFits ? half + 13 : -half - 13;
-    drawLabelChip(ctx, 0, labelY, STATION_LABELS[station.kind] || `Table ${station.tableId}`, 'bold 11px sans-serif');
+    // the coffee machine???". Tables no longer get a "Table N" caption at
+    // all (removed per the user's request) — every other station keeps
+    // its label.
+    if (station.kind !== 'table') {
+      const labelBelowFits = station.y + half + 13 + 7 <= CANVAS_HEIGHT;
+      const labelY = labelBelowFits ? half + 13 : -half - 13;
+      drawLabelChip(ctx, 0, labelY, STATION_LABELS[station.kind] || '', 'bold 11px sans-serif');
+    }
 
     if (station.kind === 'table') {
       drawTableContents(station);
@@ -1448,19 +2397,125 @@ export function init(canvas, elements) {
     ctx.restore();
   }
 
+  /**
+   * The player's body/pose while holding something — a finished dish or
+   * raw ingredients, either one (see drawPlayerCarrying/
+   * drawPlayerCarryingIngredients below, the only two callers): legs stay
+   * in the normal drawPixelPerson position, torso/arms bend in around a
+   * tray instead of straight arms at the sides, and the whole upper
+   * body/tray bobs by `bobOffset` (negative = up) while walking, per the
+   * reviewed carrying-animation mockup. Draws everything except what's
+   * actually sitting on the tray — callers draw that on top, after this
+   * returns, so it's never at risk of being covered by the head. Returns
+   * `{trayX, trayY, s}` for callers to draw against.
+   *
+   * v3.10: the user asked for the food to render ON the tray (realistic),
+   * not in a badge above the head — v3.8 had moved it off the tray
+   * because a small icon there read as an indistinct smudge at the
+   * game's real on-screen size. Reconciled by making the tray itself much
+   * bigger (`TRAY_RX`/`TRAY_RY`, roughly 1.5x the old v3.7 tray) rather
+   * than moving the food elsewhere — see drawPlayerCarrying/
+   * drawPlayerCarryingIngredients for the icon sizes this now supports
+   * legibly directly on it.
+   */
+  const TRAY_RX = 22;
+  const TRAY_RY = 7;
+
+  function drawPlayerHolding(ctx, x, y, bobOffset) {
+    const s = 1.25; // matches drawPlayer's normal player scale
+    const bodyColor = '#6fa0d8';
+    const pantsColor = '#3a4a5a';
+
+    drawRoundRect(ctx, x - 8 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pantsColor); // left leg
+    drawRoundRect(ctx, x + 2 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pantsColor); // right leg
+
+    const uy = y + bobOffset; // upper body reference, offset from the planted legs
+    drawRoundRect(ctx, x - 11 * s, uy - 24 * s, 22 * s, 20 * s, 6 * s, bodyColor); // torso
+
+    // Arms bent inward around the tray.
+    ctx.save();
+    ctx.translate(x - 9 * s, uy - 14 * s);
+    ctx.rotate(-0.9);
+    drawRoundRect(ctx, -3 * s, -8 * s, 6 * s, 15 * s, 3 * s, bodyColor);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(x + 9 * s, uy - 14 * s);
+    ctx.rotate(0.9);
+    drawRoundRect(ctx, -3 * s, -8 * s, 6 * s, 15 * s, 3 * s, bodyColor);
+    ctx.restore();
+
+    // Lower than the tray's own radius alone would suggest — TRAY_RY is
+    // big enough now that centering it higher (like the pre-v3.10, much
+    // smaller tray did) let its top edge touch the bottom of the head.
+    const trayY = uy - 12 * s;
+    ctx.fillStyle = '#fdf1e4';
+    ctx.strokeStyle = '#e0c9a6';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(x, trayY, TRAY_RX * s, TRAY_RY * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    drawPersonHead(ctx, x, uy, s, { headColor: '#f4c99a', hairColor: '#3a2a1a', bowColor: '#ffffff', eyeColor: '#3a2a2a' });
+
+    return { trayX: x, trayY, s };
+  }
+
+  /**
+   * Holding a finished dish: its icon (drawDishIcon) sits directly on the
+   * tray, sized generously (28px at the player's normal scale) since it's
+   * the only thing on the tray.
+   */
+  function drawPlayerCarrying(ctx, x, y, dishName, bobOffset) {
+    const { trayX, trayY, s } = drawPlayerHolding(ctx, x, y, bobOffset);
+    drawDishIcon(ctx, trayX, trayY - 3 * s, dishName, 28 * s);
+  }
+
+  /**
+   * Holding one or more raw ingredients (gathered but not yet cooked or
+   * assembled into a dish): each item's icon stacks onto the tray as it's
+   * picked up — up to 3 across in one row (a full recipe's worth, the
+   * common case), a second, higher row for anything beyond that (gear can
+   * push carry capacity up to 8) so a fuller tray still fits rather than
+   * spilling off it, with icons shrinking a little as more items join.
+   */
+  function drawPlayerCarryingIngredients(ctx, x, y, items, bobOffset) {
+    const { trayX, trayY, s } = drawPlayerHolding(ctx, x, y, bobOffset);
+    const perRow = items.length <= 3 ? items.length : Math.ceil(items.length / 2);
+    const iconSize = (items.length === 1 ? 26 : items.length <= 3 ? 20 : 16) * s;
+    const step = iconSize * 0.95;
+    items.forEach((name, i) => {
+      const row = Math.floor(i / perRow);
+      const col = i % perRow;
+      const itemsInRow = Math.min(perRow, items.length - row * perRow);
+      const rowStartX = trayX - ((itemsInRow - 1) * step) / 2;
+      drawIngredientIcon(ctx, rowStartX + col * step, trayY - 3 * s - row * step, name, iconSize);
+    });
+  }
+
   function drawPlayer() {
-    drawPixelPerson(ctx, Math.round(player.x), Math.round(player.y), {
+    const x = Math.round(player.x);
+    const y = Math.round(player.y);
+    const bobOffset = moveTarget ? Math.sin(carryBobPhase) * CARRY_BOB_AMPLITUDE : 0;
+
+    if (heldDish) {
+      drawPlayerCarrying(ctx, x, y, heldDish, bobOffset);
+      return;
+    }
+
+    if (inventory.length > 0) {
+      drawPlayerCarryingIngredients(ctx, x, y, inventory, bobOffset);
+      return;
+    }
+
+    drawPixelPerson(ctx, x, y, {
       bodyColor: '#6fa0d8',
       headColor: '#f4c99a',
       pantsColor: '#3a4a5a',
       hairColor: '#3a2a1a',
       bowColor: '#ffffff',
-      scale: 1,
+      scale: 1.25,
     });
-
-    if (heldDish || inventory.length > 0) {
-      drawLabelChip(ctx, Math.round(player.x), Math.round(player.y) - 38, heldDish || inventory.join(', '), 'bold 10px sans-serif');
-    }
   }
 
   // Security guard — a stationary decorative figure near the entrance/
@@ -1477,7 +2532,7 @@ export function init(canvas, elements) {
       pantsColor: '#242c38',
       hairColor: '#14181f', // reads as a dark cap
       bowColor: '#e0c25a', // a small badge ribbon
-      scale: 0.9,
+      scale: 1.1,
       marker: '#e0c25a',
     });
     drawLabelChip(ctx, SECURITY_GUARD_POSITION.x, SECURITY_GUARD_POSITION.y + 40, 'Security', 'bold 10px sans-serif');
@@ -1513,13 +2568,109 @@ export function init(canvas, elements) {
     ctx.restore();
   }
 
+  // v3.11: the restaurant's reputation, drawn directly below the Sanity
+  // bar it's visually paired with — same shape/pattern, tracking the
+  // *restaurant's* mood (every mistake, not the player's own fatigue) —
+  // see rules.js's REPUTATION_MAX/patienceMultiplierForReputation.
+  function drawReputationBar() {
+    const x = 14;
+    const y = 36;
+    const width = 130;
+    const height = 16;
+    const reputationPercent = Math.round(shiftState.reputation);
+    const frac = Math.max(0, Math.min(1, shiftState.reputation / REPUTATION_MAX));
+    const fillColor = reputationPercent > 50 ? '#7fb0d6' : (reputationPercent > 20 ? '#e0a83a' : '#e06a5b');
+
+    ctx.save();
+    drawRoundRect(ctx, x, y, width, height, 8, 'rgba(255,251,246,0.85)');
+    drawRoundRect(ctx, x + 2, y + 2, Math.max(0, (width - 4) * frac), height - 4, 6, fillColor);
+    ctx.strokeStyle = 'rgba(90,50,60,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, height, 8);
+    ctx.stroke();
+
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`Reputation ${reputationPercent}%`, x + width / 2, y + height / 2 + 0.5);
+    ctx.restore();
+  }
+
+  /**
+   * v3.12: a small speech bubble — dish icon + name, rounded body with a
+   * tail pointing down at the table — showing what a customer just
+   * ordered, for `ORDER_BUBBLE_SECONDS` right after the player arrives at
+   * their table (see handleTableArrival/updateOrderBubble). Absolute
+   * canvas coordinates, not the per-station `ctx.translate` drawStation
+   * uses, since it's drawn independently of the station-render pass (after
+   * drawPlayer, so the player sprite standing right at that table can
+   * never cover it).
+   */
+  function drawOrderBubble() {
+    if (!orderBubble) return;
+    const station = stations.find((s) => s.kind === 'table' && s.tableId === orderBubble.tableId);
+    if (!station || station.room !== currentRoom) return;
+
+    const x = station.x;
+    const bubbleY = station.y - station.size / 2 - 46;
+    const iconSize = 22;
+    const text = orderBubble.dishName;
+
+    ctx.save();
+    ctx.font = 'bold 11px sans-serif';
+    const textWidth = ctx.measureText(text).width;
+    const paddingX = 8;
+    const contentWidth = iconSize + 4 + textWidth;
+    const bubbleW = contentWidth + paddingX * 2;
+    const bubbleH = 30;
+
+    ctx.fillStyle = 'rgba(255,251,246,0.95)';
+    ctx.strokeStyle = '#e0a8c0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x - bubbleW / 2, bubbleY - bubbleH / 2, bubbleW, bubbleH, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    // Tail pointing down toward the table.
+    ctx.fillStyle = 'rgba(255,251,246,0.95)';
+    ctx.beginPath();
+    ctx.moveTo(x - 6, bubbleY + bubbleH / 2 - 1);
+    ctx.lineTo(x + 2, bubbleY + bubbleH / 2 + 9);
+    ctx.lineTo(x + 9, bubbleY + bubbleH / 2 - 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#e0a8c0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, bubbleY + bubbleH / 2 - 1);
+    ctx.lineTo(x + 2, bubbleY + bubbleH / 2 + 9);
+    ctx.lineTo(x + 9, bubbleY + bubbleH / 2 - 1);
+    ctx.stroke();
+    // Re-fill over the seam where the tail meets the bubble body, so the
+    // stroke drawn above doesn't leave a visible line across the join.
+    ctx.fillStyle = 'rgba(255,251,246,0.95)';
+    ctx.fillRect(x - 6, bubbleY + bubbleH / 2 - 2, 15, 3);
+
+    drawDishIcon(ctx, x - contentWidth / 2 + iconSize / 2, bubbleY, orderBubble.dishName, iconSize);
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x - contentWidth / 2 + iconSize + 4, bubbleY + 0.5);
+    ctx.restore();
+  }
+
   function render() {
     drawFloor();
     stationsInRoom(stations, currentRoom).forEach((station) => drawStation(station));
     // Guard stands watch by the Dining entrance — not a Kitchen fixture.
     if (currentRoom === ROOM_DINING) drawSecurityGuard();
     drawPlayer();
+    drawOrderBubble();
     drawSanityBar();
+    drawReputationBar();
   }
 
   // -- Game loop ------------------------------------------------------
@@ -1569,6 +2720,7 @@ export function init(canvas, elements) {
       updateClosingTimer(deltaSeconds);
     }
 
+    updateOrderBubble(deltaSeconds);
     updateHoverHint();
     renderHud();
     renderOrderQueue();
@@ -1600,13 +2752,34 @@ export function init(canvas, elements) {
 
   // -- Fullscreen -------------------------------------------------------
 
+  // Called both from the "Fullscreen" button and (best-effort) as soon as
+  // a shift starts, so the game "launches" full-size rather than making
+  // the player hunt for the small toggle button first — see startShift().
+  // Both call sites fire from a click handler, satisfying the Fullscreen
+  // API's user-gesture requirement; the .catch swallows rejection when a
+  // browser still refuses (e.g. iOS Safari, which doesn't support
+  // Fullscreen on canvases' ancestors at all).
+  function requestFullscreen() {
+    if (document.fullscreenElement) return;
+    // #cooking-game-container, not canvas.parentElement (which is the
+    // narrower #cooking-canvas-wrapper one level in) — the Orders bar
+    // needs to be inside the Fullscreen API target too, per the user's
+    // "orders on the same window" request, so fullscreening just the
+    // canvas's immediate parent would leave it behind.
+    const container = document.getElementById('cooking-game-container');
+    container.requestFullscreen?.().catch(() => {});
+  }
+
   function toggleFullscreen() {
-    const container = canvas.parentElement;
     if (!document.fullscreenElement) {
-      container.requestFullscreen?.().catch(() => {});
+      requestFullscreen();
     } else {
       document.exitFullscreen?.().catch(() => {});
     }
+  }
+
+  function onFullscreenChange() {
+    elements.fullscreenButton.textContent = document.fullscreenElement ? 'Exit Fullscreen' : 'Fullscreen';
   }
 
   function onVisibilityChange() {
@@ -1622,8 +2795,10 @@ export function init(canvas, elements) {
   canvas.addEventListener('click', onCanvasClick);
   canvas.addEventListener('mousemove', onCanvasMouseMove);
   canvas.addEventListener('mouseleave', onCanvasMouseLeave);
+  document.addEventListener('keydown', onKeyDown);
   document.addEventListener('visibilitychange', onVisibilityChange);
   elements.fullscreenButton.addEventListener('click', toggleFullscreen);
+  document.addEventListener('fullscreenchange', onFullscreenChange);
   elements.recipeBookButton.addEventListener('click', openRecipeBook);
   elements.roomButton?.addEventListener('click', toggleRoomButton);
   elements.recipeBook.closeButton.addEventListener('click', closeRecipeBook);
@@ -1660,6 +2835,8 @@ export function init(canvas, elements) {
     canvas.removeEventListener('click', onCanvasClick);
     canvas.removeEventListener('mousemove', onCanvasMouseMove);
     canvas.removeEventListener('mouseleave', onCanvasMouseLeave);
+    document.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('visibilitychange', onVisibilityChange);
     document.body.removeEventListener('htmx:beforeSwap', teardown);
     if (teardownActiveInstance === teardown) teardownActiveInstance = null;
@@ -1675,9 +2852,10 @@ export function init(canvas, elements) {
   teardownActiveInstance = teardown;
 
   // Test-only debug hooks for e2e/cooking-game.spec.js — reaching a
-  // shift's end "naturally" means waiting out a full SHIFT_CLOCK_SECONDS
-  // countdown, too slow for a reliable browser test. These drive the exact
-  // same real transitions (tick/cleanTable/washDishes/shutDown from
+  // shift's end "naturally" means waiting out the full shift-clock
+  // countdown (v3.14: varies by round tier, shiftClockSecondsForShift),
+  // too slow for a reliable browser test. These drive the exact same real
+  // transitions (tick/cleanTable/washDishes/shutDown from
   // ./cooking/engine-state.js, then the real endShift() below) real play
   // uses. Real clicks (via Playwright mouse events against the canvas) are
   // used for everything else — these hooks exist only to fast-forward the
@@ -1686,7 +2864,7 @@ export function init(canvas, elements) {
     window.__cookingGameTestHooks = {
       skipToClosing() {
         if (!running || !shiftState || shiftState.phase !== 'playing') return;
-        shiftState = tick(shiftState, SHIFT_CLOCK_SECONDS + 1);
+        shiftState = tick(shiftState, shiftClockSecondsForShift(currentShiftNumber) + 1);
         pendingCustomers = {};
         cancelCookMiniGame();
         for (const id of TABLE_IDS) shiftState = cleanTable(shiftState, id);
@@ -1772,6 +2950,7 @@ function bootstrap() {
       root: document.getElementById('cooking-start-screen'),
       gard: document.getElementById('cooking-start-gard'),
       bestMonth: document.getElementById('cooking-start-best-month'),
+      level: document.getElementById('cooking-start-level'),
       storageNotice: document.getElementById('cooking-storage-notice'),
       shiftButton: document.getElementById('cooking-start-shift-button'),
       shopButton: document.getElementById('cooking-start-shop-button'),

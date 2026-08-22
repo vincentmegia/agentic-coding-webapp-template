@@ -8,11 +8,11 @@
 `floor-plan.js` via `node --test`), and a real-Postgres end-to-end subtest
 in `cmd/server/e2e_test.go` ("kitchen shift routes round-trip through the
 real cooking_scores table"). Manually verified in a real browser session:
-start screen → floor plan → station interaction/hints → a full 20-shift
+start screen → floor plan → station interaction/hints → a full 30-shift
 month (including both a clean-shift and an upset-shift payout) → Final
 Paycheck → leaderboard submission round-trip, shop open/close, no console
 errors. Recipe/gear/ramp magnitudes remain illustrative/tunable, as called
-out throughout Business Rules and Open Questions — nothing in that tuning
+out throughout the rules docs and Open Questions — nothing in that tuning
 blocks calling this Shipped, matching the Fishing Game's own precedent.
 
 **Real bug found and fixed during manual verification**: `engine-state.js`'s
@@ -56,12 +56,12 @@ pass:
 * A **Fullscreen** toggle on the game container (native Fullscreen API).
 * A **front counter** fixture (replacing the old plain "shutdown" box) and
   a stationary **security guard** figure near the entrance — the latter is
-  cosmetic only, not an interactive station (see Business Rules).
+  cosmetic only, not an interactive station (see the customer rules doc).
 * An **in-game restaurant clock** (8:30 AM–11:30 PM) replacing the HUD's
   mm:ss countdown — the same underlying shift-clock seconds, just
   formatted as a time of day (`rules.js`'s `inGameTimeLabel`).
 * Three recurring/scripted customers, layered on top of the normal random
-  arrival pool (Business Rules has the full rundown): **Mel**, sweet and
+  arrival pool (the customer rules doc has the full rundown): **Mel**, sweet and
   kind, always the first customer seated every shift, with her own usual
   order and extra patience; **Olive & Oliver**, an engaged couple who
   always arrive together right after Mel, sharing one table and one order;
@@ -225,6 +225,490 @@ Zero console errors. JS (`node --test`) and Go (`go build`/`go vet`/
 `go test`) suites green; `make css` rebuilt for the intro card's new
 arbitrary-value Tailwind class.
 
+**v3.3 bigger characters + anime-style faces** — the user reported the
+game reading too small and asked for bigger characters plus generated
+anime-art-style faces. This project has no image/sprite assets anywhere
+(every station/ingredient/dish/person is a canvas primitive — see Visual
+Direction and the Open Questions entry on real sprite art, still
+deliberately deferred), so "anime style" here means a new `drawAnimeFace`
+helper drawn procedurally on the lower half of every character's head
+circle: big vertical-oval eyes (white sclera, a colored iris, a small
+sparkle highlight), thin eyebrows, two blush ovals, and a small curved
+smile. It's called from inside `drawPixelPerson` itself, so every
+character gets one automatically — the player, generic table customers,
+Karen, Olive & Oliver, the security guard, and Mel (via her `drawMel`
+wrapper, which calls `drawPixelPerson` first). Every character's `scale`
+argument was also raised (player 1 → 1.25, generic customers/Karen 0.85 →
+1.05, Mel 0.85 → 1.05, Olive & Oliver 0.78 → 0.95, security guard 0.9 →
+1.1) — verified via Playwright screenshots that the bigger scale doesn't
+cause a seated customer to visually clip into the table row below it, or
+Olive & Oliver's two side-by-side sprites to overlap each other.
+
+**Real regression caught and fixed in a later session**: the scale bump
+above pushed a seated customer's legs roughly 18-19px below the table
+station's own (unextended) click/hover hit box — `stationAtPoint`
+(`floor-plan.js`) only ever tested a symmetric box around a station's
+`x, y, size`, with no awareness that `drawTableContents` draws the
+customer sprite starting *below* that box, not inside it. The visible
+character was bigger than before, but the table's clickable area
+wasn't, so clicking directly on a seated customer (exactly where a
+player naturally aims to "hand them their order") silently missed —
+reported by the user as "when i try to give customers their orders i
+click on them but i cant." Fixed with a new optional `hitExtendDown`
+field: `stationAtPoint` now extends a station's bottom hit-test edge by
+that amount if present (stations without it, i.e. every non-table
+station, keep the exact same symmetric box as before — a fully
+backward-compatible change), and `buildStations` gives every table a
+`hitExtendDown: TABLE_HIT_EXTEND_DOWN` (22px, comfortably covering the
+customer's feet with a small buffer while staying clear of the table
+row 85px below and the bottom-row counter/coffee-machine fixtures — see
+`TABLE_HIT_EXTEND_DOWN`'s doc comment in `floor-plan.js` for the exact
+margin math). Covered by new `floor-plan.test.js` cases, and manually
+verified via Playwright: clicking at a table's world y+38 (inside the
+old miss zone, inside the new extended one) now correctly takes/serves
+the order.
+
+Also fixed in the same session: the Fullscreen toggle already existed but
+didn't actually do anything useful — the game container's own
+`max-w-[900px]`/`aspect-[960/600]` CSS kept winning even inside the
+browser's Fullscreen API state, so "Fullscreen" just centered the same
+small box on a black backdrop. `app.css` now overrides both under the
+native `:fullscreen` selector so the container actually fills the
+display, with `object-fit: contain` on the canvas letterboxing its fixed
+960x600 buffer to any screen's aspect ratio. `startShift()` also requests
+Fullscreen automatically (best-effort, silently swallowed if a browser
+refuses it), so "Start Shift"/"Start Next Shift"/"Start New Month" launch
+the game full-size without the player needing to find the button first —
+see the UI States table's Fullscreen row and Client-side Behavior's
+Fullscreen entry for the full mechanism.
+
+**v3.4 orders bar moved inside the fullscreen window** — the user then
+asked for the Orders list to be "on the same window" as the game, since
+it was still HUD chrome living outside `#cooking-game-container` (the
+Fullscreen API target from v3.3), so it disappeared behind the game
+entirely once Fullscreen engaged. The Orders `<ul>` (`#cooking-order-queue`
+— unchanged, `renderOrderQueue()` still just repopulates its innerHTML,
+same as before) moved from the external HUD column into a new slim bar
+that's the first child of `#cooking-game-container` itself, above a new
+`#cooking-canvas-wrapper` inner `<div>` that now carries the
+`aspect-[960/600]` sizing (and holds the canvas plus every overlay
+screen) that used to live directly on the outer container. It's a bar
+above the canvas, not an absolute overlay on top of it, deliberately —
+the floor plan's top row of stations (toilet, boss's office, kitchen
+door) already fills that space, and an opaque overlay there would block
+clicks from ever reaching them.
+
+`toggleFullscreen()`/`requestFullscreen()` in `cooking-game.js` now look
+up `#cooking-game-container` by id rather than reading
+`canvas.parentElement` (which is `#cooking-canvas-wrapper` now, one level
+narrower) — fullscreening just the wrapper would again leave the Orders
+bar behind. `app.css`'s `:fullscreen` override was updated to match: the
+outer container still fills the viewport, but `#cooking-canvas-wrapper`
+switches from its normal aspect-ratio-derived height to `flex: 1 1 auto`
+(filling whatever vertical space is left under the Orders bar), with
+`object-fit: contain` on the canvas still letterboxing it to fit that
+space. Verified via Playwright: the Orders bar renders correctly in both
+windowed and fullscreen modes, and updates live (Mel's order text
+appeared in the fullscreen bar within a few seconds of "Start Shift").
+Immediately followed by "make the orders bigger": the "Orders" label and
+list text went from `text-[10px]`/`text-xs` to `text-xs`/`text-sm`
+(label) and `text-sm`/`text-base` (list, at the `sm:` breakpoint each
+time), with the bar's padding, item spacing, and `max-h` all increased
+to match so the bigger text has room.
+
+**v3.5 fullscreen hid the Room/Recipes/Fullscreen buttons; Enter key added**
+— the user reported "when i press my mouse its not working" trying to give
+customers their orders. Two real bugs, both regressions from the fullscreen
+work above:
+
+1. Taking/serving an order at a table still worked correctly (v3.3's
+   `TABLE_HIT_EXTEND_DOWN` fix held up), but the Shift/Time/Status HUD and
+   the Enter Kitchen/Recipes/Fullscreen buttons were never moved into
+   `#cooking-game-container` the way the Orders bar was in v3.4 — they
+   still lived directly in the page's HUD column, outside the Fullscreen
+   API target. The Fullscreen API renders its target element in the
+   browser's own top layer, above everything else in the page, so once a
+   shift auto-launched Fullscreen (v3.3's `startShift()` behavior), those
+   buttons became completely unclickable — confirmed with a Playwright
+   test where clicking `#cooking-room-button` timed out with "canvas...
+   subtree intercepts pointer events." Without "Enter Kitchen," a player
+   can still reach the Kitchen room via the canvas's own kitchen-door
+   station, but "Recipes" and exiting Fullscreen had no working equivalent
+   at all — likely the real substance of "my mouse isn't working." Fixed
+   by moving that whole HUD+buttons row inside `#cooking-game-container`
+   too, as a second bar above the Orders bar (same reasoning, same
+   `border-b bg-surface-2/95` styling).
+2. Added an Enter-key shortcut as the user requested ("clicks the
+   mouse/enter"): a new `onKeyDown` listener triggers the exact same
+   interaction as clicking, targeting whichever station the mouse is
+   currently hovering (`hoverStation`, already tracked continuously by
+   `onCanvasMouseMove`) — so lining the cursor up on a customer and
+   pressing Enter works even if a literal click doesn't land. Both paths
+   now share a `commitStationTarget(station, rawPoint)` helper factored
+   out of the old `onCanvasClick` body. Guarded identically to
+   `onCanvasClick` (no-op if a panel/recipe book is open or no shift is
+   running) so it doesn't interfere with the Final Paycheck screen's
+   leaderboard name `<input>` — `running` is already `false` by the time
+   that's visible, so Enter there submits the form normally. The hover
+   tooltip (`#cooking-interact-hint`) now appends " (Enter)" to surface
+   the shortcut. Verified end-to-end via Playwright: click "Start Shift"
+   (Fullscreen engages) → take Mel's order via a leg-click → click "Enter
+   Kitchen" (previously hung) → gather her ingredients at the fridge/
+   cabinet → click back to Dining → hover her table and press Enter →
+   dish served, order queue empty again, zero console errors.
+
+**v3.6 the actual root cause: letterbox-unaware click coordinates** — the
+user reported v3.5's fix hadn't actually resolved anything ("ITS NOT
+WORKING WHEN I CLICK IT OR PRESS ENTER"), confirmed a hard refresh, and
+narrowed it to "taking the order" specifically. v3.5's own Playwright
+verification had passed because its synthetic clicks were computed with
+the *same* naive `rect.width`/`rect.height` formula `canvasCoordsFromEvent`
+itself uses — a click position and its own inverse both being wrong in
+the identical way makes a test self-consistent but doesn't catch a real
+mapping bug. Re-verified instead against a simulated real 16:9 monitor
+(1920x1080) in fullscreen, confirming via direct pixel-color sampling of
+a screenshot (locating the Restroom station's distinct `#cfe8ec` fill)
+that the actual on-screen game content was pillarboxed to x≈285-1633 of
+the canvas's full 1918px-wide CSS box, not stretched across the whole
+box — `object-fit: contain` (added in v3.3's Fullscreen work) really was
+letterboxing the canvas as designed. The bug: `canvas.getBoundingClientRect()`
+still reports the *full* box, bars included, and `canvasCoordsFromEvent`
+was naively scaling clicks by that full box's width/height, silently
+mapping every click to the wrong world position by however much bar
+padding existed — on this test's 1920x1080/fullscreen case, that's
+~192px of unaccounted-for padding on each side, an error large enough to
+make nearly every click land on the wrong station or nothing at all. Real
+desktop monitors are essentially never exactly 960:600, so this wasn't
+an edge case — it affected every fullscreen session (which is every
+session, since v3.3 auto-requests Fullscreen on "Start Shift") on any
+screen whose aspect ratio didn't happen to match the game's. Fixed by
+having `canvasCoordsFromEvent` compute the actual rendered content
+rectangle within the box (mirroring what `object-fit: contain` draws —
+comparing box aspect ratio to world aspect ratio, then pillarboxing or
+letterboxing offsets accordingly) and mapping clicks against *that*
+instead of the raw box. `onCanvasMouseMove` (and therefore hover/Enter
+targeting too, since both share this function) gets the same fix for
+free. In non-fullscreen play the box is already `aspect-[960/600]`-
+locked so this is a no-op there — purely corrective for the letterboxed
+case. Re-verified via Playwright at the *actual* visually-correct pixel
+position (derived from the same corrected transform, not the game's own
+code) on a simulated 1920x1080 screen: take order → click "Enter
+Kitchen" → gather ingredients at fridge/cabinet → back to Dining → serve
+via Enter key at the real hover position — full loop succeeds, zero
+console errors.
+
+**v3.7 dish icons + a carrying animation** — the user asked for "the
+images of the food" to replace plain text, plus an animation of the
+character carrying food, and to review a design before it landed. This
+project has no image assets anywhere (see the v3.3 changelog note and
+Open Questions) and no image-generation tool is available in this
+environment, so — flagged to the user up front — these are flat,
+canvas-drawn icons (the same technique as the character faces), not
+photographic or hand-painted sprite art. A design mockup (a
+claude.ai/design canvas) was built and reviewed with the user before any
+game code changed, covering: icon concepts for all 10 finished dishes,
+and a 3-frame concept for the player's carrying pose (current text chip
+→ dish icon held on a tray → a bob frame). The user approved it as
+shown ("yes, lets create the icons and apply in the game"), settling the
+scope questions raised at review by default: only the 10 finished
+dishes get icons; the ~19 raw ingredients in the Fridge/Cabinet
+pick-lists, and a customer's own held-order indicator, stay text.
+
+Implementation, ported from the approved mockup's SVG shapes to canvas
+2D primitives:
+
+* `drawDishIcon(ctx, cx, cy, dishName, size)` dispatches to one
+  `drawXIcon(ctx)` function per dish name (`DISH_ICON_DRAWERS`), each
+  assuming it's been translated/scaled into a local 100x100 box —
+  `drawQuadBlob`/`drawWaveStrip` are small new shared helpers (a closed
+  quadratic-curve blob for leaf/petal shapes; a wavy strip for lettuce/
+  bun edges) alongside the existing `drawStar`/`drawBow`, which two
+  icons reuse directly (Mel's Usual's cake gets a `drawStar`, matching
+  the restaurant's existing star theme).
+* `drawPersonHead` was factored out of `drawPixelPerson` (the
+  head/hair/anime-face/bow/marker stack) so the new carrying pose could
+  reuse it without duplicating that code.
+* `drawPlayerCarrying(ctx, x, y, dishName, bobOffset)`: legs stay in
+  their normal `drawPixelPerson` position; the torso/arms rotate inward
+  around a small tray (`ctx.rotate` around each shoulder, mirroring the
+  mockup's SVG transform), replacing the old floating dish-name text
+  chip entirely when `heldDish` is set — a raw ingredient still in
+  progress (`inventory`, no `heldDish` yet) keeps the plain text chip,
+  per the confirmed scope. **Superseded twice since**: v3.8 moved the
+  dish icon off this chest-height tray into a badge above the head (too
+  small to read directly on the tray at the game's real on-screen
+  size); v3.9 gave raw ingredients icons too, dropping the text chip
+  they'd kept here; v3.10 moved the food back onto the tray for good,
+  now sized big enough to stay legible there — see those entries below
+  for the actual current behavior, which supersedes all of this bullet
+  and the next one.
+* The bob: a `carryBobPhase` accumulator advances (`deltaSeconds *
+  CARRY_BOB_SPEED`) in `updatePlayer()` whenever the player is walking;
+  `drawPlayer()` feeds `Math.sin(carryBobPhase) * CARRY_BOB_AMPLITUDE`
+  into `drawPlayerCarrying` as `bobOffset` only while `heldDish` is set
+  and `moveTarget` is active (standing still holding a dish shows the
+  static pose, no bob) — legs stay planted while the upper body/tray
+  offset moves, matching the reviewed mockup's "carry-bounce, not a new
+  walk cycle" note.
+
+Verified: a standalone preview harness rendering all 10 icons side by
+side (caught and fixed two weak ones before shipping — Roast Chicken's
+herb sprig read as a stray spike, redrawn shorter and closer to the
+bird; Soufflé's puffy top read as a flame, redrawn as a cluster of
+overlapping circles instead of one traced outline) and, in the real
+game via Playwright, the full take-order → gather-ingredients →
+auto-assemble → walk-while-carrying flow, screenshotted mid-walk to
+confirm the tray + dish icon render correctly on the player and persist
+correctly as the walk continues. `go build`/`go vet`/`go test` and
+`node --test` all green.
+
+**v3.8 the carrying icon was invisible at real game scale** — the user
+reported "the server sprite doesn't show its carrying the food." v3.7's
+own Playwright verification had captured the right *shapes* rendering
+without errors, but every screenshot used either a large fullscreen
+viewport or a cropped/zoomed-in view — never what the game actually
+looks like at its normal embedded, non-fullscreen size (a ~646x404px
+canvas box in a typical viewport, per `docs/features/home.md`'s
+Container width rule). Re-checked against that real size instead: a
+screenshot clipped to the canvas, then cropped to the player's *native,
+un-upscaled* pixels (no zoom, no interpolation) — the 15px-wide dish
+icon sitting on a 14px-tall tray at chest height, next to the arms and
+overlapping the torso's blue, was an indistinct smudge, not
+identifiable as food at all. The tray-at-chest treatment matched the
+reviewed mockup faithfully, but that mockup was reviewed at a large
+illustrative scale that doesn't reflect the ~24px-tall sprite the game
+actually renders.
+
+Fixed by moving the dish icon off the chest tray entirely and into a
+26px circular badge above the player's head — the same position/size
+class the old (legible) text chip occupied, on the plain floor
+background rather than competing with the torso's color and the arms'
+detail. The chest-height tray and bent-arm pose stay as-is for the
+carrying *gesture*, just without an icon drawn on the tray itself now.
+Re-verified the same way that caught the bug: a real (non-fullscreen)
+Playwright screenshot cropped to the player's native pixel size — the
+badge and its dish icon (Mel's Usual: the lemonade glass + star cake
+wedge) are both clearly legible at that size, at both 1x and a 4x
+inspection crop. `go build`/`go vet`/`go test` and `node --test` all
+green.
+
+**v3.9 raw ingredients get icons too (scope expanded)** — the user
+reported v3.8 "still the same bug," with a screenshot showing a
+`"Cheese, Milk"` text chip. That traced to correct-but-confusing
+behavior, not a bug: `heldDish` was null (the ingredients hadn't been
+cooked/assembled into a dish yet), so `drawPlayer()` was hitting the
+`inventory.length > 0` branch — the plain text chip explicitly kept for
+raw ingredients at the v3.7 design review (see that changelog note and
+Open Questions). Traced and explained to the user directly, alongside
+the doc passage that already described this as intentional — so there
+was no actual doc-vs-implementation mismatch to fix there (a stale code
+comment referencing "v3.5" instead of "v3.7" for that scope decision
+was fixed in passing, though). But walking ingredients to a station
+before cooking is what a player sees far more of than the brief moment
+of holding a finished dish, so this was a real under-scoping — asked
+the user directly (`AskUserQuestion`) whether to expand it, and they
+said yes.
+
+Added: one small icon function per `FRIDGE_INGREDIENTS`/
+`CABINET_INGREDIENTS` name (rules.js) — 19 total (Cheese, Milk, Chicken,
+Patty, Steak, Lettuce, Tomato, Egg, Lemonade, Matcha, Bread, Flour,
+Noodles, Herbs, Buns, Sauce, Potato, Star Cake, Cake) — deliberately
+simpler than the dish icons (1-2 shapes each, not a composed scene),
+since several render at once, smaller. `drawDishIcon`/
+`drawIngredientIcon` now share a `drawIconAt` translate/scale helper
+rather than duplicating it. `drawPlayerCarrying` (v3.7/v3.8) was split
+into a shared `drawPlayerHolding` (the body/pose — legs, torso, bent
+arms, tray, head) plus a `drawBadge` callback, so a new
+`drawPlayerCarryingIngredients` could reuse the exact same pose for a
+*pill*-shaped badge (wide enough for every held item, one small icon
+each) instead of the single dish's round badge. `drawPlayer()` now
+branches `heldDish` → `drawPlayerCarrying`, else `inventory.length > 0`
+→ `drawPlayerCarryingIngredients`, else the plain empty-handed stance —
+the text-chip code path is gone entirely for both cases now.
+
+Verified: a standalone preview harness for all 19 ingredient icons
+(caught and fixed one real legibility bug before shipping — Star Cake's
+white star was invisible against its pink wedge at small size, making
+it indistinguishable from plain Cake; redrawn bigger and gold instead of
+white, matching the egg yolk color) and, in the real game via
+Playwright at real (non-fullscreen) scale, reproduced the user's exact
+screenshot scenario — walk to the fridge, pick up Cheese + Milk — then
+cropped to the player's native pixel size: both icons are clearly
+legible in the pill badge, in the same spot the old text chip used to
+be. `go build`/`go vet`/`go test` and `node --test` all green.
+
+**v3.10 food back on the tray, stacking as it's gathered** — the user
+pushed back on v3.8's badge-above-the-head placement: they wanted the
+carried food to render on the tray itself for a realistic look, and to
+keep stacking icons onto it as more items are gathered. v3.8 had moved
+the icon off the tray specifically because a small icon there read as
+an indistinct smudge at the game's real on-screen size — reconciled
+this time by making the tray substantially bigger (`TRAY_RX`/
+`TRAY_RY`, roughly 1.5x the original v3.7 tray) instead of relocating
+the food elsewhere, so it's both on the tray and legible.
+`drawPlayerHolding` (the shared body/pose helper) now returns
+`{trayX, trayY, s}` instead of taking a badge-drawing callback, so
+`drawPlayerCarrying`/`drawPlayerCarryingIngredients` draw straight onto
+the tray afterward — after, not before, `drawPlayerHolding` draws the
+head, so the food is never at risk of being drawn underneath it.
+
+A real regression caught and fixed before shipping: the first pass
+enlarged the tray without moving it, so its top edge landed exactly on
+the bottom of the head — overlapping it in a real screenshot check.
+Fixed by lowering the tray's vertical position (closer to the arms/
+torso) rather than shrinking it back down. A single finished dish gets
+one generously-sized icon (28px at the player's scale) centered on the
+tray; multiple raw ingredients stack onto it as they're picked up — up
+to 3 across in one row (a full recipe's worth, the common case, since
+`BASE_CARRY_CAPACITY` is 3 and most dishes need exactly that many
+ingredients), a second, higher row for anything beyond that (gear can
+push carry capacity to 8), with icons shrinking a little as more items
+join so a fuller tray still fits. Re-verified via Playwright at real
+(non-fullscreen) scale, cropped to native pixel size: 3 ingredients
+(Cheese, Milk, Egg) all distinguishable in one row on the tray with no
+head overlap, and a finished dish (Mel's Usual) rendering large and
+clear on its own. `go build`/`go vet`/`go test` and `node --test` all
+green.
+
+**v3.11 mistakes now cost Gard directly, and sour the restaurant's mood**
+— the user asked to "update the rules of the game," starting with the
+food server: wrong-dish serves should deduct points, customers should get
+"irritated," and mistakes should raise "the ch[a]nce of leaving... with
+bad review." Reviewed with the user first (two `AskUserQuestion` calls)
+since this reverses a documented design decision — the old flat "4,000
+unless anything went wrong, then 2,000" payout was deliberately built to
+avoid per-mistake scaling. They confirmed: (1) points should replace that
+flat payout, not sit alongside it, and (2) since one customer only ever
+gets a single order (no do-over to escalate irritation on), "irritation"
+should model the *restaurant's* mood over the whole shift, not one
+customer's — a mistake makes later customers touchier, not just the one
+who got the wrong dish.
+
+Implemented as a new `reputation` stat (`rules.js`'s `REPUTATION_MAX`),
+same shape as the existing Sanity stat but tracking the restaurant
+instead of the player: starts full every shift, drains
+`REPUTATION_DRAIN_PER_MISTAKE` (25) on every mistake (a missed order or
+wrong-dish serve — `serveDish`/`failOrderAt`/`tick`'s patience-timeout and
+clock-zero paths, engine-state.js) and nothing else — no passive drain,
+unlike Sanity. `rules.js`'s new `patienceMultiplierForReputation`
+(1.0 at full reputation, linearly down to a 0.6 floor at zero, exactly
+mirroring `walkSpeedMultiplierForSanity`'s shape) is applied once, at the
+moment *any* order is taken (`handleTableArrival`, cooking-game.js) —
+Karen and Mel aren't exempt — so a shift that's already gone sour gives
+every later customer less patience, functioning as an escalating chance
+of losing them before the player even reaches their table. A real
+correctness fix that came out of wiring this up: the order's patience-bar
+fraction used to be computed by re-deriving "full patience" from scratch
+at render time, which would have silently drifted for an older order once
+reputation changed again mid-shift — fixed by having `addOrder` store the
+actual patience value used as a new `patienceMaxSeconds` field on the
+order itself, fixed at creation, and having the renderer read that
+instead of recomputing it.
+
+`rules.js`'s `shiftPaycheck(mistakeCount)` replaces the old
+`shiftPaycheck(shiftUpset)`: `SHIFT_PAYCHECK_FULL` (4,000, unchanged)
+minus `SHIFT_PAYCHECK_PENALTY_PER_MISTAKE` (500) per mistake, floored at
+`SHIFT_PAYCHECK_MIN` (500) so a shift always pays *something* — this
+game's existing "never a hard game-over" design extends to the paycheck
+too. `shiftState.mistakeCount` (a running count, alongside the unchanged
+`shiftUpset` boolean, which still drives the paycheck screen's ok/upset
+UI state and dataset attribute) feeds this directly. The paycheck
+screen's outcome line now reads e.g. "3 mistakes — Duke saw the reviews"
+instead of a binary "went well"/"a customer left upset". A new on-canvas
+Reputation bar (`drawReputationBar`, cooking-game.js) sits directly below
+the existing Sanity bar, same visual treatment.
+
+Verified via Playwright: forcing 3 mistakes (the `forceUpset` test hook)
+dropped Sanity from 100% to 55% (3×15, unchanged) and Reputation from
+100% to 25% (3×25, matching the new drain rate) exactly as expected, and
+the resulting paycheck showed exactly `2,500 Gard` (4,000 − 3×500) with
+the outcome text "3 mistakes — Duke saw the reviews". `go build`/
+`go vet`/`go test`, and `node --test` (224 tests, up from 206 — new
+coverage for `shiftPaycheck`'s new signature,
+`clampReputation`/`patienceMultiplierForReputation`, and every mistake
+path's `mistakeCount`/`reputation` effect in `engine-state.test.js`) all
+green.
+
+**Also**: this doc was split — "so it's more organized," alongside the
+rule change — into this file (Status and everything not rule-specific:
+Summary, Scope, User Flow, Visual Direction, UI, Client-side Behavior,
+Routes/Data Model, Security, Testing Plan, Open Questions, Definition of
+Done) plus three new sibling docs covering what used to be one Business
+Rules / Validation section: `cooking-game-food-server.md` (recipes,
+cooking, serving, the paycheck/reputation mechanics above, sanity/gear/
+closing), `cooking-game-customer.md` (patience/ramp, Karen/Mel/Olive &
+Oliver, the reputation-to-patience effect from the customer's side), and
+`cooking-game-kitchen.md` (the Dining/Kitchen room split, cookware,
+ingredient sourcing). See "Rules Documents" below.
+
+**v3.12 an order speech bubble, and a leveling proposal** — the user
+asked for a visible popup showing a customer's order the moment the
+player arrives to take it, plus a new "food server level" that gates how
+many simultaneous orders the player can hold (starting at one, unlocked
+in stages) — and explicitly asked for the leveling mechanism to be
+*proposed* in its own doc for review before it's built, since it needs
+to reconcile with the table-capacity gear that already exists.
+
+The speech bubble shipped directly (well-defined, no open design
+questions): `handleTableArrival` now sets a new `orderBubble` state
+(`{tableId, dishName, remaining}`) the instant a pending order is taken,
+alongside the existing patience-bar/order-queue updates.
+`drawOrderBubble()` (cooking-game.js) draws a small rounded bubble — the
+dish's own icon (`drawDishIcon`, reused as-is) plus its name, with a
+tail pointing down at the table — for `ORDER_BUBBLE_SECONDS` (2.5s)
+before fading via `updateOrderBubble`, called each frame from the main
+loop alongside the other per-frame timers (`updateClosingTimer`,
+`updateCookMiniGame`). Drawn in absolute canvas coordinates *after*
+`drawPlayer()` in `render()`, deliberately — the player sprite standing
+right at that table can never cover it. Verified via Playwright:
+screenshotted a live order at real (non-fullscreen) game scale, bubble
+clearly legible with its icon and dish name.
+
+The leveling mechanism itself was *not* implemented — see
+`cooking-game-food-server-leveling.md`, a full proposal (mechanic,
+reconciliation with the existing Extra Table Service gear, data model,
+testing plan, and explicit open questions) awaiting the user's review,
+per their request. `go build`/`go vet`/`go test` and `node --test` all
+green (unchanged — no game-logic code touched for the leveling doc).
+
+**v3.13/v3.14 the leveling proposal shipped, then pivoted to round
+tiers** — the user reviewed the v3.12 leveling proposal, resolved its
+open questions, and asked to implement it: v3.13 shipped a "food server
+level" driven by a new persisted lifetime-shifts-completed counter
+(`totalShiftsCompleted`, never reset by "Start New Month"), gating both
+simultaneous-order capacity and how many of the 30 tables were open,
+built via two parallel background agents (`rules.js`'s pure-logic pieces
+and `floor-plan.js`'s table-unlock geometry) plus the `cooking-game.js`
+game-loop integration by hand.
+
+Immediately after, the user asked for a further, larger change: "each
+round will have a time limit... level 1-10 will be 5mins and will only
+cater to a few tables... progressive that each round level 10, 20, 30
+becomes harder and more tables are introduced... a max of 30 tables."
+This meant each *shift* needed its own real-time budget, not just its own
+table count — and the user confirmed (via two follow-up questions) that
+this should fully replace v3.13's lifetime-based system, driving both
+directly off the current shift number instead, and that the shift clock
+should shrink as more tables came online.
+
+**v3.14 landed as "round tiers"**: `SHIFTS_PER_MONTH` raised from 20 to
+30, split into three 10-shift tiers (1–10/11–20/21–30), each with its own
+shift-clock budget (300s/180s/120s) and dining-room size (6/18/30 tables,
+reusing `floor-plan.js`'s untouched row-unlock geometry via tier → row
+level 1/3/5). Everything v3.13 drove off `totalShiftsCompleted` — which
+was removed entirely, never having reached a released save shape — now
+reads `save.currentShift` live instead, so (unlike v3.13) the dining room
+and pace reset to Tier 1 every "Start New Month" rather than persisting
+across a save's lifetime. The `cooking_scores` leaderboard's DB CHECK
+constraints and server-side validation bounds widened to match the
+longer month (migration `004_widen_cooking_scores_round_tiers.sql`,
+`internal/service/cooking_validation.go`). See
+`cooking-game-food-server-leveling.md` for the full shipped design,
+including why it superseded v3.13 rather than sitting alongside it.
+Verified via Playwright against a live dev server at Tier 1/2/3 saves,
+`npm run test:unit` and `go test ./...` (including the real-Postgres
+end-to-end suite) both green.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,
@@ -235,8 +719,8 @@ cook — the player automatically walks to whatever's clicked and interacts
 with it. Every shift ends with a closing sequence (clean the dirty tables,
 wash the dishes at the Cleaning Closet, shut the restaurant down at the
 front counter, then walk to the boss's office) where Duke hands over that
-shift's paycheck — a flat 4,000 Gard, or only 2,000 Gard if a customer was
-upset during the shift. The game runs for 20 shifts — "the month" — after
+shift's paycheck — 4,000 Gard minus 500 for every mistake that shift
+(missed/wrong-served orders), floored at 500. The game runs for 30 shifts — "the month," in three progressively harder 10-shift round tiers (`cooking-game-food-server-leveling.md`) — after
 which Duke hands over a final paycheck, and the player can submit that
 month's total Gard earned to a public leaderboard. Gard also funds an
 upgrade shop between shifts (faster walking, more carrying capacity, easier
@@ -273,7 +757,8 @@ second data point for that pattern rather than a reskin of the first game.
   both visible at once: **Dining** (30 tables in a 6x5 grid, front
   counter, boss's office, coffee machine, restroom, a kitchen-door) and
   **Kitchen** (fridge, cabinet, cookware closet, stove, oven, cleaning
-  closet, a dining-door) — see Business Rules for the room-switching rule.
+  closet, a dining-door) — see the kitchen rules doc for the
+  room-switching rule.
 * An order system: tables periodically seat a customer with an order;
   walking up to (clicking) an occupied table takes the order into an
   on-screen queue with a per-customer patience timer.
@@ -291,9 +776,10 @@ second data point for that pattern rather than a reskin of the first game.
   and the player must re-gather and retry.
 * Serving: carrying a finished dish to the table that ordered it (click the
   table) fulfills the order. Serving the wrong dish, or a customer's
-  patience running out first, upsets that customer — and even a single
-  upset customer in a shift is enough to cut that whole shift's paycheck in
-  half (see Business Rules).
+  patience running out first, is a mistake — it costs Gard directly off
+  that shift's paycheck and sours the restaurant's reputation for every
+  customer seated afterward (see the food-server and customer rules
+  docs).
 * A shift clock, displayed as an in-game restaurant time of day (8:30
   AM–11:30 PM): new customers/orders stop spawning at zero, any orders
   still queued are auto-failed, and the shift moves into its closing
@@ -303,34 +789,42 @@ second data point for that pattern rather than a reskin of the first game.
   restaurant down, then walk to the boss's office to collect that shift's
   paycheck. Each closing action auto-completes over a short duration once
   the player arrives (no separate "hold" input needed under click controls).
-* A paycheck screen after every shift: whether any customer was upset, this
-  shift's Gard payout (4,000 or 2,000), and the running month-to-date Gard
-  total. Offers "Open Shop" and "Start Next Shift."
-* 20 shifts = one month. Difficulty ramps across shifts (more simultaneous
-  tables, faster customer arrival, shorter patience, more recipe variety
-  unlocked in bands) mirroring the Fishing Game's depth-based ramp.
-* Shift 20's paycheck screen becomes the "Final Paycheck of the Month": a
+* A paycheck screen after every shift: how many mistakes were made, this
+  shift's resulting Gard payout, and the running month-to-date Gard total.
+  Offers "Open Shop" and "Start Next Shift."
+* 30 shifts = one month, in three progressively harder 10-shift round
+  tiers (`cooking-game-food-server-leveling.md`: shorter shift clock, more
+  tables open, higher base order capacity each tier). Difficulty also
+  ramps continuously within that (more simultaneous tables from gear,
+  faster customer arrival, shorter patience, more recipe variety unlocked
+  in bands) mirroring the Fishing Game's depth-based ramp.
+* Shift 30's paycheck screen becomes the "Final Paycheck of the Month": a
   month summary, an optional "Submit to leaderboard" name field, and "Start
-  New Month" (shop upgrades persist; the month total resets to 0).
+  New Month" (shop upgrades persist; the month total resets to 0, and round
+  tier resets back to Tier 1).
 * A gear-style upgrade shop (persisted in `localStorage`, same shape as
   Fishing Game's): walking speed, carrying capacity, cook-timing forgiveness,
   simultaneous table capacity (up to the full 30), customer patience, and
-  dish/table cleanup speed — all aimed at avoiding an upset customer, since
-  Gard-per-shift is otherwise flat (see Business Rules).
+  dish/table cleanup speed — all aimed at avoiding a mistake, since
+  Gard-per-shift is otherwise governed entirely by mistake count, not by
+  how well any single dish was served (see the food-server rules doc).
 * Three recurring/scripted customers layered on the normal random-arrival
   pool: **Mel** (always the first customer every shift, her own usual
   order, extra patience, a thank-you line), **Olive & Oliver** (an engaged
   couple, always the second arrival every shift, sharing one table and one
   order), and **Karen** (a one-time disruptive customer on shift 12 only,
   short patience, and a ripple effect that upsets one other table if she's
-  mishandled). See Business Rules for the full rundown of each.
+  mishandled). See the customer rules doc for the full rundown of each.
 * A stationary security guard figure near the entrance — cosmetic only, not
   an interactive station.
 * A Sanity stat (drawn on-canvas, top-left of the floor plan — not
   external HUD chrome, v3 — starts full every shift) that drains over the
-  shift — passively, and more on every upset — and slows the player down
+  shift — passively, and more on every mistake — and slows the player down
   the lower it gets; a Coffee Machine station restores it to full on
-  arrival. See Business Rules for the full shape.
+  arrival. A paired Reputation stat, drawn directly below it, tracks the
+  restaurant's mood instead and shortens every later customer's patience
+  after a mistake. See the food-server and customer rules docs for the
+  full shape of each.
 * A Recipe Book reference panel (every known dish's station/cookware/
   ingredients), reachable anytime.
 * A Fullscreen toggle on the game container (native Fullscreen API).
@@ -341,7 +835,7 @@ second data point for that pattern rather than a reskin of the first game.
   shop levels persist in `localStorage` across a page reload — a player who
   closes the tab mid-month resumes at the start of their current shift
   rather than losing the whole month (unlike the Fishing Game's much
-  shorter, fully-ephemeral single round — see Business Rules).
+  shorter, fully-ephemeral single round — see the food-server rules doc).
 * A one-time intro sequence (v3.1): the very first "Start Shift" click
   ever on a device plays the player walking in from the entrance, then
   reveals a scripted dialogue line before the shift actually starts —
@@ -437,9 +931,9 @@ second data point for that pattern rather than a reskin of the first game.
    restaurant down automatically. Only then does the boss's office door
    unlock; clicking it walks the player there and collects the shift's
    paycheck.
-9. A paycheck screen shows whether any customer was upset this shift, the
-   shift's Gard payout (4,000 if no one was upset, 2,000 if at least one
-   was), and the running month-to-date total. Buttons: "Open Shop" and
+9. A paycheck screen shows how many mistakes happened this shift, the
+   shift's resulting Gard payout (4,000 minus 500 per mistake, floored at
+   500), and the running month-to-date total. Buttons: "Open Shop" and
    "Start Next Shift" (shifts 1-19), or, on shift 20, "See Final Paycheck"
    instead of "Start Next Shift."
 10. In the shop (reachable from the start screen or any paycheck screen), the
@@ -527,9 +1021,32 @@ Follows `tailwind-ui`'s Visual Style principles; specifics for this feature:
   Oliver render as *two* people at their shared table, in Olive's green
   and Oliver's blue respectively, not the usual single figure. A normal
   random customer is a plain warm tan, no marker.
+* **Anime-style faces (v3.3)**: every pixel-person — player, customers,
+  Karen, Olive & Oliver, the security guard, Mel — gets a procedurally
+  drawn face (`drawAnimeFace`, canvas primitives only, no image assets):
+  big vertical-oval eyes with a sparkle highlight, thin eyebrows, blush,
+  and a small smile.
+* **Dish + ingredient icons and a carrying pose (v3.7, badge
+  repositioned off the tray in v3.8, ingredients added in v3.9, food
+  moved back onto a bigger tray in v3.10)**: every finished dish, and
+  every raw ingredient (Fridge/Cabinet items) while it's still being
+  carried, has a flat, canvas-drawn icon
+  (`drawDishIcon`/`DISH_ICON_DRAWERS` and
+  `drawIngredientIcon`/`INGREDIENT_ICON_DRAWERS`) rather than a plain
+  text name — the text-chip carrying display is gone entirely now.
+  Holding something replaces the player's usual straight-armed stance
+  with a carrying pose (`drawPlayerHolding`, shared by
+  `drawPlayerCarrying`/`drawPlayerCarryingIngredients`) — arms bent in
+  around a tray, bobbing gently while walking — and the icon(s) sit
+  directly on that tray (`TRAY_RX`/`TRAY_RY`, sized generously enough to
+  stay legible there at the game's real on-screen scale — see the v3.10
+  changelog note for why v3.8's original tray was too small for that):
+  one big icon for a finished dish, or one icon per raw ingredient,
+  stacking onto the tray (up to 3 in a row, wrapping to a second row
+  beyond that) as each is picked up.
 * **Security guard**: a stationary pixel-person near the entrance/counter,
   dark uniform color with a small badge-colored marker and a "Security"
-  label — purely decorative (Business Rules), always present, every shift.
+  label — purely decorative (customer rules doc), always present, every shift.
 * The order queue and patience timers use a monospace/tabular-figure
   treatment for the same reason as the Fishing Game's HUD numbers; so does
   the HUD's in-game clock.
@@ -538,10 +1055,11 @@ Follows `tailwind-ui`'s Visual Style principles; specifics for this feature:
   an in-flight walk gets a brighter one (click-target) — the click-driven
   equivalent of the Fishing Game's "hook touches sprite" moment, since
   there's no natural collision here.
-* The HUD's shift-status indicator (Business Rules) reads clearly at a
-  glance as "still going well" vs. "a customer got upset" — e.g. a
-  simple two-state icon/color, not a number, since the underlying rule
-  itself is binary.
+* The HUD's shift-status indicator (food-server rules doc) reads clearly
+  at a glance as "still going well" vs. "a customer got upset" — e.g. a
+  simple two-state icon/color, not a number: `shiftUpset` stays binary for
+  this purpose even though `mistakeCount` behind the scenes (which now
+  drives the shift paycheck) isn't.
 
 ---
 
@@ -587,7 +1105,7 @@ States this feature's UI must handle:
 | Paycheck screen                 | Upset/no-upset outcome, this shift's Gard payout, month-to-date total, "Open Shop" / "Start Next Shift". |
 | Final paycheck (shift 20)        | Month summary, "Submit to leaderboard" field, "Start New Month". |
 | Shop                             | Upgrade list, affordable vs. too-expensive visually distinguished; buying disabled once balance can't cover next level. |
-| Fullscreen                       | Toggling the button enters/exits Fullscreen API on the game container; canvas keeps its aspect ratio either way. |
+| Fullscreen                       | Starting a shift ("Start Shift"/"Start Next Shift"/"Start New Month") requests Fullscreen automatically, so the game launches at full size without the player having to find the button first; the button still toggles it manually (label flips to "Exit Fullscreen" while active) and its own click is required if the browser blocked the automatic request. The Fullscreen target is `#cooking-game-container` — the Orders bar plus the canvas — so Orders stays visible in fullscreen too (v3.4). Canvas keeps its 960x600 aspect ratio either way, letterboxed via `object-fit: contain` in fullscreen since the inner `#cooking-canvas-wrapper`'s normal aspect-ratio sizing is overridden under `:fullscreen` to flex-fill whatever space is left under the Orders bar. |
 | Room switch (v3.1)               | "Enter Kitchen"/"Back to Dining" button (and each room's door station) switches the active room instantly; available in every shift phase, including throughout closing. |
 | Leaderboard loading              | Local loading indicator while the fragment fetches. |
 | Leaderboard empty                | "No scores yet — be the first!" |
@@ -712,10 +1230,38 @@ site's CSP):
   in every phase; `switchRoom(room, entryPoint)` updates `currentRoom`,
   snaps the player to that room's entry point, clears the current move
   target/hover, and syncs the HUD's room-toggle button (see UI).
-* **Fullscreen**: `toggleFullscreen()` calls `requestFullscreen()`/
-  `exitFullscreen()` on the canvas's parent container (the same element
-  the CSS `aspect-[960/600]` box lives on), so the canvas keeps its true
-  proportions in both windowed and fullscreen display.
+* **Fullscreen**: `toggleFullscreen()` calls a local `requestFullscreen()`
+  helper (a no-op if already fullscreen) or `exitFullscreen()` on
+  `#cooking-game-container`, looked up by id — deliberately *not*
+  `canvas.parentElement`, which (since v3.4) is the narrower
+  `#cooking-canvas-wrapper` one level in; fullscreening that alone would
+  leave the Orders bar (`#cooking-game-container`'s other child, above
+  the wrapper) behind. `startShift()` also calls `requestFullscreen()`
+  first, so the very first "Start Shift"/"Start Next Shift"/"Start New
+  Month" click launches the game full-size instead of requiring a
+  separate click on the Fullscreen button — both call sites fire from a
+  click handler, satisfying the Fullscreen API's user-gesture requirement,
+  and the request is swallowed silently (`.catch(() => {})`) if a browser
+  refuses it, leaving the manual button as the fallback. `app.css`
+  overrides `#cooking-game-container`'s `max-w-[900px]` and
+  `#cooking-canvas-wrapper`'s `aspect-[960/600]` under the native
+  `:fullscreen` selector — those author classes would otherwise keep
+  winning the cascade and cap the box at its normal small size even while
+  "fullscreen" — so the container fills the display and the wrapper
+  flex-fills whatever space is left under the Orders bar, with
+  `object-fit: contain` on the canvas letterboxing its fixed 960x600
+  buffer to fit that space's aspect ratio. A `fullscreenchange` listener
+  flips the button's label between "Fullscreen" and "Exit Fullscreen" to
+  match the actual state.
+* **Orders bar (v3.4)**: `#cooking-order-queue` (repopulated by
+  `renderOrderQueue()`, unchanged since earlier versions) now lives in a
+  slim bar that's `#cooking-game-container`'s first child, above
+  `#cooking-canvas-wrapper` — not an absolute overlay on top of the
+  canvas, since the floor plan's top row of stations already occupies
+  that space and an opaque overlay there would block clicks from
+  reaching them. This keeps Orders visible inside the Fullscreen API
+  target in every mode, per the user's "orders on the same window"
+  request.
 * **Progress persistence**: a single `localStorage` key
   (`cooking-game:v2` — bumped from `v1` since this redesign changes enough
   client-only state shape that a stale v1 save isn't worth attempting to
@@ -760,7 +1306,9 @@ site's CSP):
 ## Data Model
 
 ```sql
--- migrations/003_create_cooking_scores.sql
+-- migrations/003_create_cooking_scores.sql, widened by
+-- migrations/004_widen_cooking_scores_round_tiers.sql (v3.14: the month
+-- grew from 20 to 30 shifts — see cooking-game-food-server-leveling.md)
 CREATE TABLE cooking_scores (
     id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     player_name      TEXT NOT NULL,
@@ -768,8 +1316,8 @@ CREATE TABLE cooking_scores (
     shifts_completed INT NOT NULL,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT cooking_scores_player_name_length CHECK (char_length(player_name) BETWEEN 1 AND 20),
-    CONSTRAINT cooking_scores_earnings_range CHECK (total_earnings BETWEEN 0 AND 100000),
-    CONSTRAINT cooking_scores_shifts_range CHECK (shifts_completed BETWEEN 1 AND 20)
+    CONSTRAINT cooking_scores_earnings_range CHECK (total_earnings BETWEEN 0 AND 150000),
+    CONSTRAINT cooking_scores_shifts_range CHECK (shifts_completed BETWEEN 1 AND 30)
 );
 
 CREATE INDEX idx_cooking_scores_earnings ON cooking_scores (total_earnings DESC);
@@ -779,8 +1327,8 @@ CREATE INDEX idx_cooking_scores_earnings ON cooking_scores (total_earnings DESC)
 | ------------------ | -------------------- | --------------- | ----------------------------- | ----- |
 | `cooking_scores`   | `id`                  | `BIGINT`        | PK, identity                   | |
 | `cooking_scores`   | `player_name`         | `TEXT`          | not null, 1–20 chars           | Self-chosen display name, rendered on the public leaderboard. |
-| `cooking_scores`   | `total_earnings`      | `INT`           | not null, `0..100000`          | Gard, not dollars. A legitimate month totals `shifts_completed × (2000 or 4000)` — max 80,000 over 20 shifts — but the DB check stays a coarse sanity bound rather than re-deriving that exact formula server-side (Security Considerations). |
-| `cooking_scores`   | `shifts_completed`    | `INT`           | not null, `1..20`              | Always 20 for a full month; column exists in case a future revision allows earlier submission. |
+| `cooking_scores`   | `total_earnings`      | `INT`           | not null, `0..150000`          | Gard, not dollars. A legitimate month totals `shifts_completed` shifts each paying 500–4,000 (food-server rules doc's Shift paycheck formula) — max 120,000 over 30 clean shifts — but the DB check stays a coarse sanity bound rather than re-deriving that exact formula server-side (Security Considerations). |
+| `cooking_scores`   | `shifts_completed`    | `INT`           | not null, `1..30`              | Always 30 for a full month; column exists in case a future revision allows earlier submission. |
 | `cooking_scores`   | `created_at`          | `TIMESTAMPTZ`   | not null, default `now()`      | |
 
 Month-to-date Gard, shop levels, current shift number, and best month total
@@ -791,182 +1339,24 @@ only voluntarily-submitted, already-finished month results.
 
 ---
 
-## Business Rules / Validation
+## Rules Documents
 
-* **Recipes, gated by shift band** (illustrative — tune during build, same
-  status the Fishing Game's fish/hazard tables started at before their own
-  playtesting pass). Dishes carry no individual point value — see the Shift
-  paycheck rule below for why:
+The gameplay rules that used to live in this section were split out
+(v3.11, "so it's more organized") into three sibling docs, one per rule
+domain:
 
-  | Shift range | Dish              | Station | Cookware | Ingredients                      |
-  | ------------- | ------------------- | --------- | ---------- | ----------------------------------- |
-  | 1–5             | Garden Salad          | none (cabinet/fridge only) | none | Lettuce + Tomato        |
-  | 1–5             | Grilled Cheese         | Stove     | Pan | Bread + Cheese                       |
-  | 6–10            | Burger                 | Stove     | Pan | Buns + Patty + Lettuce                 |
-  | 6–10            | Pancakes                | Stove     | Pan | Flour + Egg + Milk                    |
-  | 11–15           | Roast Chicken           | Oven      | Baking Tray | Chicken + Herbs                       |
-  | 11–15           | Pasta                   | Stove     | Pan | Noodles + Sauce                       |
-  | 16–20           | Steak Dinner            | Stove     | Pan | Steak + Potato + Herbs                |
-  | 16–20           | Soufflé (signature)      | Oven      | Baking Tray | Egg + Cheese + Flour                  |
+* [`cooking-game-food-server.md`](./cooking-game-food-server.md) — the
+  player's job: taking orders, serving them (and what a mistake costs —
+  the shift paycheck formula), sanity, gear, closing up.
+* [`cooking-game-customer.md`](./cooking-game-customer.md) — customers:
+  patience/arrival ramp, the restaurant reputation mechanic, and the
+  three recurring named characters (Karen, Mel, Olive & Oliver).
+* [`cooking-game-kitchen.md`](./cooking-game-kitchen.md) — the kitchen as
+  a cooking system: recipes, cookware, the cook-timing mini-game, and the
+  Dining/Kitchen room split.
 
-  A dish's ingredients come from the Fridge (cold: Cheese, Milk, Chicken,
-  Patty, Steak, Lettuce, Tomato, Egg, Lemonade, Matcha) or the Cabinet (dry:
-  Bread, Flour, Noodles, Herbs, Buns, Sauce, Potato, Star Cake, Cake).
-  Which dishes customers can order is drawn only from bands unlocked up to
-  the current shift, same "grows, never shrinks" shape as the Fishing
-  Game's fish-band gating. Lemonade/Matcha/Star Cake/Cake exist only for
-  Mel's and Olive & Oliver's dedicated orders below — no `RECIPE_BANDS`
-  dish uses them, so they never show up in a normal random customer's
-  order.
-* **Cookware**: every Stove dish needs a Pan and every Oven dish needs a
-  Baking Tray (a Rice Cooker also lives in the Cookware Closet, present for
-  flavor but not required by any current dish). Unlike ingredients,
-  cookware is a one-time pickup per shift — acquired once from the
-  Cookware Closet, it's available for every dish that needs it for the
-  rest of the shift, never consumed or re-gathered, and a burned/ruined
-  dish only loses its ingredients, not its cookware.
-* **Cook-timing is a binary success zone**, not a graded quality tier: the
-  sweeping gauge has one "success" window — a second interaction while the
-  sweep is inside it finishes the dish; anywhere outside it burns/ruins the
-  ingredients (0 value, must re-gather). Sharp Knife gear widens the success
-  window per level. Sweep speed scales up slightly with shift number, the
-  cooking-side equivalent of descent speed ramping with depth in the Fishing
-  Game.
-* **Shift paycheck (final, not illustrative)**: every shift pays a flat
-  4,000 Gard *unless* `shiftUpset` latched `true` at any point that shift —
-  a missed order (patience expired) or a wrong-dish serve — in which case
-  the boss pays only 2,000 Gard instead, regardless of how many other
-  customers were served correctly. This is a single binary outcome per
-  shift, not a per-dish or per-upset scaling number: one upset customer
-  costs exactly as much as five. The tension this creates is "get through
-  the whole shift without a single upset," not "maximize a running dollar
-  total" — a deliberately simpler economy than the Fishing Game's
-  points-and-multipliers scoring, matching how directly this was specified.
-* **Startime Diner is card-only, no cash** — flavor about how the diner's
-  *customers* pay for their meals, unrelated to the player's own Gard
-  paycheck from the boss (which is just how much they're paid for the
-  shift, not tied to any individual bill). No gameplay mechanic hangs off
-  this; it may show up as ambient copy/UI (e.g. a card-reader prop at each
-  table) but never as a distinct interaction.
-* **Wrong-dish serves and missed orders** cost the wasted dish/ingredients
-  and time, and latch that shift's `shiftUpset` flag (see Shift paycheck
-  above) — but never end the shift or the month early. This game is
-  lower-stakes than the Fishing Game by design (a workplace shift, not a
-  survival descent): the tension is finishing the shift clean, not
-  avoiding a game-over state.
-* **In-game clock**: the shift's real-time countdown (`SHIFT_CLOCK_SECONDS`,
-  illustrative, tune during build) is displayed as a restaurant time of
-  day, 8:30 AM at shift start to 11:30 PM when the clock hits zero
-  (`rules.js`'s `inGameTimeLabel`, a linear map from remaining clock
-  seconds onto that range) — a cosmetic display choice layered on the same
-  underlying countdown every other shift-timing function already uses, not
-  a second independent clock.
-* **Shift ramp**: customer arrival rate increases and patience timers
-  shorten as shift number increases, and simultaneous active tables/orders
-  is capped by both the physical table count (30) and the Extra Table
-  Service gear level, whichever is lower.
-* **Closing sequence order is enforced**, matching the explicit
-  clean → wash dishes → shut down → get paid order from the feature
-  request, not a cosmetic sequence the player could skip or reorder: the
-  cleaning closet isn't clickable until every table is clean, the front
-  counter isn't clickable until the cleaning closet's dirty-dish stack (one
-  dish per serve — successful, wrong, or missed doesn't matter, a dish or
-  pan still got used — accumulated that shift) is fully washed, and the
-  boss's office door isn't clickable until shutdown is complete.
-* **Gear upgrades** (illustrative costs/magnitudes, same "tune during build"
-  status as the recipe table above), 5 levels each unless noted, cost curve
-  `round(baseCost × costGrowth ^ currentLevel)`. Every upgrade here targets
-  avoiding an upset customer or getting through closing faster — there's no
-  "earn more Gard per dish" upgrade, since a shift's payout is flat
-  regardless of performance beyond the upset/no-upset outcome (Shift
-  paycheck rule above):
-
-  | Gear                 | Effect per level                                    |
-  | ---------------------- | ------------------------------------------------------ |
-  | Running Shoes            | +15% walking speed                                        |
-  | Bigger Tray              | +1 carried ingredient slot                                 |
-  | Sharp Knife               | Widens the cook-timing success zone                        |
-  | Extra Table Service        | +3 simultaneous active tables per level (8 levels, base 5 → capped at the physical 30) |
-  | Regular's Patience          | +patience-timer duration per customer                      |
-  | Quick Clean                | Reduces per-table cleaning and dish-washing time            |
-
-* **Karen, Mel, and Olive & Oliver** — three named customers layered on top
-  of the normal random-arrival pool (`availableDishes`), none of whom ever
-  come from that pool themselves:
-  * **Mel** (`MEL_DISH`, `"Mel's Usual"` — Lemonade, Star Cake, and Egg,
-    station `none`) is always the very first customer seated, every single
-    shift — not a random chance. Sweet, kind, and caring; favorite color
-    yellow, favorite flower a dandelion (both cosmetic, Visual Direction).
-    She gets `MEL_PATIENCE_BONUS_SECONDS` (15s) on top of the normal
-    patience for that shift, and serving her correctly shows
-    `MEL_THANK_YOU_LINE`. If she's mishandled (missed or served wrong),
-    that's a normal `shiftUpset` latch like anyone else — no extra
-    penalty; she's understanding, not vindictive.
-  * **Olive & Oliver** (`COUPLE_DISH`, `"Olive & Oliver's Order"` — Matcha
-    and Cake, station `none`) always arrive together right after Mel,
-    every shift — the second guaranteed spawn, before the random pool
-    resumes. An engaged couple sharing one table and one order, not two
-    separate orders. Olive: brave, smart, neat, favorite color green
-    (`OLIVE_FAVORITE_COLOR`), favorite flower tulips. Oliver: intelligent,
-    brave, favorite color blue (`OLIVER_FAVORITE_COLOR`), favorite flower
-    rose — his usual order is the same as his fiancée's, which is why they
-    share `COUPLE_DISH` rather than each getting their own. No special
-    patience/ripple mechanic; purely a recurring-cast/rendering distinction
-    (Visual Direction: rendered as two people at one table).
-  * **Karen** (`KAREN_SHIFT_NUMBER` = 12, one of the "12 or 18" the user
-    offered — picked to keep this a single well-defined trigger) appears
-    once, immediately at shift start, on that one shift only — not part of
-    the normal spawn timer. Her line (`KAREN_LINE`, shown the moment she's
-    seated): "HEY YOU THERE COME OVER HERE." Much shorter patience
-    (`KAREN_PATIENCE_SECONDS` = 12s) than a normal customer at that shift.
-    If her order isn't served correctly in time (missed or wrong dish),
-    that's a normal `shiftUpset` latch *plus* a ripple effect: one other
-    currently-active order (picked at random, if any exist) is force-failed
-    too (`engine-state.js`'s `failOrderAt`) — she's rude enough to sour the
-    mood for someone else. Served correctly, no ripple, business as usual.
-* **Security guard**: a stationary figure near the entrance/counter — "there's
-  security to protect the place." Cosmetic only: not a `floor-plan.js`
-  station, no click target, no interaction, no effect on Karen or anyone
-  else. Present every shift, unconditionally.
-* **Sanity and the Coffee Machine**: a shift-long stat (`SANITY_MAX` = 100,
-  starts full every shift, drawn as an on-canvas bar in the floor plan's
-  top-left corner, not external HUD chrome — v3) that drains passively over
-  the shift (`SANITY_DRAIN_PER_SECOND`) and takes an extra one-time hit
-  (`SANITY_DRAIN_PER_UPSET` = 15) on every upset event — a missed order or
-  a wrong-dish serve, latched independently each time it happens, not just
-  once per shift the way `shiftUpset` itself is. Low sanity slows the
-  player down: `walkSpeedMultiplierForSanity` scales walking speed
-  linearly from 1.0x at full sanity down to a 0.6x floor at zero — tired,
-  never stuck, matching this game's existing "no game-over state" design
-  (see the missed-order rule above). A Coffee Machine station (near the
-  front counter) restores sanity to full the moment the player arrives,
-  no picker panel needed — same "auto-action on arrival" pattern as the
-  fridge/cabinet, just instant. Purely a pacing/QoL mechanic: sanity has no
-  effect on the shift paycheck itself, which stays governed entirely by
-  `shiftUpset` (Shift paycheck rule above) — a player who never drinks
-  coffee still gets paid the same for a clean shift, just walks slower by
-  the end of it.
-* **The Dining/Kitchen room split (v3.1)**: exactly one room is ever
-  active; only its stations render, are clickable, or count for hover
-  tooltips (`floor-plan.js`'s `stationsInRoom`). Room switching (via
-  either door station or the HUD's room button) is available in **every**
-  shift phase, not just `playing` — a deliberate rule, not an oversight,
-  since the closing sequence needs stations from both rooms in order
-  (clean tables and shut down in Dining, wash dishes in Kitchen) and
-  restricting switching to `playing` would strand the player mid-closing
-  with no way to reach the next required station.
-* **Mid-month resume**: month-to-date Gard, current shift number, and shop
-  levels persist across a reload; an in-progress shift's floor-plan state
-  (order queue, inventory, acquired cookware, table/dish cleanliness, the
-  `shiftUpset` flag, current sanity, and whether Mel/Karen/Olive & Oliver
-  have already appeared or been resolved this shift) does not — returning
-  mid-shift
-  restarts that shift from its beginning, same forfeiture principle as the
-  Fishing Game's abandoned-round rule, just scoped to one shift instead of
-  the whole run since a month is a much longer investment to fully discard.
-* **Leaderboard**: top N (e.g. 20) by `total_earnings`, descending;
-  submission is optional and only offered on the Final Paycheck screen
-  (shift 20), never automatic, never mid-month.
+Validation beyond basic type/shape checking (leaderboard submission
+bounds, etc.) is covered in Security Considerations below.
 
 ---
 
@@ -982,7 +1372,7 @@ only voluntarily-submitted, already-finished month results.
   `total_earnings`/`shifts_completed`. Mitigated with the same sanity-bound
   approach as the Fishing Game (DB-matching range checks in the handler),
   not full replay validation, and deliberately not re-deriving/enforcing the
-  exact `shifts_completed × (2000 or 4000)` formula server-side either —
+  exact per-shift 500–4,000 paycheck formula server-side either —
   accepted limitation for a stakes-free arcade leaderboard.
 * **Abuse / spam**: `POST /kitchen-shift/score` rate-limited (e.g. per-IP).
 * **Test cleanup discipline**: any e2e test that submits a real score must
@@ -1004,10 +1394,8 @@ only voluntarily-submitted, already-finished month results.
 * [ ] Cook-timing success check: a sample inside the success zone finishes
       the dish, a sample outside it (both before and after the zone) ruins
       it; Sharp Knife level widens the zone monotonically.
-* [ ] Shift paycheck rule: `shiftUpset === false` for the whole shift → 4,000
-      Gard; `shiftUpset` latched `true` at any point (whether from one
-      missed order or several) → 2,000 Gard for that shift, never lower and
-      never scaled by how many upsets occurred.
+* [ ] Shift paycheck rule (`shiftPaycheck(mistakeCount)`): 0 mistakes →
+      4,000 Gard; each mistake deducts 500, floored at 500.
 * [ ] Order queue: adding an order respects the current table-capacity cap
       (physical tables vs. Extra Table Service level, whichever is lower);
       a patience timer reaching zero auto-fails that order, marks the table
@@ -1062,9 +1450,18 @@ only voluntarily-submitted, already-finished month results.
 * [ ] `e2e`/manual: the Coffee Machine restores the HUD sanity bar to 100%
       on arrival, and the player visibly moves slower at low sanity than
       at full sanity.
+* [ ] Reputation (v3.11): every mistake path (wrong-dish serve,
+      `failOrderAt`, a `tick()` patience/clock timeout) drains
+      `REPUTATION_DRAIN_PER_MISTAKE`, never below 0, and never drains
+      passively the way sanity does; `patienceMultiplierForReputation` is
+      1.0 at full reputation, decreases monotonically, and floors at 0.6 —
+      covered by `engine-state.test.js`/`rules.test.js`. Manually verified:
+      forcing 3 mistakes dropped the on-canvas Reputation bar from 100% to
+      25% and the resulting paycheck to 2,500 Gard (4,000 − 3×500), with
+      the outcome line reading "3 mistakes — Duke saw the reviews".
 * [ ] Month total accumulates correctly across shifts (sum of each shift's
-      4,000/2,000 payout) and resets to 0 on "Start New Month" while shop
-      gear levels persist.
+      mistake-adjusted payout) and resets to 0 on "Start New Month" while
+      shop gear levels persist.
 * [ ] `localStorage` progress (Gard, shift number, gear) persists across a
       page reload; corrupted or missing data falls back to defaults without
       an error.
@@ -1089,8 +1486,8 @@ only voluntarily-submitted, already-finished month results.
       shift.
 * [ ] `e2e/`: play a shift that includes one missed or wrong-served order
       (the `forceUpset` test hook, or a real wrong-dish click) → paycheck
-      screen shows 2,000 Gard instead of 4,000.
-* [ ] `e2e/`: play all 20 shifts (test hooks to fast-forward each closing
+      screen shows 3,500 Gard (4,000 − 500) instead of 4,000.
+* [ ] `e2e/`: play all 30 shifts (test hooks to fast-forward each closing
       sequence) → Final Paycheck screen → submit score → leaderboard shows
       the new entry → test cleans up its own row.
 * [ ] `e2e/`: click a station and confirm the player walks to it and the
@@ -1134,9 +1531,24 @@ only voluntarily-submitted, already-finished month results.
   deliberately deferred in favor of the v3 canvas-primitive treatment
   (Visual Direction) — left open the same way the Fishing Game's own
   flat-circle-to-real-sprite upgrade was, rather than blocking on art
-  production.
-* **Resolved (v3.1)**: the Kitchen/Dining room split (see Status and
-  Business Rules) closes out the "fridge/cabinet/stove/oven in random
+  production. **Partially addressed (v3.3)**: characters now have an
+  anime-style *face* (big eyes, blush, a small smile — see the Status
+  note's "v3.3 bigger characters + anime-style faces" entry), but it's
+  still drawn procedurally with canvas primitives, not real illustrated
+  art — this project has no image-generation tooling to produce actual
+  sprite assets from, so real hand-authored/generated art for characters
+  (and everything else) remains exactly as open as before. **Further
+  addressed (v3.7, v3.9)**: dishes, and now raw ingredients too, have a
+  procedurally-drawn icon (see the Status note's "v3.7 dish icons + a
+  carrying animation" and "v3.9 raw ingredients get icons too" entries),
+  the former reviewed with the user via a design mockup before landing —
+  same canvas-primitives caveat as the faces above, still not real
+  illustrated/generated art. Cookware (Pan/Baking Tray/Rice Cooker) has
+  no icon and no carrying indicator at all yet — it was never shown as
+  text either (unlike ingredients before v3.9), so this wasn't a
+  regression to fix, but is a gap should the user want full parity.
+* **Resolved (v3.1)**: the Kitchen/Dining room split (see Status and the
+  kitchen rules doc) closes out the "fridge/cabinet/stove/oven in random
   places in the dining [room]" request. **Resolved (v3.2)**: the one-time
   scripted intro sequence (the player walking in with an opening line of
   dialogue), requested alongside it — see the Status note's "v3.2 intro
@@ -1157,7 +1569,7 @@ only voluntarily-submitted, already-finished month results.
   button, leaving it unclickable. Fixed by capping the whole card
   (`max-h-full overflow-y-auto`), not just its inner list, on both panels.
 * Rice Cooker sits in the Cookware Closet but no current dish requires it
-  (Business Rules) — the user asked for it "e.g." alongside Pan, not as a
+  (kitchen rules doc) — the user asked for it "e.g." alongside Pan, not as a
   strict requirement; whether a future dish should use it, or whether it's
   purely flavor/future-proofing, is left open.
 * Karen's shift was picked as 12 out of the "12 or 18" the user offered,
@@ -1170,7 +1582,7 @@ only voluntarily-submitted, already-finished month results.
 ## Definition of Done
 
 * [ ] User flow works end-to-end, including edge cases above (missed order,
-      wrong-dish serve, mid-month resume, full 20-shift month, final
+      wrong-dish serve, mid-month resume, full 30-shift month, final
       paycheck submission).
 * [ ] All states in the UI table are implemented.
 * [ ] Migration written, reviewed, and includes a working `Down`.

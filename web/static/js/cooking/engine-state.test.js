@@ -13,6 +13,7 @@ import {
   restoreSanity,
   SHIFT_CLOCK_SECONDS,
   SANITY_MAX,
+  REPUTATION_MAX,
 } from './engine-state.js';
 
 const TABLE_IDS = [1, 2, 3, 4];
@@ -26,6 +27,8 @@ describe('createInitialState', () => {
     assert.equal(state.dirtyDishCount, 0);
     assert.equal(state.shiftUpset, false);
     assert.equal(state.sanity, SANITY_MAX);
+    assert.equal(state.mistakeCount, 0);
+    assert.equal(state.reputation, REPUTATION_MAX);
     for (const id of TABLE_IDS) {
       assert.deepEqual(state.tables[id], { occupied: false, dirty: false });
     }
@@ -40,6 +43,13 @@ describe('addOrder', () => {
     assert.equal(next.orders[0].tableId, 1);
     assert.equal(next.orders[0].dishName, 'Burger');
     assert.equal(next.tables[1].occupied, true);
+  });
+
+  test('stores the given patience as both the countdown and patienceMaxSeconds', () => {
+    const state = createInitialState(TABLE_IDS);
+    const next = addOrder(state, 1, 'Burger', 45, 4);
+    assert.equal(next.orders[0].patienceRemainingSeconds, 45);
+    assert.equal(next.orders[0].patienceMaxSeconds, 45);
   });
 
   test('is a no-op if the table is already occupied', () => {
@@ -283,5 +293,68 @@ describe('sanity', () => {
     const before = state;
     const after = restoreSanity(state);
     assert.deepEqual(after, before);
+  });
+});
+
+// v3.11: mistakeCount (feeds rules.js's shiftPaycheck) and reputation
+// (feeds rules.js's patienceMultiplierForReputation) track every mistake
+// the same three ways sanity already does — a wrong-dish serve, a
+// failOrderAt (Karen's ripple), and a tick()-driven patience/clock
+// timeout — see the food-server/customer rules docs.
+describe('mistakes and reputation', () => {
+  test('a wrong-dish serve increments mistakeCount and drains reputation', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 30, 4);
+    const next = serveDish(state, 1, 'Pancakes');
+    assert.equal(next.mistakeCount, 1);
+    assert.ok(next.reputation < REPUTATION_MAX);
+  });
+
+  test('serving the correct dish leaves mistakeCount and reputation untouched', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 30, 4);
+    const next = serveDish(state, 1, 'Burger');
+    assert.equal(next.mistakeCount, 0);
+    assert.equal(next.reputation, REPUTATION_MAX);
+  });
+
+  test('failOrderAt increments mistakeCount and drains reputation', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 30, 4);
+    const next = failOrderAt(state, 1);
+    assert.equal(next.mistakeCount, 1);
+    assert.ok(next.reputation < REPUTATION_MAX);
+  });
+
+  test('a patience timeout during tick increments mistakeCount and drains reputation', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 5, 4);
+    state = tick(state, 5);
+    assert.equal(state.mistakeCount, 1);
+    assert.ok(state.reputation < REPUTATION_MAX);
+  });
+
+  test('reputation never drops below 0 no matter how many mistakes', () => {
+    let state = createInitialState(TABLE_IDS);
+    for (let i = 0; i < 20; i++) {
+      state = addOrder(state, 1, 'Burger', 30, 4);
+      state = serveDish(state, 1, 'Wrong Dish');
+    }
+    assert.equal(state.reputation, 0);
+    assert.equal(state.mistakeCount, 20);
+  });
+
+  test('tick never drains reputation passively (only sanity does)', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = tick(state, 10);
+    assert.equal(state.reputation, REPUTATION_MAX);
+  });
+
+  test('the shift clock hitting zero with orders still queued counts each as a mistake', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 999, 4);
+    state = addOrder(state, 2, 'Pancakes', 999, 4);
+    state = tick(state, SHIFT_CLOCK_SECONDS);
+    assert.equal(state.mistakeCount, 2);
   });
 });

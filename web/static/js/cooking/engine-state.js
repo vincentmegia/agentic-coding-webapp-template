@@ -13,10 +13,12 @@
 //     orders: Order[],          // active order queue
 //     tables: { [tableId: number]: { occupied: boolean, dirty: boolean } },
 //     dirtyDishCount: number,   // the sink's accumulated stack this shift
-//     shiftUpset: boolean,      // latches true on any missed/wrong order — see rules.js's shiftPaycheck()
+//     shiftUpset: boolean,      // latches true on any missed/wrong order — unchanged since v1
 //     sanity: number,           // 0..SANITY_MAX; drains passively and per-upset, restored by the Coffee Machine
+//     mistakeCount: number,     // v3.11: every missed order or wrong-dish serve, counted (not just latched) — see rules.js's shiftPaycheck()
+//     reputation: number,       // v3.11: 0..REPUTATION_MAX; drains per mistake, scales every later order's patience — see rules.js's patienceMultiplierForReputation()
 //   }
-//   Order = { tableId: number, dishName: string, patienceRemainingSeconds: number }
+//   Order = { tableId: number, dishName: string, patienceRemainingSeconds: number, patienceMaxSeconds: number }
 //
 // A table's `occupied` (has a live order right now) and `dirty` (needs
 // closing-time cleaning) are tracked independently: a table can be reused
@@ -35,9 +37,12 @@ import {
   SANITY_DRAIN_PER_SECOND,
   SANITY_DRAIN_PER_UPSET,
   clampSanity,
+  REPUTATION_MAX,
+  REPUTATION_DRAIN_PER_MISTAKE,
+  clampReputation,
 } from './rules.js';
 
-export { SHIFT_CLOCK_SECONDS, SANITY_MAX };
+export { SHIFT_CLOCK_SECONDS, SANITY_MAX, REPUTATION_MAX };
 
 /**
  * Builds a fresh shift-start state for the given table ids.
@@ -59,6 +64,8 @@ export function createInitialState(tableIds, overrides = {}) {
     dirtyDishCount: 0,
     shiftUpset: false,
     sanity: SANITY_MAX,
+    mistakeCount: 0,
+    reputation: REPUTATION_MAX,
     ...overrides,
   };
 }
@@ -68,7 +75,13 @@ export function createInitialState(tableIds, overrides = {}) {
  * the shift isn't in 'playing', the table is already occupied, or the
  * queue is already at `maxOrders` (the caller passes
  * `rules.js`'s `tableCapacity(extraTableServiceLevel)` here — this module
- * knows nothing about gear).
+ * knows nothing about gear). `patienceSeconds` is expected to already have
+ * `rules.js`'s `patienceMultiplierForReputation(state.reputation)` folded
+ * in by the caller (alongside any Karen/Mel adjustment) — it's stored
+ * verbatim as both the countdown and `patienceMaxSeconds` (the order's
+ * fixed reference point for rendering a patience-remaining fraction later,
+ * so that doesn't drift if reputation changes again before this order
+ * resolves).
  *
  * @param {ShiftState} state
  * @param {number} tableId
@@ -87,7 +100,7 @@ export function addOrder(state, tableId, dishName, patienceSeconds, maxOrders) {
 
   return {
     ...state,
-    orders: [...state.orders, { tableId, dishName, patienceRemainingSeconds: patience }],
+    orders: [...state.orders, { tableId, dishName, patienceRemainingSeconds: patience, patienceMaxSeconds: patience }],
     tables: { ...state.tables, [tableId]: { ...table, occupied: true } },
   };
 }
@@ -96,12 +109,14 @@ export function addOrder(state, tableId, dishName, patienceSeconds, maxOrders) {
  * Serves `dishName` at `tableId`. If an active order at that table matches
  * the dish: the order clears, the table frees up (occupied -> false) and
  * gets marked dirty, and the sink's dirty-dish count increments — no
- * change to `shiftUpset`. Otherwise (no active order there, or the dish
- * doesn't match): latches `shiftUpset = true`, drains
- * `SANITY_DRAIN_PER_UPSET` sanity, and leaves the order (if any) in place
- * — the customer is still waiting (doc's Testing Plan: "does not clear the
- * order from the queue"). A no-op (state unchanged) if the shift isn't in
- * 'playing'.
+ * change to `shiftUpset`/`mistakeCount`/`reputation`. Otherwise (no active
+ * order there, or the dish doesn't match): latches `shiftUpset = true`,
+ * increments `mistakeCount`, drains `SANITY_DRAIN_PER_UPSET` sanity and
+ * `REPUTATION_DRAIN_PER_MISTAKE` reputation (v3.11 — see rules.js's
+ * `shiftPaycheck`/`patienceMultiplierForReputation`), and leaves the order
+ * (if any) in place — the customer is still waiting (doc's Testing Plan:
+ * "does not clear the order from the queue"). A no-op (state unchanged) if
+ * the shift isn't in 'playing'.
  *
  * @param {ShiftState} state
  * @param {number} tableId
@@ -122,14 +137,21 @@ export function serveDish(state, tableId, dishName) {
     };
   }
 
-  return { ...state, shiftUpset: true, sanity: clampSanity(state.sanity - SANITY_DRAIN_PER_UPSET) };
+  return {
+    ...state,
+    shiftUpset: true,
+    mistakeCount: state.mistakeCount + 1,
+    sanity: clampSanity(state.sanity - SANITY_DRAIN_PER_UPSET),
+    reputation: clampReputation(state.reputation - REPUTATION_DRAIN_PER_MISTAKE),
+  };
 }
 
 /**
  * Force-fails whichever order (if any) is currently active at `tableId` —
  * removed from the queue, table freed and marked dirty, `shiftUpset`
- * latched — exactly like a patience timeout, but triggered directly by
- * the caller rather than a clock tick. Used for the Karen event's ripple
+ * latched, `mistakeCount`/reputation drained same as any other mistake
+ * (v3.11) — exactly like a patience timeout, but triggered directly by the
+ * caller rather than a clock tick. Used for the Karen event's ripple
  * effect (docs/features/cooking-game.md's Business Rules): failing her
  * order also fails one other random active table's order. A no-op if the
  * shift isn't in 'playing' or there's no active order at that table.
@@ -149,7 +171,9 @@ export function failOrderAt(state, tableId) {
     orders: result.orders,
     tables: result.tables,
     shiftUpset: true,
+    mistakeCount: state.mistakeCount + 1,
     sanity: clampSanity(state.sanity - SANITY_DRAIN_PER_UPSET),
+    reputation: clampReputation(state.reputation - REPUTATION_DRAIN_PER_MISTAKE),
   };
 }
 
@@ -169,11 +193,12 @@ function failOrder(state, order) {
  * Advances the shift clock and every active order's patience timer by
  * `deltaSeconds`. Any order whose patience reaches 0 auto-fails: it's
  * removed from the queue, its table is freed and marked dirty, and
- * `shiftUpset` latches true — all without player input, per the doc's
- * User Flow step 7. If the shift clock itself reaches 0 while still
- * 'playing', every remaining queued order likewise auto-fails and the
- * phase transitions to 'closing-clean'. A no-op if the shift isn't in
- * 'playing' (the clock/patience only run during actual play).
+ * `shiftUpset` latches true, `mistakeCount`/reputation drain (v3.11) — all
+ * without player input, per the doc's User Flow step 7. If the shift clock
+ * itself reaches 0 while still 'playing', every remaining queued order
+ * likewise auto-fails and the phase transitions to 'closing-clean'. A
+ * no-op if the shift isn't in 'playing' (the clock/patience only run
+ * during actual play).
  *
  * @param {ShiftState} state
  * @param {number} deltaSeconds - non-negative; negative/non-finite treated as 0.
@@ -191,9 +216,12 @@ export function tick(state, deltaSeconds) {
 
   let tables = state.tables;
   let shiftUpset = state.shiftUpset;
+  let mistakeCount = state.mistakeCount;
   // Passive drain applies every tick regardless of what else happens this
   // frame; each upset event below adds its own extra drain on top.
   let sanity = clampSanity(state.sanity - SANITY_DRAIN_PER_SECOND * delta);
+  // Reputation, unlike sanity, only ever moves on a mistake — no passive drain.
+  let reputation = state.reputation;
 
   const expired = orders.filter((o) => o.patienceRemainingSeconds <= 0);
   for (const order of expired) {
@@ -201,7 +229,9 @@ export function tick(state, deltaSeconds) {
     orders = result.orders;
     tables = result.tables;
     shiftUpset = true;
+    mistakeCount += 1;
     sanity = clampSanity(sanity - SANITY_DRAIN_PER_UPSET);
+    reputation = clampReputation(reputation - REPUTATION_DRAIN_PER_MISTAKE);
   }
 
   const clockSeconds = Math.max(0, state.clockSeconds - delta);
@@ -212,17 +242,19 @@ export function tick(state, deltaSeconds) {
       orders = result.orders;
       tables = result.tables;
       shiftUpset = true;
+      mistakeCount += 1;
       sanity = clampSanity(sanity - SANITY_DRAIN_PER_UPSET);
+      reputation = clampReputation(reputation - REPUTATION_DRAIN_PER_MISTAKE);
     }
     // If every table already happens to be clean (e.g. an idle shift with
     // no orders ever served), 'closing-clean' has nothing left for the
     // player to clean and cleanTable() below would never fire to check
     // that — skip straight past it rather than soft-locking the shift.
     const phase = allTablesClean(tables) ? 'closing-dishes' : 'closing-clean';
-    return { ...state, clockSeconds: 0, orders, tables, shiftUpset, sanity, phase };
+    return { ...state, clockSeconds: 0, orders, tables, shiftUpset, mistakeCount, sanity, reputation, phase };
   }
 
-  return { ...state, clockSeconds, orders, tables, shiftUpset, sanity };
+  return { ...state, clockSeconds, orders, tables, shiftUpset, mistakeCount, sanity, reputation };
 }
 
 /**

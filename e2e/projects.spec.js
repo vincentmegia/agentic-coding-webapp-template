@@ -17,7 +17,7 @@ const PROJECTS = [
 	},
 	{
 		title: 'Kitchen Shift',
-		description: 'A top-down restaurant-shift sim — take orders, cook, and close up clean across a 20-shift month, with a public leaderboard for the best months.',
+		description: 'A top-down restaurant-shift sim — take orders, cook, and close up clean across a 30-shift month, with a public leaderboard for the best months.',
 		tags: ['Go', 'Canvas', 'PostgreSQL'],
 	},
 ];

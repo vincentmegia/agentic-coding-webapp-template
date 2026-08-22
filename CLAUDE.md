@@ -26,17 +26,39 @@ A second mini-game, Kitchen Shift (a top-down, click-controlled restaurant-
 shift sim at `/kitchen-shift` — click a table/fridge/cabinet/stove/etc. and
 the player walks over and uses it automatically; take orders, gather
 ingredients and cookware, cook, manage a draining Sanity bar via the Coffee
-Machine, then close up and collect a flat per-shift Gard paycheck from Duke
-across a 20-shift, 30-table month, with recurring characters Mel, Olive &
+Machine, then close up and collect that shift's Gard paycheck from Duke
+across a 30-shift, 30-table month, with recurring characters Mel, Olive &
 Oliver, and a one-off Karen on shift 12), is implemented and covered by
 tests the same way — Postgres-backed public leaderboard, `localStorage`-
-persisted Gard/shop progress — see `docs/features/cooking-game.md`. Its
+persisted Gard/shop progress — see `docs/features/cooking-game.md` (plus
+its `cooking-game-food-server.md`/`cooking-game-customer.md`/
+`cooking-game-kitchen.md` rule-domain sibling docs, and
+`cooking-game-food-server-leveling.md` for the round-tier system below).
+The paycheck starts
+at 4,000 Gard and loses 500 per mistake (a missed or wrong-served order),
+floored at 500 — replacing an earlier flat 4,000-or-2,000 split — and
+every mistake also drains a shift-long Reputation stat (drawn as a second
+on-canvas bar under Sanity) that shortens every later customer's patience
+that shift. The month is
+split into three progressively harder 10-shift "round tiers" (1–10/
+11–20/21–30): Tier 1 opens just 6 of the 30 tables with a 5-minute
+shift clock and a 1-order capacity, Tier 2 opens 18 tables with a
+3-minute clock and 3-order capacity, and Tier 3 opens all 30 tables with
+a 2-minute clock and 5-order capacity — driven live off the current
+shift number, so a fresh "Start New Month" always begins back at Tier 1
+rather than a persisted lifetime stat carrying progress across months.
+Its
 visual style is "coquette" (soft pastel palette, rounded shapes, bow/star
 accents) rather than v2's pixel-art look, the floor plan is split into a
 Dining room and a separate Kitchen room (fridge/cabinet/cookware-closet/
 stove/oven/cleaning-closet) connected by a door and an "Enter Kitchen"
 button, and a one-time walk-in intro with scripted dialogue plays before a
-player's very first shift.
+player's very first shift. Every finished dish and raw ingredient has a
+flat, canvas-drawn icon (no image assets/generation tooling exist in this
+project, so these are procedural, not real sprite art) rather than a plain
+text name; holding one puts the player in a carrying pose — arms bent
+around a tray, food icon(s) stacking directly onto it as ingredients are
+gathered — instead of the old floating text label.
 `/projects` now leads with two real cards
 — Fishing Game and Kitchen Shift, both linking straight into their games
 via "Play now" — but Kitchen Shift still isn't linked from the header nav

@@ -13,14 +13,26 @@
 // Shared constants
 // ---------------------------------------------------------------------------
 
-/** Shifts per month (doc: "20 shifts = one month"). */
-export const SHIFTS_PER_MONTH = 20;
+/**
+ * Shifts per month. v3.14: raised from 20 to 30 (doc: "30 shifts = one
+ * month, in three 10-shift round tiers") so the month divides evenly into
+ * the three round tiers below (section 11) — 30 was already this game's
+ * physical table count, so a "max of 30" now describes both dimensions.
+ */
+export const SHIFTS_PER_MONTH = 30;
 
-/** Flat per-shift paycheck when no customer was upset (doc's Shift paycheck rule). */
+/** A clean shift's Gard payout, before any per-mistake penalty (doc's Shift paycheck rule). */
 export const SHIFT_PAYCHECK_FULL = 4000;
 
-/** Flat per-shift paycheck when at least one customer was upset. */
-export const SHIFT_PAYCHECK_UPSET = 2000;
+/**
+ * v3.11: Gard deducted per mistake (a missed order or a wrong-dish serve),
+ * replacing the old flat "4,000 unless anything went wrong, then 2,000"
+ * split — see rules.js's shiftPaycheck() and the food-server rules doc.
+ */
+export const SHIFT_PAYCHECK_PENALTY_PER_MISTAKE = 500;
+
+/** The floor a shift's payout can never drop below, regardless of mistake count — this game never pays 0 for a completed shift. */
+export const SHIFT_PAYCHECK_MIN = 500;
 
 /**
  * Physical tables on the floor plan — the hard cap on simultaneous orders
@@ -31,10 +43,13 @@ export const SHIFT_PAYCHECK_UPSET = 2000;
 export const PHYSICAL_TABLE_COUNT = 30;
 
 /**
- * Fixed per-shift countdown, in seconds (doc: "each shift runs on a fixed
- * countdown ... illustrative, tune during build"). Deliberately the same
- * for every shift — only the pace of what happens *within* it (arrival
- * rate, patience, sweep speed below) ramps with shift number.
+ * Legacy fixed per-shift countdown, in seconds — no longer what an actual
+ * shift runs on (see `shiftClockSecondsForShift`, section 11: the
+ * countdown now varies by round tier, 300/180/120s). Kept only as
+ * `createInitialState`'s pre-override default and `inGameTimeLabel`'s
+ * default `totalClockSeconds` denominator, so call sites that don't pass
+ * either explicitly (tests, the one-time intro scene) still get a sane,
+ * stable value.
  */
 export const SHIFT_CLOCK_SECONDS = 90;
 
@@ -246,28 +261,25 @@ export function customerPatienceSeconds(shiftNumber, regularsPatienceLevel) {
   return base + level * PATIENCE_SECONDS_PER_REGULARS_PATIENCE_LEVEL;
 }
 
-/**
- * A new player only fields a handful of simultaneous tables out of the
- * full 30-table room — Extra Table Service gear opens up more over many
- * levels (see GEAR_DEFS in cooking-game.js), never all 30 at once without
- * real investment.
- */
-const BASE_TABLE_CAPACITY = 5;
-
 /** Extra Table Service adds this many active tables per level. */
 const TABLE_CAPACITY_PER_EXTRA_TABLE_SERVICE_LEVEL = 3;
 
 /**
- * Simultaneous active tables/orders allowed, capped by both the physical
- * table count and the Extra Table Service gear level — whichever is lower
- * (doc's Business Rules).
+ * Simultaneous active tables/orders allowed: a round-tier-derived base
+ * (see roundTier/baseCapacityForShift, section 11 below) plus Extra Table
+ * Service gear on top, capped by however many tables are actually
+ * unlocked this tier (not the full physical 30) — gear bought ahead of
+ * the next tier doesn't raise capacity past what the dining room can
+ * currently hold; it just takes effect the moment more tables open.
  *
+ * @param {number} shiftNumber - 1..SHIFTS_PER_MONTH, the shift currently being played.
  * @param {number} extraTableServiceLevel - gear level (negative/non-finite treated as 0).
  * @returns {number}
  */
-export function tableCapacity(extraTableServiceLevel) {
-  const level = Number.isFinite(extraTableServiceLevel) && extraTableServiceLevel > 0 ? extraTableServiceLevel : 0;
-  return Math.min(PHYSICAL_TABLE_COUNT, BASE_TABLE_CAPACITY + level * TABLE_CAPACITY_PER_EXTRA_TABLE_SERVICE_LEVEL);
+export function tableCapacity(shiftNumber, extraTableServiceLevel) {
+  const base = baseCapacityForShift(shiftNumber);
+  const gearLevel = Number.isFinite(extraTableServiceLevel) && extraTableServiceLevel > 0 ? extraTableServiceLevel : 0;
+  return Math.min(unlockedTableCountForShift(shiftNumber), base + gearLevel * TABLE_CAPACITY_PER_EXTRA_TABLE_SERVICE_LEVEL);
 }
 
 // ---------------------------------------------------------------------------
@@ -275,16 +287,21 @@ export function tableCapacity(extraTableServiceLevel) {
 // ---------------------------------------------------------------------------
 
 /**
- * A shift's flat Gard payout: SHIFT_PAYCHECK_FULL unless `shiftUpset` is
- * true, in which case SHIFT_PAYCHECK_UPSET — regardless of how many
- * customers were upset or how many were served correctly. Not a per-dish
- * or per-upset scaling number; see the doc's Shift paycheck rule for why.
+ * A shift's Gard payout: SHIFT_PAYCHECK_FULL minus
+ * SHIFT_PAYCHECK_PENALTY_PER_MISTAKE for every mistake that shift (a missed
+ * order or a wrong-dish serve — `ShiftState.mistakeCount`, engine-state.js),
+ * floored at SHIFT_PAYCHECK_MIN so a shift always pays *something*,
+ * matching this game's "never a hard game-over" design. v3.11: replaces the
+ * old flat "4,000 unless `shiftUpset`, then 2,000" split — every mistake
+ * now visibly costs Gard instead of one mistake costing exactly as much as
+ * five. See the food-server rules doc for the full rationale.
  *
- * @param {boolean} shiftUpset
+ * @param {number} mistakeCount - 0 or more (negative/non-finite treated as 0).
  * @returns {number}
  */
-export function shiftPaycheck(shiftUpset) {
-  return shiftUpset ? SHIFT_PAYCHECK_UPSET : SHIFT_PAYCHECK_FULL;
+export function shiftPaycheck(mistakeCount) {
+  const mistakes = Number.isFinite(mistakeCount) && mistakeCount > 0 ? mistakeCount : 0;
+  return Math.max(SHIFT_PAYCHECK_MIN, SHIFT_PAYCHECK_FULL - mistakes * SHIFT_PAYCHECK_PENALTY_PER_MISTAKE);
 }
 
 /**
@@ -398,14 +415,19 @@ export const OLIVER_FAVORITE_COLOR = '#4a7fc9';
  *
  * @param {number} clockSecondsRemaining - as tracked by engine-state.js's
  *   `ShiftState.clockSeconds` (negative/non-finite treated as
- *   SHIFT_CLOCK_SECONDS, i.e. "shift just started").
+ *   `totalClockSeconds`, i.e. "shift just started").
+ * @param {number} [totalClockSeconds] - the shift's full countdown length
+ *   (v3.14: `shiftClockSecondsForShift(shiftNumber)` now varies by round
+ *   tier instead of a single fixed value) — defaults to the legacy
+ *   SHIFT_CLOCK_SECONDS for callers that don't track it explicitly.
  * @returns {string} e.g. "8:30 AM", "3:30 PM", "11:30 PM".
  */
-export function inGameTimeLabel(clockSecondsRemaining) {
+export function inGameTimeLabel(clockSecondsRemaining, totalClockSeconds = SHIFT_CLOCK_SECONDS) {
+  const total = Number.isFinite(totalClockSeconds) && totalClockSeconds > 0 ? totalClockSeconds : SHIFT_CLOCK_SECONDS;
   const remaining = Number.isFinite(clockSecondsRemaining)
-    ? clamp(clockSecondsRemaining, 0, SHIFT_CLOCK_SECONDS)
-    : SHIFT_CLOCK_SECONDS;
-  const elapsedFraction = 1 - remaining / SHIFT_CLOCK_SECONDS;
+    ? clamp(clockSecondsRemaining, 0, total)
+    : total;
+  const elapsedFraction = 1 - remaining / total;
   const totalMinutes = Math.round(
     SHIFT_START_MINUTES + elapsedFraction * (SHIFT_END_MINUTES - SHIFT_START_MINUTES),
   );
@@ -463,4 +485,175 @@ export function clampSanity(sanity) {
 export function walkSpeedMultiplierForSanity(sanity) {
   const fraction = clampSanity(sanity) / SANITY_MAX;
   return SANITY_MIN_WALK_MULTIPLIER + (1 - SANITY_MIN_WALK_MULTIPLIER) * fraction;
+}
+
+// ---------------------------------------------------------------------------
+// 10. Restaurant reputation (v3.11) — a shift-long stat, same shape as
+//     Sanity above but tracking the *restaurant's* mood rather than the
+//     player's: it only moves on mistakes (a missed order or a wrong-dish
+//     serve), never passively. The user asked for a wrong-dish serve to
+//     make "customer[s] irritated" and raise "the ch[a]nce of leaving...
+//     with bad review" — but a single customer only ever gets one order
+//     (no do-over to escalate on), so there's no per-customer state to
+//     track. This models it at the restaurant level instead: every mistake
+//     drains reputation, and every *later* customer that shift (not just
+//     the one who got the wrong dish) gets shorter patience as a result —
+//     a bad review from one table sours the mood for whoever walks in
+//     next, functioning as an increasing chance of losing them before they
+//     even order. See the customer rules doc for the full rationale.
+// ---------------------------------------------------------------------------
+
+/** Reputation starts here every shift — a clean shift never touches it. */
+export const REPUTATION_MAX = 100;
+
+/** Reputation lost per mistake (missed order or wrong-dish serve) — four mistakes bottoms it out. */
+export const REPUTATION_DRAIN_PER_MISTAKE = 25;
+
+/** Patience multiplier floor at 0 reputation — shorter-fused, not instant walkouts. */
+const REPUTATION_MIN_PATIENCE_MULTIPLIER = 0.6;
+
+/**
+ * Clamps a proposed reputation value into `[0, REPUTATION_MAX]`.
+ *
+ * @param {number} reputation
+ * @returns {number}
+ */
+export function clampReputation(reputation) {
+  return clamp(Number.isFinite(reputation) ? reputation : 0, 0, REPUTATION_MAX);
+}
+
+/**
+ * Customer patience multiplier for the restaurant's current reputation:
+ * 1.0 at full reputation, linearly down to
+ * `REPUTATION_MIN_PATIENCE_MULTIPLIER` at 0. Applied once, at the moment an
+ * order is taken (`customerPatienceSeconds(...) * this`) — an order's
+ * patience budget is fixed for its lifetime, same as how Karen/Mel's
+ * patience adjustments already work; it doesn't keep shrinking after the
+ * fact if reputation drops further mid-order.
+ *
+ * @param {number} reputation - 0..REPUTATION_MAX (out-of-range/non-finite clamped).
+ * @returns {number}
+ */
+export function patienceMultiplierForReputation(reputation) {
+  const fraction = clampReputation(reputation) / REPUTATION_MAX;
+  return REPUTATION_MIN_PATIENCE_MULTIPLIER + (1 - REPUTATION_MIN_PATIENCE_MULTIPLIER) * fraction;
+}
+
+// ---------------------------------------------------------------------------
+// 11. Round tiers (v3.14) — SUPERSEDES the earlier v3.13 "food server
+//     leveling" design (lifetime-shifts-completed based). The user asked
+//     instead for each *round* (shift) to carry its own time limit, in
+//     three progressively harder ten-shift bands across the now-30-shift
+//     month — "level 1-10... 5 min... a few tables... level 10, 20, 30
+//     becomes harder and more tables are introduced... a max of 30
+//     tables." Driven directly by the CURRENT shift number, not a
+//     persisted lifetime stat — so, unlike v3.13, this resets every month
+//     along with `currentShift`: every fresh month starts back at Tier 1's
+//     small, slow-paced dining room and builds up to the full, fast-paced
+//     30-table floor by the final band, same shape every month rather than
+//     a one-time unlock a veteran player would only ever see once.
+//
+//     Table-unlock geometry is unchanged from v3.13 — floor-plan.js's
+//     `isTableUnlocked`/`unlockedStations` still take a 1-5 "row level"
+//     (entrance-nearest row first, one row per level). Tier 1/2/3 map onto
+//     row levels 1/3/5 (6/18/30 tables) so all three tiers land on clean
+//     row boundaries without floor-plan.js needing any changes of its own.
+//     Base simultaneous-order capacity scales the same way (1/3/5 orders,
+//     before Extra Table Service gear adds more) — "a few tables" at Tier
+//     1 is literally one order at a time, same deliberate choice v3.13
+//     made and the user never asked to soften.
+// ---------------------------------------------------------------------------
+
+/** Three difficulty bands per month — the user's own "level 10, 20, 30" framing. */
+export const ROUND_TIER_COUNT = 3;
+
+/** Shifts per tier (30 shifts / 3 tiers). */
+export const ROUND_TIER_SHIFT_SPAN = 10;
+
+/**
+ * Each tier's real-time shift-clock budget, in seconds — index 0 is Tier
+ * 1's (the user's own "5mins" example), shrinking from there as more
+ * tables come online, so a busier floor also means less time to run it.
+ */
+export const ROUND_TIER_CLOCK_SECONDS = [300, 180, 120];
+
+/**
+ * Each tier's floor-plan "row level" (floor-plan.js's `isTableUnlocked`
+ * 1-5 scale) — 1/3/5, landing exactly on 6/18/30 open tables.
+ */
+export const ROUND_TIER_FLOOR_LEVEL = [1, 3, 5];
+
+/** Tables per floor-plan row (floor-plan.js's columnXs has 6 entries) — exported so callers never re-hardcode 6. */
+export const TABLES_PER_FLOOR_LEVEL = 6;
+
+function clampTier(tier) {
+  const value = Number.isFinite(tier) ? Math.floor(tier) : 1;
+  return clamp(value, 1, ROUND_TIER_COUNT);
+}
+
+/**
+ * Which difficulty tier a given shift number falls in.
+ *
+ * @param {number} shiftNumber - 1..SHIFTS_PER_MONTH (out-of-range/non-finite clamped).
+ * @returns {number} 1..ROUND_TIER_COUNT.
+ */
+export function roundTier(shiftNumber) {
+  const shift = clampShift(shiftNumber);
+  return clamp(Math.ceil(shift / ROUND_TIER_SHIFT_SPAN), 1, ROUND_TIER_COUNT);
+}
+
+/**
+ * A tier as filled/unfilled stars (Startime Diner's own star branding),
+ * always ROUND_TIER_COUNT characters long — e.g. "★★☆" at tier 2.
+ *
+ * @param {number} tier - clamped into [1, ROUND_TIER_COUNT] (non-finite treated as 1).
+ * @returns {string}
+ */
+export function roundTierStars(tier) {
+  const value = clampTier(tier);
+  return '★'.repeat(value) + '☆'.repeat(ROUND_TIER_COUNT - value);
+}
+
+/**
+ * The shift-clock countdown, in seconds, for whichever tier `shiftNumber`
+ * falls in — passed as `createInitialState`'s `clockSeconds` override and
+ * as `inGameTimeLabel`'s `totalClockSeconds`.
+ *
+ * @param {number} shiftNumber - 1..SHIFTS_PER_MONTH (out-of-range/non-finite clamped).
+ * @returns {number}
+ */
+export function shiftClockSecondsForShift(shiftNumber) {
+  return ROUND_TIER_CLOCK_SECONDS[roundTier(shiftNumber) - 1];
+}
+
+/**
+ * The floor-plan row level unlocked at `shiftNumber` — feed directly into
+ * floor-plan.js's `isTableUnlocked`/`unlockedStations`.
+ *
+ * @param {number} shiftNumber - 1..SHIFTS_PER_MONTH (out-of-range/non-finite clamped).
+ * @returns {number} 1..5.
+ */
+export function tableUnlockLevelForShift(shiftNumber) {
+  return ROUND_TIER_FLOOR_LEVEL[roundTier(shiftNumber) - 1];
+}
+
+/**
+ * How many of the dining room's 30 tables are open at `shiftNumber`.
+ *
+ * @param {number} shiftNumber - 1..SHIFTS_PER_MONTH (out-of-range/non-finite clamped).
+ * @returns {number}
+ */
+export function unlockedTableCountForShift(shiftNumber) {
+  return tableUnlockLevelForShift(shiftNumber) * TABLES_PER_FLOOR_LEVEL;
+}
+
+/**
+ * Base simultaneous-order capacity at `shiftNumber`, before Extra Table
+ * Service gear (`tableCapacity` above) adds on top.
+ *
+ * @param {number} shiftNumber - 1..SHIFTS_PER_MONTH (out-of-range/non-finite clamped).
+ * @returns {number}
+ */
+export function baseCapacityForShift(shiftNumber) {
+  return tableUnlockLevelForShift(shiftNumber);
 }

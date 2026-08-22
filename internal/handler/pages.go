@@ -161,7 +161,7 @@ var projectItems = []Project{
 	},
 	{
 		Title:       "Kitchen Shift",
-		Description: "A top-down restaurant-shift sim — take orders, cook, and close up clean across a 20-shift month, with a public leaderboard for the best months.",
+		Description: "A top-down restaurant-shift sim — take orders, cook, and close up clean across a 30-shift month, with a public leaderboard for the best months.",
 		Tags:        []string{"Go", "Canvas", "PostgreSQL"},
 		TagTint:     "primary",
 		LiveURL:     "/kitchen-shift",
