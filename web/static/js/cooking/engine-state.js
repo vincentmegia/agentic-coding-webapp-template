@@ -18,7 +18,11 @@
 //     mistakeCount: number,     // v3.11: every missed order or wrong-dish serve, counted (not just latched) — see rules.js's shiftPaycheck()
 //     reputation: number,       // v3.11: 0..REPUTATION_MAX; drains per mistake, scales every later order's patience — see rules.js's patienceMultiplierForReputation()
 //   }
-//   Order = { tableId: number, dishName: string, patienceRemainingSeconds: number, patienceMaxSeconds: number }
+//   Order = {
+//     tableId: number, dishName: string,
+//     patienceRemainingSeconds: number, patienceMaxSeconds: number,
+//     customerSanityRemaining: number, // v3.18: 0..CUSTOMER_SANITY_MAX; drains per "annoyance" (re-visiting before serving, or a wrong-dish serve) — see annoyCustomer()
+//   }
 //
 // A table's `occupied` (has a live order right now) and `dirty` (needs
 // closing-time cleaning) are tracked independently: a table can be reused
@@ -40,6 +44,9 @@ import {
   REPUTATION_MAX,
   REPUTATION_DRAIN_PER_MISTAKE,
   clampReputation,
+  CUSTOMER_SANITY_MAX,
+  CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE,
+  clampCustomerSanity,
 } from './rules.js';
 
 export { SHIFT_CLOCK_SECONDS, SANITY_MAX, REPUTATION_MAX };
@@ -81,7 +88,8 @@ export function createInitialState(tableIds, overrides = {}) {
  * verbatim as both the countdown and `patienceMaxSeconds` (the order's
  * fixed reference point for rendering a patience-remaining fraction later,
  * so that doesn't drift if reputation changes again before this order
- * resolves).
+ * resolves). The order also starts with a fresh `customerSanityRemaining`
+ * at `CUSTOMER_SANITY_MAX` (v3.18) — see `annoyCustomer()`.
  *
  * @param {ShiftState} state
  * @param {number} tableId
@@ -100,7 +108,13 @@ export function addOrder(state, tableId, dishName, patienceSeconds, maxOrders) {
 
   return {
     ...state,
-    orders: [...state.orders, { tableId, dishName, patienceRemainingSeconds: patience, patienceMaxSeconds: patience }],
+    orders: [...state.orders, {
+      tableId,
+      dishName,
+      patienceRemainingSeconds: patience,
+      patienceMaxSeconds: patience,
+      customerSanityRemaining: CUSTOMER_SANITY_MAX,
+    }],
     tables: { ...state.tables, [tableId]: { ...table, occupied: true } },
   };
 }
@@ -174,6 +188,35 @@ export function failOrderAt(state, tableId) {
     mistakeCount: state.mistakeCount + 1,
     sanity: clampSanity(state.sanity - SANITY_DRAIN_PER_UPSET),
     reputation: clampReputation(state.reputation - REPUTATION_DRAIN_PER_MISTAKE),
+  };
+}
+
+/**
+ * One "annoyance" at `tableId`'s active order — the food server re-visiting
+ * an already-ordered table before serving it, or serving the wrong dish
+ * (both driven from cooking-game.js, not this module). Drains that order's
+ * `customerSanityRemaining` by `CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE`; if it
+ * bottoms out at 0, the order fails exactly like a patience timeout —
+ * delegates to `failOrderAt` for those identical consequences (order
+ * removed, table freed dirty, `shiftUpset` latched, `mistakeCount`/sanity/
+ * reputation drained) rather than duplicating that logic. A no-op if the
+ * shift isn't in 'playing' or there's no active order at that table.
+ *
+ * @param {ShiftState} state
+ * @param {number} tableId
+ * @returns {ShiftState}
+ */
+export function annoyCustomer(state, tableId) {
+  if (state.phase !== 'playing') return state;
+  const order = state.orders.find((o) => o.tableId === tableId);
+  if (!order) return state;
+
+  const nextSanity = clampCustomerSanity(order.customerSanityRemaining - CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE);
+  if (nextSanity <= 0) return failOrderAt(state, tableId);
+
+  return {
+    ...state,
+    orders: state.orders.map((o) => (o === order ? { ...o, customerSanityRemaining: nextSanity } : o)),
   };
 }
 

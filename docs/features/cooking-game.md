@@ -709,6 +709,208 @@ Verified via Playwright against a live dev server at Tier 1/2/3 saves,
 `npm run test:unit` and `go test ./...` (including the real-Postgres
 end-to-end suite) both green.
 
+**v3.15/v3.16 table rendering reworked, twice more, per direct
+follow-up feedback** — locked tables stopped rendering at all (not
+dimmed), the "Table N" caption was removed from open tables, the floor
+plan started laying out only the currently-unlocked tables in a
+centered, near-square box per tier instead of a fixed 6x5 grid, and
+tables became circles whose size scales with the tier (64px at Tier 1
+up to 100px at Tier 3) instead of one flat size. Full design rationale
+and decision history lives in `cooking-game-food-server-leveling.md`
+(it documents this table-rendering work even though the doc's own name
+now undersells its scope — see that doc's own note on this).
+
+**v3.17 a bigger order-bubble icon** — the user asked specifically for
+"the customer food icons bigger when food server interacts with the
+customer for taking orders," i.e. just the order speech bubble's dish
+icon (`drawOrderBubble`), not every on-canvas dish icon. `iconSize` grew
+22px → 32px, with the bubble/font/icon-text-gap scaled up to match
+rather than the bigger icon just overflowing a bubble sized for the old
+one. Every other dish-icon appearance (the carrying tray, held-item
+badges) is unchanged.
+
+**v3.18 per-customer sanity, and the order bubble grew again** — three
+more follow-ups in the same message: the order bubble "disappear[ing]
+too quickly" (`ORDER_BUBBLE_SECONDS` 2.5s → 5s), its icon "a bit bigger
+more" (32px → 40px, bubble/font scaled to match), and a genuinely new
+mechanic — re-visiting an already-ordered table, or serving the wrong
+dish, now drains that customer's own `customerSanityRemaining` stat (new
+per-order field, `engine-state.js`'s `annoyCustomer`) and re-shows their
+order bubble ("repeating" it); 4 such annoyances and they walk out
+exactly like a patience timeout (reusing `failOrderAt`'s consequences
+outright rather than duplicating them). See
+`cooking-game-customer.md`'s "Per-customer sanity" section for the full
+design (it's a per-order counterpart to that doc's restaurant-wide
+Reputation stat, not a replacement for it — a wrong serve now costs
+both). Built via two parallel background agents against a shared,
+precise contract (one owning `rules.js`/`engine-state.js`'s pure logic,
+one owning `cooking-game.js`'s two new call sites, a new sanity bar, and
+the bubble tweaks) — `npm run test:unit` went from 262 to 271 (9 new
+tests). Verified end-to-end via Playwright: took an order, re-visited
+the table 3 times (order survived each time, sanity bar visibly
+shrinking, bubble re-appearing), a 4th annoyance triggered the walkout
+(order gone, Reputation -25%, player Sanity drained, HUD status
+"Customer upset") — no console errors.
+
+**v3.19 the order bubble drops its text, icon grows again** — the user
+asked to "remove the names from the customer order bubble, make the
+food icon bigger so its easier to see." `drawOrderBubble` no longer
+renders the dish name as text at all — just the icon, `iconSize` grown
+40px → 56px, with the bubble itself resized to fit only the (bigger)
+icon instead of the old text-width-dependent sizing. Every other
+mechanic the bubble is tied to (when it shows, how long it lasts, the
+v3.18 customer-sanity "repeat the order" re-trigger) is unchanged — this
+is purely how it renders. Built via two parallel background agents
+against a shared spec (one implementing the `cooking-game.js` change and
+self-verifying it, one updating this changelog and
+`cooking-game-customer.md`'s stale "re-shows the dish name" wording in
+parallel) — `npm run test:unit` stayed at 271/271 (a pure canvas-
+rendering change, no pure-logic surface touched).
+
+**v3.20 fridge/cabinet menus were missing icons** — the user reported
+"the fridge menu doesnt include any food icons." `renderPanel`
+(cooking-game.js's DOM-based fridge/cabinet/cookware item picker) built
+each list button as plain text, never reusing `drawIngredientIcon` —
+the same procedural icon set already shown on the tray/order bubble.
+Fixed by drawing each item's icon (where one exists —
+`INGREDIENT_ICON_DRAWERS`, all 19 Fridge/Cabinet ingredients) onto a
+small offscreen `<canvas>` and prepending it to the button; `drawDishIcon`/
+`drawIngredientIcon` are plain module-level functions taking a 2D
+context as a parameter, so they work identically on a tiny inline
+`<canvas>` as they do on the main game canvas, no new icon assets
+needed. Cookware Closet items (Pan, Baking Tray, Rice Cooker) have no
+icon drawer yet and fall back to text-only, unchanged from before —
+matching the user's own wording ("food icons"), not a request to also
+design cookware icons. Verified live via Playwright: opened the Fridge
+panel, confirmed all 10 ingredients show their correct icon next to the
+name. `npm run test:unit` stayed at 271/271 (no pure-logic surface
+touched).
+
+**v3.21 the fridge/cabinet icons were too small, and a confusing combo
+icon got fixed** — two follow-ups. First, the user reported the new
+icons "too small, its too hard to see": the panel's icon canvas grew
+24px → 44px (icon drawn at 40px, up from 22px). Second, and unrelated to
+sizing — the user flagged confusion over "this triangle food icon" on a
+live screenshot of Olive & Oliver's order bubble: `drawCoupleOrderIcon`
+(Olive & Oliver's Order = Matcha + Cake, `COUPLE_DISH`) was a bespoke
+composite of two identical hand-drawn matcha rectangles plus a pink/
+green two-tone triangle that matched no other icon anywhere else in the
+game — genuinely illegible at the order bubble's small size. Rewritten
+to reuse the *actual* `drawMatchaIcon`/`drawCakeIcon` drawers (via
+`drawIconAt`, the same composition helper `drawDishIcon`/
+`drawIngredientIcon` already use) side by side on a small plate, instead
+of a novel redrawn shape — the couple's order icon is now visibly "a
+matcha glass + a cake," built from the exact same icons the player
+already recognizes from the Fridge/Cabinet panels. Verified live via
+Playwright (seeded a shift-11 save so Tier 2's capacity-3 room lets
+Olive & Oliver spawn without first having to fully serve Mel, since
+Tier 1's capacity of exactly 1 blocks a second simultaneous
+order/pending-customer entirely): the order bubble now shows a clearly
+distinct green glass and pink triangle, no console errors.
+`npm run test:unit` stayed at 271/271.
+
+**v3.22 Mel's Usual had the same bespoke-icon problem** — after seeing
+v3.21's couple-icon fix, the user asked about a different screenshot's
+"pink triangle food picture": Mel's own order bubble. Same root cause,
+different dish — `drawMelsUsualIcon` (Mel's Usual = Lemonade, Star Cake,
+Egg, `MEL_DISH`) was also a bespoke hand-drawn composite, and its "Star
+Cake" triangle used a plain white star accent — precisely the choice
+`drawStarCakeIcon`'s own doc comment already flags as rejected there
+("indistinguishable from plain Cake's icon" at small size), reintroduced
+here by not reusing that real drawer. Fixed the same way as
+`drawCoupleOrderIcon`: rewritten to compose the actual
+`drawLemonadeIcon`/`drawStarCakeIcon`/`drawEggIcon` drawers side by side
+via `drawIconAt`, three items now instead of two. Verified live via
+Playwright: Mel's order bubble now shows a clearly distinct gold
+lemonade glass, pink Star Cake triangle (with its real gold star), and
+egg. `npm run test:unit` stayed at 271/271. Every dish icon in
+`DISH_ICON_DRAWERS` that combines more than one raw ingredient now
+follows this same "compose the real icons" pattern — no bespoke
+multi-item composites left.
+
+**v3.23 the cake icon itself was redesigned, and every order-bubble icon
+standardized to 24x24** — despite v3.22's fix (the real, gold-starred
+`drawStarCakeIcon`, correctly reused), the user reported *still* not
+understanding "the pink triangle with sta[r]" on a fresh screenshot. The
+real problem wasn't code reuse — it was the shape itself: a bare
+triangle simply doesn't read as "cake" to a player at a glance (more
+commonly a party hat or a warning sign). `drawCakeIcon` was redesigned
+from a solid triangle wedge to a two-tier stacked-rectangle cake
+silhouette (base + a lighter frosting layer with a drip line) —
+`drawStarCakeIcon` now just calls `drawCakeIcon` and adds a star topper,
+so the two stay visually related while the topper is what tells them
+apart.
+
+Separately, the user asked to standardize every food icon shown in the
+order bubble to 24x24 (down from 56px). Applying that literally to a
+composite dish's *single combo icon* (Mel's Usual, Olive & Oliver's —
+already squeezing 2-3 items into one slot) made it illegible — worse
+than before. Fixed by changing what "one food icon" means for a
+composite order: `drawOrderBubble` now checks whether the order's dish
+is `MEL_DISH`/`COUPLE_DISH` and, if so, draws one full 24x24 icon *per
+ingredient* (`MEL_DISH.ingredients`/`COUPLE_DISH.ingredients`, via
+`drawIngredientIcon` — reusing the same per-ingredient icons already
+shown in the Fridge/Cabinet panels) side by side, with the bubble
+widening to fit them, rather than shrinking a combo icon into one fixed
+slot. A single (non-composite) dish still shows one 24x24
+`drawDishIcon`. The bespoke `drawMelsUsualIcon`/`drawCoupleOrderIcon`
+composite drawers are unchanged and still used elsewhere (the carrying
+tray) — only the order bubble's rendering path changed. Verified live
+via Playwright: Mel's bubble now shows three clearly distinct, correctly
+un-cramped icons (lemonade, cake-with-star, egg) at the new size.
+`npm run test:unit` stayed at 271/271.
+
+**v3.24 two new interactions: discard a tray item by clicking it, and
+click-outside-to-close on popup menus** — the user asked for "clicking
+on the food icon on the tray should remove the food out of the tray"
+and "when the food server clicks on an open space any popup menu show
+close automatically."
+
+For the tray: `drawPlayerCarrying`/`drawPlayerCarryingIngredients`
+already computed exactly where each tray icon lands on screen (the held
+dish, or each raw ingredient in a stacked layout) — that math is now
+factored out into `heldDishIconHit`/`trayIngredientIconHits`, pure
+functions returning each icon's center/half-size for a given player
+pose, called by *both* the drawing functions and a new check at the top
+of `onCanvasClick` (before normal station-click handling, since tray
+icons sit on/around the player's own sprite and should win over
+whatever station happens to be nearby). Clicking a raw ingredient's icon
+splices just that one out of `inventory`; clicking the held-dish icon
+clears `heldDish` — either way a toast confirms what was removed
+("Removed Cheese," "Set down Burger"). Sharing the exact same layout
+function between drawing and hit-testing (rather than two independent
+copies of the same math) means a click is always tested against exactly
+what's rendered that frame, including the walking bob offset.
+
+For popups: `#cooking-station-panel` and `#cooking-recipe-book` are both
+a full-canvas backdrop `<div>` with a single centered card child.
+`onCanvasClick`'s existing `if (activePanel || recipeBookOpen ...)
+return;` guard already blocked normal canvas clicks while either was
+open (unchanged) — what was missing was any way to close one *without*
+finding its Close button. Fixed with one click listener per backdrop
+root checking `e.target === root` (true only when the click landed on
+the backdrop itself, not any child), closing the corresponding panel —
+the standard "click outside the modal to dismiss it" pattern, layered on
+top of the existing Close buttons rather than replacing them.
+
+Verified live via Playwright: gathered two ingredients, clicked the
+first tray icon, confirmed only it (not the second) was removed and the
+remaining icon re-centered; opened the Recipe Book and the Fridge panel
+in turn and confirmed each closed on a backdrop click. `npm run
+test:unit` stayed at 271/271 (both changes are DOM/canvas interaction
+only, no pure-logic surface touched).
+
+**v3.25 Coffee Machine/Counter moved to the left side** — the user asked
+for both to sit on the left side of the Dining room; they were centered
+at the bottom (x=480/376). `floor-plan.js`'s `buildStations` now places
+them at x=90/194 — the same y (560), just shifted left, landing in the
+bottom-left corner that was otherwise empty (the Toilet already anchors
+the top-left; the Security guard and "Entrance / Exit" floor text sit
+well to the right, x=560-785, so nothing conflicts). No other station
+depends on Coffee Machine/Counter's exact position (checked). Verified
+live via Playwright. `npm run test:unit` stayed at 271/271 (position-only
+change, no logic touched).
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,
@@ -1167,7 +1369,16 @@ site's CSP):
   the stove/oven, or the phase-gated closing actions). A separate
   `mousemove` listener drives the hover tooltip (`hoverHintFor()`) without
   moving the player. Movement is paused (not read) while a station panel
-  is open.
+  is open. Before any of the above, the same click listener also checks
+  (v3.24) whether the click landed on one of the player's own tray icons
+  (the held dish, or a raw ingredient in the carried stack) — if so, that
+  item is discarded instead of the click being treated as a station/floor
+  target at all.
+* **Popup menus close on an outside click** (v3.24): the station panel
+  and Recipe Book are each a full-canvas backdrop with a centered card;
+  clicking the backdrop itself (not the card) closes the panel, the same
+  standard "click outside to dismiss" pattern most modal UIs use,
+  alongside — not instead of — their own explicit Close button.
 * **Order queue, upset tracking, and shift phases**: `engine-state.js`
   (pure, no DOM/canvas access) owns the order queue — adding an order,
   ticking down patience timers, auto-failing an expired order — plus a
@@ -1343,17 +1554,22 @@ only voluntarily-submitted, already-finished month results.
 
 The gameplay rules that used to live in this section were split out
 (v3.11, "so it's more organized") into three sibling docs, one per rule
-domain:
+domain, plus a fourth added later for the round-tier design specifically:
 
 * [`cooking-game-food-server.md`](./cooking-game-food-server.md) — the
   player's job: taking orders, serving them (and what a mistake costs —
   the shift paycheck formula), sanity, gear, closing up.
 * [`cooking-game-customer.md`](./cooking-game-customer.md) — customers:
-  patience/arrival ramp, the restaurant reputation mechanic, and the
-  three recurring named characters (Karen, Mel, Olive & Oliver).
+  patience/arrival ramp, the restaurant reputation mechanic, per-customer
+  sanity/annoyance, and the three recurring named characters (Karen, Mel,
+  Olive & Oliver).
 * [`cooking-game-kitchen.md`](./cooking-game-kitchen.md) — the kitchen as
   a cooking system: recipes, cookware, the cook-timing mini-game, and the
   Dining/Kitchen room split.
+* [`cooking-game-food-server-leveling.md`](./cooking-game-food-server-leveling.md) —
+  the round-tier system (progressive shift-clock/table-count/order-capacity
+  per 10-shift band) and the table-rendering design (centered box-grid
+  layout, per-tier circle sizing) it drove.
 
 Validation beyond basic type/shape checking (leaderboard submission
 bounds, etc.) is covered in Security Considerations below.
@@ -1380,7 +1596,12 @@ bounds, etc.) is covered in Security Considerations below.
   suite shipped without this once and left junk rows on the real
   leaderboard (`docs/features/fishing-game.md`'s Security Considerations);
   this feature's e2e test must not repeat that.
-* **CSRF**: `POST /kitchen-shift/score` covered by the app's CSRF protection.
+* **CSRF**: `POST /kitchen-shift/score` must be covered by the app's CSRF
+  protection, same as `POST /logout` — not actually in place yet (no CSRF
+  mechanism exists anywhere in this codebase; this route's exposure is
+  identical to, not worse than, `POST /fishing-game/score`'s
+  already-accepted gap, see that doc's own Security Considerations and
+  this doc's Definition of Done).
 * **Secrets**: none introduced.
 * **No inline `<script>` tags** — `cooking-game.js` is external, per CSP.
 
@@ -1388,25 +1609,25 @@ bounds, etc.) is covered in Security Considerations below.
 
 ## Testing Plan
 
-* [ ] Recipe/dish lookup returns the correct ingredient list for every dish;
+* [x] Recipe/dish lookup returns the correct ingredient list for every dish;
       a shift number only unlocks dishes in bands up to and including its
       own band.
-* [ ] Cook-timing success check: a sample inside the success zone finishes
+* [x] Cook-timing success check: a sample inside the success zone finishes
       the dish, a sample outside it (both before and after the zone) ruins
       it; Sharp Knife level widens the zone monotonically.
-* [ ] Shift paycheck rule (`shiftPaycheck(mistakeCount)`): 0 mistakes →
+* [x] Shift paycheck rule (`shiftPaycheck(mistakeCount)`): 0 mistakes →
       4,000 Gard; each mistake deducts 500, floored at 500.
-* [ ] Order queue: adding an order respects the current table-capacity cap
+* [x] Order queue: adding an order respects the current table-capacity cap
       (physical tables vs. Extra Table Service level, whichever is lower);
       a patience timer reaching zero auto-fails that order, marks the table
       dirty, and latches `shiftUpset` — without needing player input.
-* [ ] A wrong-dish serve latches `shiftUpset`, wastes the dish, and does not
+* [x] A wrong-dish serve latches `shiftUpset`, wastes the dish, and does not
       clear the order from the queue (the customer is still waiting).
-* [ ] `failOrderAt` fails the active order at a specific table on demand
+* [x] `failOrderAt` fails the active order at a specific table on demand
       (Karen's ripple effect), exactly like a patience timeout, and is a
       no-op if that table has no active order or the shift has left
       `playing`.
-* [ ] Shift-phase state machine (`engine-state.js`): `playing` only
+* [x] Shift-phase state machine (`engine-state.js`): `playing` only
       transitions to `closing-clean` when the shift clock hits zero (and
       skips straight to `closing-dishes` if every table already happens to
       be clean — the idle-shift soft-lock regression from the v1 pass);
@@ -1416,41 +1637,41 @@ bounds, etc.) is covered in Security Considerations below.
       transitions to `paycheck` after the shutdown action fires — each gate
       is independently unit-tested, not just the happy path through all
       four.
-* [ ] `floor-plan.js`: `stationAtPoint` correctly hit-tests each station's
+* [x] `floor-plan.js`: `stationAtPoint` correctly hit-tests each station's
       box (including an exact-edge boundary case) and returns `null` for a
       point over no station; `approachPoint` returns a point exactly
       `standoffDistance` from the station center along the line back to the
       player's current position, and returns the player's own position
       unchanged if they're already within that distance.
-* [ ] Shift-to-shift ramp (customer arrival rate, patience duration, sweep
+* [x] Shift-to-shift ramp (customer arrival rate, patience duration, sweep
       speed) moves in the documented direction as shift number increases,
       unit-tested at representative shift numbers.
-* [ ] `inGameTimeLabel`: a full clock reads 8:30 AM, a zeroed clock reads
+* [x] `inGameTimeLabel`: a full clock reads 8:30 AM, a zeroed clock reads
       11:30 PM, the halfway point reads the halfway time of day, a noon
       crossover reads "12:00 PM" (not "0:00 PM"), and out-of-range/
       non-finite input clamps rather than producing a nonsense time.
-* [ ] Every `RECIPE_BANDS` dish's cookware matches its station (Pan for
+* [x] Every `RECIPE_BANDS` dish's cookware matches its station (Pan for
       Stove, Baking Tray for Oven, `null` for the station-less dish), and
       every ingredient (including `MEL_DISH`'s and `COUPLE_DISH`'s) resolves
       to a real `FRIDGE_INGREDIENTS`/`CABINET_INGREDIENTS` entry.
-* [ ] `MEL_DISH` and `COUPLE_DISH` are never present in `availableDishes`'s
+* [x] `MEL_DISH` and `COUPLE_DISH` are never present in `availableDishes`'s
       output at any shift number — only the two scripted spawns ever order
       them.
-* [ ] `isKarenShift` is true only at `KAREN_SHIFT_NUMBER`.
-* [ ] Sanity starts at `SANITY_MAX` every shift; `tick` drains it passively
+* [x] `isKarenShift` is true only at `KAREN_SHIFT_NUMBER`.
+* [x] Sanity starts at `SANITY_MAX` every shift; `tick` drains it passively
       even when nothing goes wrong, and drains an extra
       `SANITY_DRAIN_PER_UPSET` on top for each upset event (a patience
       timeout during `tick`, a wrong-dish `serveDish`, or `failOrderAt`) —
       never below 0 no matter how much drains at once.
-* [ ] `walkSpeedMultiplierForSanity` is 1.0 at full sanity, decreases
+* [x] `walkSpeedMultiplierForSanity` is 1.0 at full sanity, decreases
       monotonically as sanity drops, and never reaches 0 (tired, never
       stuck) even at exactly 0 sanity.
-* [ ] `restoreSanity` sets sanity back to `SANITY_MAX` and is a no-op once
+* [x] `restoreSanity` sets sanity back to `SANITY_MAX` and is a no-op once
       the shift has left `playing`.
 * [ ] `e2e`/manual: the Coffee Machine restores the HUD sanity bar to 100%
       on arrival, and the player visibly moves slower at low sanity than
       at full sanity.
-* [ ] Reputation (v3.11): every mistake path (wrong-dish serve,
+* [x] Reputation (v3.11): every mistake path (wrong-dish serve,
       `failOrderAt`, a `tick()` patience/clock timeout) drains
       `REPUTATION_DRAIN_PER_MISTAKE`, never below 0, and never drains
       passively the way sanity does; `patienceMultiplierForReputation` is
@@ -1461,17 +1682,21 @@ bounds, etc.) is covered in Security Considerations below.
       the outcome line reading "3 mistakes — Duke saw the reviews".
 * [ ] Month total accumulates correctly across shifts (sum of each shift's
       mistake-adjusted payout) and resets to 0 on "Start New Month" while
-      shop gear levels persist.
+      shop gear levels persist. (Not directly unit-tested — `cooking-game.js`
+      itself has no automated test file; this needs an `e2e/` pass.)
 * [ ] `localStorage` progress (Gard, shift number, gear) persists across a
       page reload; corrupted or missing data falls back to defaults without
-      an error.
-* [ ] `POST /kitchen-shift/score` rejects out-of-range earnings/shift-count
+      an error. (Same gap as above — `defaultSave`/`loadSave`/
+      `isValidSaveShape` have no direct unit test file of their own.)
+* [x] `POST /kitchen-shift/score` rejects out-of-range earnings/shift-count
       and oversized/blank `player_name` with a clear validation error.
-* [ ] `player_name` containing HTML/script-like content renders as literal
+* [x] `player_name` containing HTML/script-like content renders as literal
       text on the leaderboard (auto-escaping regression test).
 * [ ] Leaderboard fragment renders correctly empty, populated, and on a
-      simulated fetch error.
-* [ ] Rate limiting on `POST /kitchen-shift/score` rejects rapid repeated
+      simulated fetch error. (Empty/populated cases are covered; the
+      simulated-fetch-error case needs a direct check before this can be
+      marked done.)
+* [x] Rate limiting on `POST /kitchen-shift/score` rejects rapid repeated
       submissions from the same source.
 * [ ] `e2e/`: a fresh browser/`localStorage`, clicking "Start Shift" the
       first time ever, shows the one-time intro (player walks in from the
@@ -1500,6 +1725,13 @@ bounds, etc.) is covered in Security Considerations below.
       dish including Mel's and Olive & Oliver's, and its Close button is
       always reachable regardless of viewport/canvas height (regression
       coverage for the clipped-Close-button bug below).
+* [ ] `e2e/` (v3.24): clicking a raw ingredient's tray icon removes just
+      that item from `inventory`, leaving any others; clicking a held
+      dish's tray icon clears `heldDish` — both without walking anywhere
+      or triggering the station underneath.
+* [ ] `e2e/` (v3.24): clicking the backdrop of an open station panel or
+      the Recipe Book (not the card itself) closes it, same as its own
+      Close button; clicking the card or its buttons does not.
 * [ ] No console errors (including no CSP violations) on `/kitchen-shift` —
       specifically covers inline `style=""` attributes, which this shell's
       CSP silently blocks (a real bug found during v2's manual

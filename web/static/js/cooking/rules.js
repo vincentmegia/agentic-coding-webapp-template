@@ -540,6 +540,41 @@ export function patienceMultiplierForReputation(reputation) {
 }
 
 // ---------------------------------------------------------------------------
+// 10.5. Customer sanity (v3.18) — a per-order stat, distinct from both the
+//      player's own Sanity (9) and the restaurant's Reputation (10). The
+//      user asked for repeatedly "annoying" a single customer — the food
+//      server re-visiting their table before serving them, or serving the
+//      wrong dish — to have its own escalating consequence: after enough
+//      annoyances, THAT customer walks out, same as a patience timeout.
+//      Where Reputation models the *restaurant's* mood across customers,
+//      this models one customer's patience for being asked to repeat
+//      themselves — the "do-over to escalate on" that section 10's comment
+//      notes doesn't exist at the restaurant level.
+// ---------------------------------------------------------------------------
+
+/** A fresh order's customer-sanity starts here — same 0..100 scale as the player's own Sanity/Reputation stats. */
+export const CUSTOMER_SANITY_MAX = 100;
+
+/**
+ * Customer sanity lost per "annoyance" — the food server re-visiting an
+ * already-ordered table before serving it, or serving the wrong dish.
+ * Same 25-point/4-hits-to-bottom-out shape as REPUTATION_DRAIN_PER_MISTAKE,
+ * deliberately: asking a customer to repeat themselves a few times is
+ * tolerable, but by the 4th time they've had enough and walk out.
+ */
+export const CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE = 25;
+
+/**
+ * Clamps a proposed customer-sanity value into `[0, CUSTOMER_SANITY_MAX]`.
+ *
+ * @param {number} customerSanity
+ * @returns {number}
+ */
+export function clampCustomerSanity(customerSanity) {
+  return clamp(Number.isFinite(customerSanity) ? customerSanity : 0, 0, CUSTOMER_SANITY_MAX);
+}
+
+// ---------------------------------------------------------------------------
 // 11. Round tiers (v3.14) — SUPERSEDES the earlier v3.13 "food server
 //     leveling" design (lifetime-shifts-completed based). The user asked
 //     instead for each *round* (shift) to carry its own time limit, in
@@ -583,7 +618,7 @@ export const ROUND_TIER_CLOCK_SECONDS = [300, 180, 120];
  */
 export const ROUND_TIER_FLOOR_LEVEL = [1, 3, 5];
 
-/** Tables per floor-plan row (floor-plan.js's columnXs has 6 entries) — exported so callers never re-hardcode 6. */
+/** Tables unlocked per floor-plan level (floor-plan.js's `unlockedTableCount`/`TABLE_GRID_SHAPES`) — exported so callers never re-hardcode 6. */
 export const TABLES_PER_FLOOR_LEVEL = 6;
 
 function clampTier(tier) {

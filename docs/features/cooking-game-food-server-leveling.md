@@ -29,11 +29,11 @@ The month runs **30 shifts** (raised from 20), split into **three
 budget and its own dining-room size — both grow harder together as the
 month goes on:
 
-| Tier | Shifts | Shift clock | Rows open | Tables open | Base order capacity |
+| Tier | Shifts | Shift clock | Grid shape | Tables open | Base order capacity |
 | ---- | ------ | ------------ | ----------- | -------------- | ---------------------- |
-| 1    | 1–10   | 5 min (300s) | 1 (the room's vertical center) | 6  | 1 |
-| 2    | 11–20  | 3 min (180s) | 3 (centered)                    | 18 | 3 |
-| 3    | 21–30  | 2 min (120s) | 5 (all)                          | 30 | 5 |
+| 1    | 1–10   | 5 min (300s) | 3x2 (centered box) | 6  | 1 |
+| 2    | 11–20  | 3 min (180s) | 6x3 (centered box) | 18 | 3 |
+| 3    | 21–30  | 2 min (120s) | 8x4 (centered box, packed tight) | 30 | 5 |
 
 Unlike the original lifetime-based proposal, this is driven directly by
 `save.currentShift` — the same counter "Start New Month" already resets
@@ -52,11 +52,22 @@ sense of the *pace* of a shift changing either.
 
 ## Mechanic
 
-Three tiers reuse the floor plan's existing 1-5 "row level" scale
-(`floor-plan.js`'s `isTableUnlocked`, one row of 6 tables per level, still
-unchanged since the original proposal) by mapping tier → row level 1 / 3
-/ 5 — landing exactly on 6/18/30 open tables without floor-plan.js
-needing any changes of its own:
+**This section describes the current, final implementation** — the
+unlock mechanism went through two earlier designs first (an entrance-
+first row scheme, then a center-out row scheme) before landing here; see
+"Table size doubled..." below for why, and don't take either earlier
+scheme as still-live behavior if you've seen an older version of this
+doc or an older commit.
+
+`floor-plan.js`'s `isTableUnlocked(tableId, level)` is now simply
+`tableId <= unlockedTableCount(level)` — the first N ids (1-indexed) are
+open, full stop. Which *specific* ids that is no longer encodes any
+centering or row logic; centering is handled entirely by *where* those N
+tables are drawn (`tableGridPosition`/`TABLE_GRID_SHAPES`, a fresh
+near-square grid computed for whatever count is currently unlocked — 3x2
+at 6 tables, 6x3 at 18, 8x4 at 30), not by which ids are chosen. `rules.js`
+still maps tier → an `unlockedTableCount`-compatible level (1/3/5) so the
+three tiers land exactly on 6/18/30 open tables:
 
 ```js
 // web/static/js/cooking/rules.js
@@ -96,19 +107,22 @@ Kitchen-station exemption is unchanged from the original proposal:
 kitchen-room stations (fridge, cabinet, cookware closet, stove, oven,
 cleaning closet) are never gated — only dining tables.
 
-**Row order changed after shipping.** Originally entrance-first
-(`rowYs[4]`, nearest the entrance, opened first; `rowYs[0]`, nearest
-Duke's Office, opened last) — the same shape as the original v3.13
-proposal. The user then asked for the visible tables to be "organize[d]
-in a more symmetrical setting and vertically and horizontally center[ed]"
-— a single open row pinned to the entrance-adjacent edge left a large,
-lopsided empty gap above it. `floor-plan.js`'s `isTableUnlocked` now
-opens `rowYs[2]` (y=300, the exact midpoint of the 130-470 row range)
-first, then grows outward symmetrically (`TABLE_ROW_UNLOCK_ORDER =
-[2, 3, 1, 4, 0]`) — so at every tier the open block of rows sits centered
-in the room, with equal empty space above and below. Table x-positions
-were already horizontally symmetric (`columnXs` spans the canvas evenly);
-this only changed which rows are chosen, not the grid geometry itself.
+**Table positioning changed twice after first shipping** — history, not
+current behavior (see "Table size doubled..." below for what actually
+ships today): originally entrance-first (the row nearest the entrance
+opened first, growing back toward Duke's Office), the same shape as the
+original v3.13 proposal. The user then asked for the visible tables to
+be "organize[d] in a more symmetrical setting and vertically and
+horizontally center[ed]" — a single open row pinned to the
+entrance-adjacent edge left a large, lopsided empty gap above it, so
+`isTableUnlocked` briefly switched to opening the room's *center* row
+first and growing outward symmetrically. That row-based scheme (center-
+out or otherwise) was itself fully replaced shortly after — by the box-
+grid layout (`tableGridPosition`/`TABLE_GRID_SHAPES`) the "Mechanic"
+section above and "Table size doubled..." below both describe — once
+doubling the table size made a single 100px-tall row read as a thin
+strip rather than a box. No row-position concept exists in the code
+anymore at all.
 
 ### Locked tables are not rendered at all
 
@@ -343,4 +357,6 @@ interaction (clicking Mel's table, player walking over, her order
 appearing in the queue) was exercised against the new positions and
 produced no console errors at any tier. `go test ./...` (including the
 `DATABASE_URL`-gated end-to-end suite, run against a real Postgres) and
-`npm run test:unit` (262/262) both green.
+`npm run test:unit` (262/262 at the time — later work in this same doc's
+history, e.g. the customer-sanity mechanic, added more; see
+`cooking-game.md`'s own changelog for the current total) both green.

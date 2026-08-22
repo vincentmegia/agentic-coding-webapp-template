@@ -304,8 +304,15 @@ export function buildStations(tableIds, level = FOOD_SERVER_MAX_LEVEL) {
     // Dining room
     { id: 'toilet', kind: 'toilet', room: ROOM_DINING, x: 90, y: 80, size: STATION_BOX_SIZE },
     { id: 'kitchen-door', kind: 'kitchen-door', room: ROOM_DINING, x: 870, y: 80, size: STATION_BOX_SIZE },
-    { id: 'counter', kind: 'counter', room: ROOM_DINING, x: 480, y: 560, size: STATION_BOX_SIZE },
-    { id: 'coffee-machine', kind: 'coffee-machine', room: ROOM_DINING, x: 376, y: 560, size: STATION_BOX_SIZE },
+    // v3.25: moved to the left side of the dining room (was centered at
+    // the bottom, x=480/376) per the user's explicit request — the
+    // bottom-left corner was empty (Toilet anchors the top-left; nothing
+    // else sits near x=90-200 at the bottom), and moving them there
+    // doesn't conflict with the "Entrance / Exit" floor text or the
+    // security guard, both well to the right (x=560-785, see drawFloor/
+    // SECURITY_GUARD_POSITION in cooking-game.js).
+    { id: 'coffee-machine', kind: 'coffee-machine', room: ROOM_DINING, x: 90, y: 560, size: STATION_BOX_SIZE },
+    { id: 'counter', kind: 'counter', room: ROOM_DINING, x: 194, y: 560, size: STATION_BOX_SIZE },
     { id: 'boss-office', kind: 'boss-office', room: ROOM_DINING, x: 480, y: 40, size: STATION_BOX_SIZE },
     // Kitchen room
     { id: 'fridge', kind: 'fridge', room: ROOM_KITCHEN, x: 200, y: 160, size: STATION_BOX_SIZE },

@@ -54,6 +54,26 @@
 // makes table size scale with the round tier (smaller at Tier 1, growing
 // to the original full size at Tier 3) rather than staying fixed.
 //
+// v3.18: customer sanity — a new per-order stat (engine-state.js's
+// `annoyCustomer`, drawn as a small lavender bar above each table's
+// patience bar) separate from the time-based patience countdown. Two
+// things now "annoy" a customer: re-visiting their table after taking
+// their order but before serving it (handleTableArrival's re-click
+// branch), and serving them the wrong dish (on top of that mistake's
+// existing Gard/Reputation cost, not instead of it). Each annoyance
+// re-shows the order speech bubble too — the customer "repeats" their
+// order — and after 4 annoyances they walk out angry, exactly like a
+// patience timeout (annoyCustomerAt reuses the same Karen-ripple/Mel/
+// couple cleanup the main loop's tick()-driven timeout path already has).
+// The order bubble itself also got slower (2.5s -> 5s, it was
+// disappearing too quickly) and its dish icon bigger again (32px -> 40px,
+// a follow-up on an earlier 22px -> 32px pass).
+//
+// v3.19: the order bubble drops its dish-name text entirely — icon-only
+// now, per direct follow-up feedback ("remove the names from the
+// customer order bubble") — and the icon grew again (40px -> 56px) so it
+// still reads clearly without the name as a fallback.
+//
 // This file owns everything HTMX cannot model for /kitchen-shift: the
 // `requestAnimationFrame` loop, click-driven movement/station-interaction,
 // customer spawning, HUD/order-queue updates, and the single
@@ -106,6 +126,7 @@ import {
   shiftClockSecondsForShift,
   tableUnlockLevelForShift,
   unlockedTableCountForShift,
+  CUSTOMER_SANITY_MAX,
 } from './cooking/rules.js';
 import {
   createInitialState,
@@ -117,6 +138,7 @@ import {
   shutDown,
   failOrderAt,
   restoreSanity,
+  annoyCustomer,
   SANITY_MAX,
   REPUTATION_MAX,
 } from './cooking/engine-state.js';
@@ -340,9 +362,10 @@ const CARRY_BOB_AMPLITUDE = 3;
 /**
  * v3.12: how long the speech-bubble popup showing a customer's order stays
  * on screen once the player arrives and the order is taken — see
- * drawOrderBubble/updateOrderBubble.
+ * drawOrderBubble/updateOrderBubble. v3.18: doubled from 2.5s — the user
+ * reported it disappeared too quickly to read comfortably.
  */
-const ORDER_BUBBLE_SECONDS = 2.5;
+const ORDER_BUBBLE_SECONDS = 5;
 
 const STATION_COLORS = {
   fridge: '#bcdcf2',
@@ -701,59 +724,42 @@ function drawSouffleIcon(ctx) {
   }
 }
 
+/**
+ * Mel's Usual is Lemonade, Star Cake, and Egg (MEL_DISH) — reuses the
+ * actual drawLemonadeIcon/drawStarCakeIcon/drawEggIcon drawers (via
+ * drawIconAt, the same composition helper drawCoupleOrderIcon below also
+ * uses) side by side on a small plate, instead of a bespoke redrawn
+ * composite. The previous hand-drawn version's "Star Cake" slice used a
+ * plain white star accent — exactly the ambiguous choice
+ * drawStarCakeIcon's own doc comment already explains was rejected there
+ * (indistinguishable from plain Cake's icon at small size) — and a user
+ * report ("what is the pink triangle food picture") confirmed it read as
+ * unrecognizable here too. Reusing the same icons already shown in the
+ * Fridge/Cabinet panels fixes both problems at once.
+ */
 function drawMelsUsualIcon(ctx) {
-  drawRoundRect(ctx, 14, 62, 72, 10, 5, '#fdf1e4');
-  ctx.strokeStyle = '#c9a35a';
-  ctx.lineWidth = 2.5;
-  ctx.strokeRect(20, 34, 16, 30);
-  drawRoundRect(ctx, 21.5, 42, 13, 21, 2, '#e8b84b');
-  ctx.beginPath();
-  ctx.moveTo(28, 30);
-  ctx.lineTo(28, 38);
-  ctx.stroke();
-  ctx.fillStyle = '#f7b8cf';
-  ctx.beginPath();
-  ctx.moveTo(52, 62);
-  ctx.lineTo(66, 34);
-  ctx.lineTo(80, 62);
-  ctx.closePath();
-  ctx.fill();
-  drawStar(ctx, 66, 45, 5, 2, '#ffffff');
-  ctx.fillStyle = '#fdf1e4';
-  ctx.strokeStyle = '#e6d3b8';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.ellipse(45, 58, 7, 9, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = '#ffd23f';
-  ctx.beginPath();
-  ctx.arc(45, 58, 3.4, 0, Math.PI * 2);
-  ctx.fill();
+  drawRoundRect(ctx, 10, 62, 80, 10, 5, '#fdf1e4');
+  drawIconAt(ctx, 18, 50, 34, drawLemonadeIcon);
+  drawIconAt(ctx, 50, 50, 34, drawStarCakeIcon);
+  drawIconAt(ctx, 82, 50, 34, drawEggIcon);
 }
 
+/**
+ * Olive & Oliver's Order is Matcha + Cake (COUPLE_DISH) — reuses the
+ * exact same Matcha/Cake icons already shown in the Fridge/Cabinet
+ * panels (via drawIconAt, defined below), side by side on a small plate,
+ * rather than a bespoke redrawn composite. The previous hand-drawn
+ * version (two identical matcha rectangles plus a pink/green two-tone
+ * triangle found nowhere else in the game) read as an unrecognizable
+ * shape — a real user report ("i dont not understand this triangle food
+ * icon"). Reusing the same icons the player already knows from gathering
+ * ingredients directly fixes that: it's the same Matcha glass and the
+ * same Cake triangle, just smaller and side by side.
+ */
 function drawCoupleOrderIcon(ctx) {
   drawRoundRect(ctx, 10, 62, 80, 10, 5, '#fdf1e4');
-  ctx.strokeStyle = '#8a9a6e';
-  ctx.lineWidth = 2.2;
-  ctx.strokeRect(16, 36, 14, 26);
-  drawRoundRect(ctx, 17.5, 42, 11, 19, 2, '#7a8a5e');
-  ctx.strokeRect(38, 36, 14, 26);
-  drawRoundRect(ctx, 39.5, 42, 11, 19, 2, '#7a8a5e');
-  ctx.fillStyle = '#f7b8cf';
-  ctx.beginPath();
-  ctx.moveTo(58, 60);
-  ctx.lineTo(71, 32);
-  ctx.lineTo(84, 60);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = 'rgba(90,155,90,0.8)';
-  ctx.beginPath();
-  ctx.moveTo(58, 60);
-  ctx.lineTo(71, 32);
-  ctx.lineTo(71, 60);
-  ctx.closePath();
-  ctx.fill();
+  drawIconAt(ctx, 26, 50, 46, drawMatchaIcon);
+  drawIconAt(ctx, 74, 50, 46, drawCakeIcon);
 }
 
 /** Dish name -> icon drawer, one entry per RECIPE_BANDS/MEL_DISH/COUPLE_DISH name (rules.js). */
@@ -1040,35 +1046,33 @@ function drawPotatoIcon(ctx) {
   }
 }
 
-function drawStarCakeIcon(ctx) {
-  ctx.fillStyle = '#f7b8cf';
+/**
+ * A two-tier cake silhouette (base + a lighter frosting layer, with a
+ * drip line between them) — a real user report ("what is the pink
+ * triangle food picture," repeated even after Star Cake's icon was
+ * reused correctly elsewhere) showed the previous plain-triangle-wedge
+ * shape simply doesn't read as "cake" to a player at a glance — a
+ * triangle alone more commonly reads as a party hat or a warning sign.
+ * A stacked-rectangle cake silhouette is a much more standard, immediate
+ * "this is a cake" shape. `drawStarCakeIcon` below reuses this directly
+ * and only adds a star topper, so the two stay visually related (both
+ * "cake") while the topper is what tells them apart.
+ */
+function drawCakeIcon(ctx) {
+  drawRoundRect(ctx, 22, 52, 56, 24, 6, '#f7b8cf'); // base tier
+  drawRoundRect(ctx, 30, 34, 40, 20, 6, '#fdf1e4'); // frosting/top tier
+  ctx.strokeStyle = '#e0a8c0';
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(30, 75);
-  ctx.lineTo(50, 25);
-  ctx.lineTo(70, 75);
-  ctx.closePath();
-  ctx.fill();
-  // Gold, not white — a white star this small on pink was indistinguishable
-  // from plain Cake's icon (both read as an identical pink triangle) in a
-  // real render check; gold matches the egg yolk color and reads clearly
-  // even at a tiny size.
-  drawStar(ctx, 50, 48, 13, 5.5, '#ffd23f');
+  ctx.moveTo(32, 44);
+  ctx.lineTo(68, 44);
+  ctx.stroke();
 }
 
-function drawCakeIcon(ctx) {
-  ctx.fillStyle = '#f7b8cf';
-  ctx.beginPath();
-  ctx.moveTo(30, 75);
-  ctx.lineTo(50, 25);
-  ctx.lineTo(70, 75);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.moveTo(38, 60);
-  ctx.lineTo(62, 60);
-  ctx.stroke();
+/** Plain Cake, plus a gold star topper — the star (not the shape) is what marks this specifically as Star Cake. */
+function drawStarCakeIcon(ctx) {
+  drawCakeIcon(ctx);
+  drawStar(ctx, 50, 20, 9, 4, '#ffd23f');
 }
 
 /** Raw ingredient name -> icon drawer, one entry per FRIDGE_INGREDIENTS/CABINET_INGREDIENTS name (rules.js). */
@@ -1291,9 +1295,9 @@ function drawMel(ctx, x, y, scale) {
  *   fullscreenButton              — toggles Fullscreen API on the game container.
  *   roomButton (optional)         — instant Dining/Kitchen room switch shortcut; label/aria-pressed follow the current room.
  *   recipeBookButton              — opens the recipe book (see below); available before and during a shift.
- *   recipeBook: { root, list, closeButton } — a static reference list of every known dish, rendered once.
+ *   recipeBook: { root, list, closeButton } — a static reference list of every known dish, rendered once. `root` also closes on a backdrop click (v3.24), same as closeButton.
  *   cookGauge: { root, button }   — the cook-timing mini-game's click-to-sample overlay.
- *   stationPanel: { root, title, list, closeButton } — fridge/cabinet/cookware-closet's browsable item picker.
+ *   stationPanel: { root, title, list, closeButton } — fridge/cabinet/cookware-closet's browsable item picker. `root` also closes on a backdrop click (v3.24), same as closeButton.
  *   startScreen: { root, gard, bestMonth, level (optional), storageNotice (optional), shiftButton, shopButton (optional) }
  *   paycheckScreen: {
  *     root, title, outcome, shiftTotal, monthTotal,
@@ -1564,9 +1568,32 @@ export function init(canvas, elements) {
       const button = document.createElement('button');
       button.type = 'button';
       const owned = activePanel === 'cookware' && cookware.has(item);
-      button.textContent = owned ? `${item} ✓` : item;
-      button.className = 'w-full rounded-card border border-line bg-surface px-3 py-2 text-left text-sm text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50';
+      button.className = 'flex w-full items-center gap-2 rounded-card border border-line bg-surface px-3 py-2 text-left text-sm text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50';
       if (owned) button.disabled = true;
+
+      // Fridge/Cabinet items reuse the same canvas-drawn icons already used
+      // on the tray/order bubble (this project has no image-generation
+      // tooling, so every icon is a procedural drawer taking a plain 2D
+      // context — a small offscreen <canvas> works just as well as the
+      // main game canvas). Cookware Closet items have no icon drawer yet,
+      // so they fall back to text-only, same as before.
+      const drawer = INGREDIENT_ICON_DRAWERS[item];
+      if (drawer) {
+        // Bumped up from an initial 24px (reported "too small... hard to
+        // see") to 44px — big enough to actually read the icon's shape at
+        // a glance, not just register as a colored dot.
+        const iconCanvas = document.createElement('canvas');
+        iconCanvas.width = 44;
+        iconCanvas.height = 44;
+        iconCanvas.className = 'shrink-0';
+        drawIngredientIcon(iconCanvas.getContext('2d'), 22, 22, item, 40);
+        button.appendChild(iconCanvas);
+      }
+
+      const label = document.createElement('span');
+      label.textContent = owned ? `${item} ✓` : item;
+      button.appendChild(label);
+
       button.addEventListener('click', () => {
         if (activePanel === 'cookware') pickCookware(item);
         else pickIngredient(item);
@@ -1838,6 +1865,33 @@ export function init(canvas, elements) {
     karen = null;
   }
 
+  // -- Customer sanity (v3.18) --------------------------------------------
+
+  /**
+   * Applies one annoyance to tableId's order via annoyCustomer, then reacts
+   * to whatever happened: if the order is still there afterward, re-shows
+   * the order bubble (the customer "repeats" their order) so the player
+   * gets a fresh reminder of what they ordered; if the order is now GONE
+   * (their sanity bottomed out and they walked out), applies the same
+   * Karen-ripple/Mel/couple cleanup the main loop's tick() already does for
+   * patience-timeout walkouts, so this event-driven walkout path isn't
+   * treated any differently from a time-driven one.
+   */
+  function annoyCustomerAt(tableId) {
+    const beforeOrder = shiftState.orders.find((o) => o.tableId === tableId);
+    if (!beforeOrder) return;
+    const dishName = beforeOrder.dishName;
+    shiftState = annoyCustomer(shiftState, tableId);
+    const stillHasOrder = shiftState.orders.some((o) => o.tableId === tableId);
+    if (stillHasOrder) {
+      orderBubble = { tableId, dishName, remaining: ORDER_BUBBLE_SECONDS };
+      return;
+    }
+    if (karen && karen.tableId === tableId) triggerKarenRipple();
+    if (mel && mel.tableId === tableId) mel = null;
+    if (couple && couple.tableId === tableId) couple = null;
+  }
+
   // -- Movement + station interaction --------------------------------
 
   // The canvas's own CSS layout box (getBoundingClientRect) isn't always
@@ -1908,6 +1962,28 @@ export function init(canvas, elements) {
   function onCanvasClick(e) {
     if (activePanel || recipeBookOpen || !running) return;
     const { x, y } = canvasCoordsFromEvent(e);
+
+    // v3.24: clicking directly on a food icon sitting on the tray removes
+    // it — checked before normal station targeting, since the tray icons
+    // are drawn on/around the player's own sprite and should win over
+    // whatever station happens to be nearby. Held-dish and raw-ingredient
+    // trays are mutually exclusive (drawPlayer never shows both at once),
+    // so at most one of these two checks can ever find a hit.
+    const pose = currentPlayerDrawPose();
+    const heldHit = heldDishIconHit(pose.x, pose.y, pose.bobOffset, heldDish);
+    if (heldHit && Math.abs(x - heldHit.x) <= heldHit.halfSize && Math.abs(y - heldHit.y) <= heldHit.halfSize) {
+      showToast(`Set down ${heldDish}`);
+      heldDish = null;
+      return;
+    }
+    const ingredientHit = trayIngredientIconHits(pose.x, pose.y, pose.bobOffset, inventory)
+      .find((hit) => Math.abs(x - hit.x) <= hit.halfSize && Math.abs(y - hit.y) <= hit.halfSize);
+    if (ingredientHit) {
+      showToast(`Removed ${ingredientHit.name}`);
+      inventory.splice(ingredientHit.index, 1);
+      return;
+    }
+
     const station = stationAtPoint(x, y, unlockedStations(stationsInRoom(stations, currentRoom), currentTableUnlockLevel()));
     commitStationTarget(station, { x, y });
   }
@@ -2015,8 +2091,17 @@ export function init(canvas, elements) {
         mel = null;
       }
       if (isCoupleTable) couple = null;
+      // v3.18: a wrong-dish serve doesn't just cost Gard/Reputation (above)
+      // — it also annoys the customer directly, on top of that. A correct
+      // serve never annoys them (their order is already gone via serveDish
+      // above, so annoyCustomerAt would only ever no-op there).
+      if (!matched) annoyCustomerAt(tableId);
     } else {
+      // v3.18: re-visiting a table whose order was already taken (not
+      // holding the matching dish) annoys the customer too — they have to
+      // repeat themselves.
       activeOrderTableId = tableId;
+      annoyCustomerAt(tableId);
     }
   }
 
@@ -2286,6 +2371,16 @@ export function init(canvas, elements) {
       const frac = Math.max(0, Math.min(1, order.patienceRemainingSeconds / order.patienceMaxSeconds));
       drawRoundRect(ctx, -16, -half - 14, 32, 4, 2, 'rgba(90,50,60,0.2)');
       drawRoundRect(ctx, -16, -half - 14, 32 * frac, 4, 2, frac > 0.3 ? '#7fd68a' : '#e06a5b');
+
+      // v3.18: customer sanity — separate from the time-based patience bar
+      // above, this drains only on an "annoyance" (re-visiting before
+      // serving, or a wrong-dish serve), not passively. A lavender/plum
+      // fill keeps it visually distinct from patience's green/red at a
+      // glance, in the same "coquette" pastel family as the rest of this
+      // game's palette.
+      const sanityFrac = Math.max(0, Math.min(1, order.customerSanityRemaining / CUSTOMER_SANITY_MAX));
+      drawRoundRect(ctx, -16, -half - 20, 32, 4, 2, 'rgba(120,80,140,0.2)');
+      drawRoundRect(ctx, -16, -half - 20, 32 * sanityFrac, 4, 2, '#c9a0dc');
     } else if (tableState.dirty) {
       ctx.fillStyle = '#c65f7c';
       ctx.font = 'bold 9px sans-serif';
@@ -2422,7 +2517,7 @@ export function init(canvas, elements) {
   const TRAY_RY = 7;
 
   function drawPlayerHolding(ctx, x, y, bobOffset) {
-    const s = 1.25; // matches drawPlayer's normal player scale
+    const { trayX, trayY, s } = drawPlayerHoldingPose(x, y, bobOffset);
     const bodyColor = '#6fa0d8';
     const pantsColor = '#3a4a5a';
 
@@ -2447,18 +2542,61 @@ export function init(canvas, elements) {
     // Lower than the tray's own radius alone would suggest — TRAY_RY is
     // big enough now that centering it higher (like the pre-v3.10, much
     // smaller tray did) let its top edge touch the bottom of the head.
-    const trayY = uy - 12 * s;
     ctx.fillStyle = '#fdf1e4';
     ctx.strokeStyle = '#e0c9a6';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.ellipse(x, trayY, TRAY_RX * s, TRAY_RY * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(trayX, trayY, TRAY_RX * s, TRAY_RY * s, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
     drawPersonHead(ctx, x, uy, s, { headColor: '#f4c99a', hairColor: '#3a2a1a', bowColor: '#ffffff', eyeColor: '#3a2a2a' });
 
-    return { trayX: x, trayY, s };
+    return { trayX, trayY, s };
+  }
+
+  /**
+   * The single held-dish icon's on-screen center/half-size for the given
+   * pose — the exact same math drawPlayerCarrying uses to draw it, shared
+   * so click hit-testing (v3.24: "clicking on the food icon on the tray
+   * should remove the food") can never drift from what's actually drawn.
+   * `null` when not holding a finished dish.
+   */
+  function heldDishIconHit(x, y, bobOffset, dishName) {
+    if (!dishName) return null;
+    const { trayX, trayY, s } = drawPlayerHoldingPose(x, y, bobOffset);
+    const size = 28 * s;
+    return { x: trayX, y: trayY - 3 * s, halfSize: size / 2 };
+  }
+
+  /**
+   * Every carried raw ingredient's on-screen center/half-size for the
+   * given pose, in the same stacked-tray layout
+   * drawPlayerCarryingIngredients draws — shared with click hit-testing
+   * for the same reason as heldDishIconHit above. Each entry also carries
+   * the ingredient's index into `items`, so a hit can be spliced out of
+   * `inventory` directly.
+   */
+  function trayIngredientIconHits(x, y, bobOffset, items) {
+    if (items.length === 0) return [];
+    const { trayX, trayY, s } = drawPlayerHoldingPose(x, y, bobOffset);
+    const perRow = items.length <= 3 ? items.length : Math.ceil(items.length / 2);
+    const iconSize = (items.length === 1 ? 26 : items.length <= 3 ? 20 : 16) * s;
+    const step = iconSize * 0.95;
+    return items.map((name, i) => {
+      const row = Math.floor(i / perRow);
+      const col = i % perRow;
+      const itemsInRow = Math.min(perRow, items.length - row * perRow);
+      const rowStartX = trayX - ((itemsInRow - 1) * step) / 2;
+      return { index: i, name, x: rowStartX + col * step, y: trayY - 3 * s - row * step, halfSize: iconSize / 2 };
+    });
+  }
+
+  /** Pure geometry half of drawPlayerHolding — just the trayX/trayY/s a given pose produces, without drawing anything. */
+  function drawPlayerHoldingPose(x, y, bobOffset) {
+    const s = 1.25;
+    const uy = y + bobOffset;
+    return { trayX: x, trayY: uy - 12 * s, s };
   }
 
   /**
@@ -2467,8 +2605,9 @@ export function init(canvas, elements) {
    * the only thing on the tray.
    */
   function drawPlayerCarrying(ctx, x, y, dishName, bobOffset) {
-    const { trayX, trayY, s } = drawPlayerHolding(ctx, x, y, bobOffset);
-    drawDishIcon(ctx, trayX, trayY - 3 * s, dishName, 28 * s);
+    drawPlayerHolding(ctx, x, y, bobOffset);
+    const hit = heldDishIconHit(x, y, bobOffset, dishName);
+    drawDishIcon(ctx, hit.x, hit.y, dishName, hit.halfSize * 2);
   }
 
   /**
@@ -2480,23 +2619,23 @@ export function init(canvas, elements) {
    * spilling off it, with icons shrinking a little as more items join.
    */
   function drawPlayerCarryingIngredients(ctx, x, y, items, bobOffset) {
-    const { trayX, trayY, s } = drawPlayerHolding(ctx, x, y, bobOffset);
-    const perRow = items.length <= 3 ? items.length : Math.ceil(items.length / 2);
-    const iconSize = (items.length === 1 ? 26 : items.length <= 3 ? 20 : 16) * s;
-    const step = iconSize * 0.95;
-    items.forEach((name, i) => {
-      const row = Math.floor(i / perRow);
-      const col = i % perRow;
-      const itemsInRow = Math.min(perRow, items.length - row * perRow);
-      const rowStartX = trayX - ((itemsInRow - 1) * step) / 2;
-      drawIngredientIcon(ctx, rowStartX + col * step, trayY - 3 * s - row * step, name, iconSize);
-    });
+    drawPlayerHolding(ctx, x, y, bobOffset);
+    for (const hit of trayIngredientIconHits(x, y, bobOffset, items)) {
+      drawIngredientIcon(ctx, hit.x, hit.y, hit.name, hit.halfSize * 2);
+    }
+  }
+
+  /** The player's current draw-time position/bob — shared by drawPlayer (rendering) and onCanvasClick's tray-icon hit-testing, so a click is tested against exactly what's on screen this frame. */
+  function currentPlayerDrawPose() {
+    return {
+      x: Math.round(player.x),
+      y: Math.round(player.y),
+      bobOffset: moveTarget ? Math.sin(carryBobPhase) * CARRY_BOB_AMPLITUDE : 0,
+    };
   }
 
   function drawPlayer() {
-    const x = Math.round(player.x);
-    const y = Math.round(player.y);
-    const bobOffset = moveTarget ? Math.sin(carryBobPhase) * CARRY_BOB_AMPLITUDE : 0;
+    const { x, y, bobOffset } = currentPlayerDrawPose();
 
     if (heldDish) {
       drawPlayerCarrying(ctx, x, y, heldDish, bobOffset);
@@ -2607,6 +2746,18 @@ export function init(canvas, elements) {
    * uses, since it's drawn independently of the station-render pass (after
    * drawPlayer, so the player sprite standing right at that table can
    * never cover it).
+   *
+   * v3.17: the user asked specifically for this moment's dish icon — the
+   * one visible right as the food server takes a customer's order — to
+   * read bigger, so `iconSize` grew (22 → 32) with the bubble/font/gap
+   * scaled up to match rather than the icon just overflowing a
+   * small-icon-sized bubble. Every other on-canvas dish icon (the tray,
+   * held-item badges) is untouched — only this order-taking bubble.
+   *
+   * v3.19: the dish-name text is gone — icon-only now, per the user's
+   * direct request ("remove the names from the customer order bubble") —
+   * and the icon grew again (40 → 56) so it reads clearly on its own
+   * without the name as a fallback.
    */
   function drawOrderBubble() {
     if (!orderBubble) return;
@@ -2615,16 +2766,28 @@ export function init(canvas, elements) {
 
     const x = station.x;
     const bubbleY = station.y - station.size / 2 - 46;
-    const iconSize = 22;
-    const text = orderBubble.dishName;
+    // v3.23: every food icon shown here is a uniform 24x24, per the
+    // user's explicit "all food icons 24x24" request. For a composite
+    // order (Mel's Usual, Olive & Oliver's — both "assembled from
+    // separate items," rules.js's MEL_DISH/COUPLE_DISH.ingredients) that
+    // means one full 24x24 icon PER INGREDIENT, side by side — squeezing
+    // 2-3 items into one icon-sized slot (the first version of this
+    // change) made them illegible, which is the opposite of the point.
+    const iconSize = 24;
+    const iconGap = 4;
+    const compositeIngredients = orderBubble.dishName === MEL_DISH.name
+      ? MEL_DISH.ingredients
+      : orderBubble.dishName === COUPLE_DISH.name
+        ? COUPLE_DISH.ingredients
+        : null;
+    const iconCount = compositeIngredients ? compositeIngredients.length : 1;
+    const contentWidth = iconCount * iconSize + (iconCount - 1) * iconGap;
 
     ctx.save();
-    ctx.font = 'bold 11px sans-serif';
-    const textWidth = ctx.measureText(text).width;
     const paddingX = 8;
-    const contentWidth = iconSize + 4 + textWidth;
+    const paddingY = 6;
     const bubbleW = contentWidth + paddingX * 2;
-    const bubbleH = 30;
+    const bubbleH = iconSize + paddingY * 2;
 
     ctx.fillStyle = 'rgba(255,251,246,0.95)';
     ctx.strokeStyle = '#e0a8c0';
@@ -2654,11 +2817,14 @@ export function init(canvas, elements) {
     ctx.fillStyle = 'rgba(255,251,246,0.95)';
     ctx.fillRect(x - 6, bubbleY + bubbleH / 2 - 2, 15, 3);
 
-    drawDishIcon(ctx, x - contentWidth / 2 + iconSize / 2, bubbleY, orderBubble.dishName, iconSize);
-    ctx.fillStyle = LABEL_TEXT_COLOR;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, x - contentWidth / 2 + iconSize + 4, bubbleY + 0.5);
+    if (compositeIngredients) {
+      const startX = x - contentWidth / 2 + iconSize / 2;
+      compositeIngredients.forEach((ingredientName, i) => {
+        drawIngredientIcon(ctx, startX + i * (iconSize + iconGap), bubbleY, ingredientName, iconSize);
+      });
+    } else {
+      drawDishIcon(ctx, x, bubbleY, orderBubble.dishName, iconSize);
+    }
     ctx.restore();
   }
 
@@ -2804,6 +2970,17 @@ export function init(canvas, elements) {
   elements.recipeBook.closeButton.addEventListener('click', closeRecipeBook);
   elements.cookGauge.button.addEventListener('click', sampleCookGauge);
   elements.stationPanel.closeButton.addEventListener('click', closePanel);
+  // v3.24: clicking the open backdrop area of a popup menu (outside its
+  // centered card) closes it automatically, same as clicking Close — the
+  // root element only ever receives a click event as its own `target`
+  // when the click didn't land on any of its children (the card and
+  // everything inside it), so this is a reliable "clicked outside" check.
+  elements.stationPanel.root.addEventListener('click', (e) => {
+    if (e.target === elements.stationPanel.root) closePanel();
+  });
+  elements.recipeBook.root.addEventListener('click', (e) => {
+    if (e.target === elements.recipeBook.root) closeRecipeBook();
+  });
 
   elements.startScreen.shiftButton.addEventListener('click', startShift);
   if (elements.startScreen.shopButton) elements.startScreen.shopButton.addEventListener('click', openShop);

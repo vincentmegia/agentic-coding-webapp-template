@@ -10,11 +10,13 @@ import {
   washDishes,
   shutDown,
   failOrderAt,
+  annoyCustomer,
   restoreSanity,
   SHIFT_CLOCK_SECONDS,
   SANITY_MAX,
   REPUTATION_MAX,
 } from './engine-state.js';
+import { CUSTOMER_SANITY_MAX, CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE } from './rules.js';
 
 const TABLE_IDS = [1, 2, 3, 4];
 
@@ -50,6 +52,12 @@ describe('addOrder', () => {
     const next = addOrder(state, 1, 'Burger', 45, 4);
     assert.equal(next.orders[0].patienceRemainingSeconds, 45);
     assert.equal(next.orders[0].patienceMaxSeconds, 45);
+  });
+
+  test('starts customerSanityRemaining at CUSTOMER_SANITY_MAX', () => {
+    const state = createInitialState(TABLE_IDS);
+    const next = addOrder(state, 1, 'Burger', 45, 4);
+    assert.equal(next.orders[0].customerSanityRemaining, CUSTOMER_SANITY_MAX);
   });
 
   test('is a no-op if the table is already occupied', () => {
@@ -127,6 +135,74 @@ describe('failOrderAt', () => {
     const next = failOrderAt(state, 1);
     assert.equal(next.orders.length, 1);
     assert.equal(next.orders[0].tableId, 2);
+  });
+});
+
+describe('annoyCustomer', () => {
+  test('drains customerSanityRemaining by CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE and leaves the order in place', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 999, 4);
+    const next = annoyCustomer(state, 1);
+    assert.equal(next.orders.length, 1);
+    assert.equal(next.orders[0].tableId, 1);
+    assert.equal(next.orders[0].customerSanityRemaining, CUSTOMER_SANITY_MAX - CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE);
+    assert.equal(next.tables[1].occupied, true);
+    // A single annoyance (with sanity remaining above 0) is not itself a mistake.
+    assert.equal(next.shiftUpset, false);
+    assert.equal(next.mistakeCount, 0);
+  });
+
+  test('four annoyances in a row bottom out sanity and fail the order exactly like failOrderAt', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 999, 4);
+    const expectedHits = Math.ceil(CUSTOMER_SANITY_MAX / CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE);
+    assert.equal(expectedHits, 4, 'sanity/drain constants changed — update this test\'s expectations');
+
+    for (let i = 0; i < expectedHits - 1; i++) {
+      state = annoyCustomer(state, 1);
+      assert.equal(state.orders.length, 1, `order should still be active after annoyance ${i + 1}`);
+      assert.equal(state.mistakeCount, 0);
+    }
+
+    const next = annoyCustomer(state, 1);
+    assert.equal(next.orders.length, 0);
+    assert.deepEqual(next.tables[1], { occupied: false, dirty: true });
+    assert.equal(next.shiftUpset, true);
+    assert.equal(next.mistakeCount, 1);
+    // Same drain amounts failOrderAt applies on its own — verified by
+    // comparing against a fresh failOrderAt call from the same pre-hit
+    // state, on a second table seeded identically.
+    let comparisonState = createInitialState(TABLE_IDS);
+    comparisonState = addOrder(comparisonState, 2, 'Burger', 999, 4);
+    const viaFailOrderAt = failOrderAt(comparisonState, 2);
+    assert.equal(next.sanity, viaFailOrderAt.sanity);
+    assert.equal(next.reputation, viaFailOrderAt.reputation);
+  });
+
+  test('is a no-op if there is no active order at that table', () => {
+    const state = createInitialState(TABLE_IDS);
+    const next = annoyCustomer(state, 1);
+    assert.deepEqual(next, state);
+  });
+
+  test('is a no-op once the shift has left playing', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 999, 4);
+    state = tick(state, SHIFT_CLOCK_SECONDS + 1);
+    const before = state;
+    const after = annoyCustomer(state, 2);
+    assert.deepEqual(after, before);
+  });
+
+  test('does not affect other tables\' orders or the shift clock', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 999, 4);
+    state = addOrder(state, 2, 'Pancakes', 999, 4);
+    const next = annoyCustomer(state, 1);
+    assert.equal(next.orders.length, 2);
+    const other = next.orders.find((o) => o.tableId === 2);
+    assert.equal(other.customerSanityRemaining, CUSTOMER_SANITY_MAX);
+    assert.equal(next.clockSeconds, state.clockSeconds);
   });
 });
 

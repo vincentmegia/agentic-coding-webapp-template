@@ -34,6 +34,9 @@ import {
   REPUTATION_DRAIN_PER_MISTAKE,
   clampReputation,
   patienceMultiplierForReputation,
+  CUSTOMER_SANITY_MAX,
+  CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE,
+  clampCustomerSanity,
   SHIFTS_PER_MONTH,
   ROUND_TIER_COUNT,
   ROUND_TIER_SHIFT_SPAN,
@@ -388,6 +391,23 @@ describe('patienceMultiplierForReputation', () => {
   test('four mistakes worth of drain reaches the floor', () => {
     const reputation = clampReputation(REPUTATION_MAX - 4 * REPUTATION_DRAIN_PER_MISTAKE);
     assert.equal(patienceMultiplierForReputation(reputation), 0.6);
+  });
+});
+
+describe('clampCustomerSanity', () => {
+  test('clamps into [0, CUSTOMER_SANITY_MAX]', () => {
+    assert.equal(clampCustomerSanity(-10), 0);
+    assert.equal(clampCustomerSanity(CUSTOMER_SANITY_MAX + 10), CUSTOMER_SANITY_MAX);
+    assert.equal(clampCustomerSanity(50), 50);
+  });
+
+  test('non-finite input clamps to 0', () => {
+    assert.equal(clampCustomerSanity(NaN), 0);
+    assert.equal(clampCustomerSanity(undefined), 0);
+  });
+
+  test('four annoyances worth of drain bottoms it out exactly at 0', () => {
+    assert.equal(clampCustomerSanity(CUSTOMER_SANITY_MAX - 4 * CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE), 0);
   });
 });
 

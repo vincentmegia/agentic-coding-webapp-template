@@ -55,6 +55,46 @@ directly below the Sanity bar it's visually paired with, same treatment
 — and reflected in the paycheck screen's outcome line (food-server doc's
 Shift paycheck rule).
 
+## Per-customer sanity (v3.18)
+
+Reputation (above) is restaurant-wide; this is the per-*order* counterpart
+the user asked for next: "after a food server takes the order from the
+customer and click the customer, customer sanity will decrease and
+customer will tell the order again, if a food server serves wrong food,
+customer sanity points will decrease again and customer will repeat
+order again." Every order now carries its own `customerSanityRemaining`
+(`engine-state.js`'s `Order` shape; `rules.js`'s `CUSTOMER_SANITY_MAX` =
+100, starting full) — a *separate* stat from the time-based patience
+countdown, tracking how many times this specific customer has had to
+repeat themselves.
+
+Two things "annoy" a customer, each draining
+`CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE` (25 — the same 4-hits-to-bottom-out
+shape as reputation's own drain) via `engine-state.js`'s
+`annoyCustomer(state, tableId)`:
+
+* The food server re-visiting an already-ordered table before serving it
+  (walking up without holding a dish) — a deliberate re-check that costs
+  the customer's patience for being asked to repeat themselves.
+* Serving the wrong dish — *additional* to that mistake's existing
+  consequences (mistakeCount, player Sanity, Reputation, all unchanged —
+  see above), not a replacement for them. A customer's own sanity hitting
+  0 on a wrong serve is a second, separate consequence layered on top of
+  the immediate one.
+
+Either way, if sanity survives the hit, the order bubble re-shows their
+dish (as its icon — v3.19 dropped the bubble's text name entirely,
+icon-only now, see the main doc's changelog) via `cooking-game.js`'s
+`annoyCustomerAt` — the customer "repeats" their order — and a second
+small on-canvas bar
+(`#c9a0dc`, lavender, stacked just above the existing patience bar)
+reflects the new `customerSanityRemaining` fraction. If it bottoms out,
+`annoyCustomer` delegates straight to the existing `failOrderAt` — the
+customer walks out exactly like a patience timeout does (order removed,
+table freed dirty, `shiftUpset` latched, `mistakeCount`/player
+Sanity/Reputation all drained), including the same Karen-ripple/Mel/
+couple cleanup a time-based walkout already gets.
+
 ## Karen, Mel, and Olive & Oliver
 
 Three named customers layered on top of the normal random-arrival pool
