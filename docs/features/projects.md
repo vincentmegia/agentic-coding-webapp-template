@@ -159,7 +159,7 @@ the two.
   | `External` | Label | Behavior |
   | --- | --- | --- |
   | `true` | "Live demo" | `target="_blank" rel="noopener noreferrer"`, inline external-link icon, `text-primary` — the original design's only case; not currently exercised by any entry in `projectItems`. |
-  | `false` (default/zero value) | "Play now" | `hx-get="{{.LiveURL}}" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#nav-loading" data-nav-link`, same tab, same swap mechanism `#primary-nav`'s links already use (`components/header.html`), `text-primary`, with a play-triangle icon instead of the external-link icon — the Fishing Game card's case, the only entry currently exercising this branch. |
+  | `false` (default/zero value) | "Play now" | `hx-get="{{.LiveURL}}" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#nav-loading" data-nav-link`, same tab, same swap mechanism `#primary-nav`'s links already use (`components/header.html`), `text-primary`, with a play-triangle icon instead of the external-link icon — both current entries (Fishing Game, Kitchen Shift) take this branch; neither sets `External: true`. |
 
 ---
 
@@ -263,22 +263,32 @@ type Project struct {
 }
 ```
 
-The one current entry (`internal/handler/pages.go`'s `projectItems`): the
-Fishing Game — `LiveURL: "/fishing-game"`, `External: false` (so it renders
-the "Play now" link), tags `Go`/`Canvas`/`PostgreSQL`, `TagTint: "accent"`,
-`ImagePath: "/static/images/fishing/screenshot.png"` — a real screenshot,
-captured live (Playwright, clipped to the canvas at 16:10 mid-round: boat,
-line, a fish, and a jellyfish hazard), not AI-generated or hand-drawn; see
-Visual Direction. `projectItems` originally also had four fictional sample
-projects (Fieldnotes/Tidewatch/Loom UI/Nightlight, the pulled-in design
-mockup's own placeholder content); they were removed once the Fishing Game
-gave the page a real entry, rather than left in place — see Open
-Questions. The landing page's "Selected work" section
-(`SelectedWorkItem`, `docs/features/landing-page.md`) is separate data
-that originally used three of the same fictional names as its own
-placeholder content, and was trimmed to the same single Fishing Game
-entry at the same time, so the two sections never show different projects
-from each other.
+The two current entries (`internal/handler/pages.go`'s `projectItems`):
+
+* The **Fishing Game** — `LiveURL: "/fishing-game"`, `External: false` (so
+  it renders the "Play now" link), tags `Go`/`Canvas`/`PostgreSQL`,
+  `TagTint: "accent"`, `ImagePath: "/static/images/fishing/screenshot.png"`
+  — a real screenshot, captured live (Playwright, clipped to the canvas at
+  16:10 mid-round: boat, line, a fish, and a jellyfish hazard), not
+  AI-generated or hand-drawn; see Visual Direction.
+* **Kitchen Shift** — `LiveURL: "/kitchen-shift"`, `External: false`, same
+  `Go`/`Canvas`/`PostgreSQL` tags but `TagTint: "primary"` (visually
+  distinct from the Fishing Game's `"accent"` tint), `ImagePath:
+  "/static/images/cooking/screenshot.png"` — likewise a real live
+  screenshot, added once that game shipped (`docs/features/cooking-game.md`'s
+  Out of scope note), not bundled into the same pass as its own feature.
+
+`projectItems` originally also had four fictional sample projects
+(Fieldnotes/Tidewatch/Loom UI/Nightlight, the pulled-in design mockup's own
+placeholder content); they were removed once the Fishing Game gave the page
+a real entry, rather than left in place — see Open Questions. The landing
+page's "Selected work" section (`SelectedWorkItem`,
+`docs/features/landing-page.md`) is separate data that originally used
+three of the same fictional names as its own placeholder content, and was
+trimmed to the same single Fishing Game entry at the same time; it later
+picked up a matching Kitchen Shift entry too (same Title/Description text
+as its `projectItems` counterpart, kept in sync deliberately), so the two
+sections still never show different projects from each other.
 
 ---
 
@@ -332,10 +342,10 @@ from each other.
 
 ## Testing Plan
 
-* [x] `GET /projects` renders the Fishing Game card with correct title,
-      description, and tag pills — `e2e/projects.spec.js`'s `PROJECTS`
-      fixture and `cards.toHaveCount(PROJECTS.length)` assertion cover the
-      current single-card grid.
+* [x] `GET /projects` renders each card (Fishing Game, Kitchen Shift) with
+      correct title, description, and tag pills — `e2e/projects.spec.js`'s
+      `PROJECTS` fixture (both entries) and `cards.toHaveCount(PROJECTS.length)`
+      assertion cover the current two-card grid.
 * [ ] A card with `ImagePath` set renders a real `<img>`; a card without it
       renders the "Screenshot coming soon" placeholder tile — visually
       verified (the Fishing Game card now has `ImagePath` set and renders

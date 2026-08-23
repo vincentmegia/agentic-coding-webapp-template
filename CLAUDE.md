@@ -17,8 +17,8 @@ section, and its own URL (`/fishing-game`). The
 landing page (`/`) renders an image carousel below its hero (hand-authored
 placeholder illustrations — see `docs/features/landing-carousel.md`;
 automated test coverage for it is still pending), then a "Selected work"
-card grid — currently just the Fishing Game, clickable straight into the
-game (`docs/features/landing-page.md`). A
+card grid — now both Fishing Game and Kitchen Shift, each clickable
+straight into its game (`docs/features/landing-page.md`). A
 Fishing Game mini-game (canvas-based, Postgres-backed public leaderboard,
 gear upgrades via `localStorage`-persisted fishing tokens) is implemented
 and covered by tests at `/fishing-game` — see `docs/features/fishing-game.md`.
@@ -96,9 +96,10 @@ the mirror image of a paid customer's existing walk-to-the-Counter-and-
 leave animation.
 `/projects` now leads with two real cards
 — Fishing Game and Kitchen Shift, both linking straight into their games
-via "Play now" — but Kitchen Shift still isn't linked from the header nav
-or the landing page's "Selected work" section yet, same as the Fishing
-Game's own gradual nav rollout.
+via "Play now" — and the landing page's "Selected work" section now
+features both too, same cards/copy as `/projects`. Kitchen Shift still
+isn't linked from the header nav itself, same as the Fishing Game's own
+gradual nav rollout.
 The site's visual design system is "Organic" (warm cream ground,
 terracotta/sage accents, Caprasimo + Figtree), pulled in from a
 claude.ai/design project and adapted into Tailwind tokens — see

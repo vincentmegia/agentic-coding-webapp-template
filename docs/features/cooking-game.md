@@ -1109,9 +1109,12 @@ second data point for that pattern rather than a reskin of the first game.
   reachable only at its own URL first, then got a `/projects` card and a
   landing "Selected work" card in separate follow-up passes (see that
   feature's Status note and this repo's commit history) — this feature
-  follows the same order. `/kitchen-shift` is fully playable via direct URL
-  from v1; wiring it into nav/projects/landing is a likely fast-follow, not
-  bundled into this doc.
+  followed the same order: `/kitchen-shift` was playable via direct URL
+  only at v1, then (as anticipated here) picked up its own `/projects`
+  card and landing "Selected work" card in later fast-follow passes — see
+  `docs/features/projects.md`/`docs/features/landing-page.md` and
+  `CLAUDE.md`'s Project status. Still not linked from the header nav
+  itself, same gradual rollout the Fishing Game's own nav link had.
 * Server-authoritative gameplay / real anti-cheat — same accepted limitation
   as the Fishing Game (Security Considerations below).
 * Visitor accounts, cross-device sync, or any server-side persistence of an

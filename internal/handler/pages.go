@@ -84,18 +84,27 @@ func (h *PagesHandler) Home(w http.ResponseWriter, r *http.Request) {
 }
 
 // selectedWorkItems is the hand-authored card list for the landing page's
-// "Selected work" section (docs/features/landing-page.md). Fishing Game is
-// the only entry, same as /projects' own projectItems (docs/features/
-// projects.md) — this teaser and the page its "See all projects" link
-// leads to always show the same real work, never a different set (see
-// SelectedWorkItem's doc comment for why the design mockup's three
-// fictional sample entries were removed).
+// "Selected work" section (docs/features/landing-page.md), same as
+// /projects' own projectItems (docs/features/projects.md) — this teaser and
+// the page its "See all projects" link leads to always show the same real
+// work, never a different set (see SelectedWorkItem's doc comment for why
+// the design mockup's three fictional sample entries were removed).
+// Kitchen Shift joined Fishing Game here once it had shipped and been
+// verified the same way Fishing Game was — each entry's Description is
+// copied verbatim from its projectItems counterpart below, same convention
+// Fishing Game's entry already used.
 var selectedWorkItems = []SelectedWorkItem{
 	{
 		Kicker:      "Game",
 		Title:       "Fishing Game",
 		Description: "A canvas arcade mini-game — cast a line, dive for fish, and dodge hazards on the way down, with a public leaderboard for the best runs.",
 		LiveURL:     "/fishing-game",
+	},
+	{
+		Kicker:      "Game",
+		Title:       "Kitchen Shift",
+		Description: "A top-down restaurant-shift sim — take orders, cook, and close up clean across a 30-shift month, with a public leaderboard for the best months.",
+		LiveURL:     "/kitchen-shift",
 	},
 }
 
