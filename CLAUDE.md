@@ -58,7 +58,25 @@ flat, canvas-drawn icon (no image assets/generation tooling exist in this
 project, so these are procedural, not real sprite art) rather than a plain
 text name; holding one puts the player in a carrying pose — arms bent
 around a tray, food icon(s) stacking directly onto it as ingredients are
-gathered — instead of the old floating text label.
+gathered — instead of the old floating text label. A correctly served
+customer now visibly eats at their table (a bobbing dish icon beside their
+head), then walks to the Counter, pauses to "pay," and leaves, crediting a
+small immediate Gard bonus (50, `COUNTER_PAYMENT_GARD`) on top of — not
+instead of — the unchanged end-of-shift paycheck; the eating and paying
+pauses are each randomized per customer so several served together don't
+move in lockstep. All six Kitchen-room stations (Fridge, Cabinet, Cookware
+Closet, Cleaning Closet, Stove, Oven) now have dedicated canvas-drawn
+sprites instead of a plain flat-colored box; fixed alongside that was a bug
+where arriving at the Stove/Oven after a customer's patience had already
+timed out mid-gather silently did nothing (now shows a toast). The
+Restroom, Duke's Office, and both room doors now have dedicated sprites
+too, and the Restroom moved from the Dining room's top-left corner to its
+bottom-right; also fixed was a bug where the Counter employee's own sprite
+had a stray line drawn across their face — redesigned as a solid
+counter-front panel sized from the employee's own torso-bottom so the
+face is always fully clear. The floor's "Entrance / Exit" marker is now an
+actual door sprite (open doorway, star lanterns, a welcome mat) instead of
+plain text.
 `/projects` now leads with two real cards
 — Fishing Game and Kitchen Shift, both linking straight into their games
 via "Play now" — but Kitchen Shift still isn't linked from the header nav

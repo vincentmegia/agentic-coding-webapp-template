@@ -103,6 +103,7 @@ import {
   customerPatienceSeconds,
   tableCapacity,
   shiftPaycheck,
+  COUNTER_PAYMENT_GARD,
   isKarenShift,
   inGameTimeLabel,
   SHIFTS_PER_MONTH,
@@ -286,7 +287,7 @@ function cleaningDurationForSave(save) {
 // ---------------------------------------------------------------------------
 // One-time intro (v3): the very first "Start Shift" ever clicked on this
 // device shows the player walking in from the entrance/exit (drawFloor's
-// "★ Entrance / Exit ★" marker) while a dialogue line displays, before
+// door sprite/"Entrance / Exit" caption, v3.32) while a dialogue line displays, before
 // normal play begins — never again after that, gated on the save's
 // `hasSeenIntro` flag (see loadSave/defaultSave above).
 // ---------------------------------------------------------------------------
@@ -366,6 +367,30 @@ const CARRY_BOB_AMPLITUDE = 3;
  * reported it disappeared too quickly to read comfortably.
  */
 const ORDER_BUBBLE_SECONDS = 5;
+
+/**
+ * v3.28: a served customer's eat-at-the-table → walk-to-counter → pay →
+ * leave animation (payingCustomers). v3.29: the eating pause and the
+ * paying pause are each randomized per customer (within these ranges,
+ * picked at spawn/arrival time — see spawnPayingCustomer/
+ * updatePayingCustomers) rather than fixed durations, so several
+ * customers served close together don't all eat/pay/leave in lockstep.
+ */
+const PAYING_CUSTOMER_WALK_SPEED = 130; // px/sec, while 'walking' or 'leaving'
+const CUSTOMER_EATING_SECONDS_MIN = 2.5;
+const CUSTOMER_EATING_SECONDS_MAX = 5.5;
+const PAYING_CUSTOMER_TRANSACTION_SECONDS_MIN = 0.8;
+const PAYING_CUSTOMER_TRANSACTION_SECONDS_MAX = 1.8;
+
+/**
+ * Random float in [min, max) — a top-level helper (unlike most randomness
+ * in this file, which goes through `init()`'s local `random` alias) since
+ * animation-timing jitter here has no gameplay-outcome stake worth routing
+ * through that alias.
+ */
+function randomBetween(min, max) {
+  return min + Math.random() * (max - min);
+}
 
 const STATION_COLORS = {
   fridge: '#bcdcf2',
@@ -1366,6 +1391,12 @@ export function init(canvas, elements) {
   let couple = null; // { tableId } while Olive & Oliver's order is live and unresolved this shift
   let coupleSpawnedThisShift = false; // they always arrive right after Mel every shift
   let orderBubble = null; // { tableId, dishName, remaining } — a brief speech bubble shown the moment an order is taken (v3.12)
+  // v3.28: independent of shiftState.orders/tables — a served customer is
+  // already cleared from the table (serveDish) the instant they're spawned
+  // here, so this is purely a cosmetic walk-to-counter-pay-leave animation
+  // layered on top, never blocking gameplay at the table itself. Each entry:
+  // { x, y, targetX, targetY, phase: 'walking'|'paying'|'leaving', elapsed, appearance }.
+  let payingCustomers = [];
   let timeSinceCustomerSpawn = 0;
   let running = false;
   let rafHandle = null;
@@ -1704,6 +1735,7 @@ export function init(canvas, elements) {
     rebuildStationsForCurrentTier();
     shiftState = createInitialState(TABLE_IDS, { clockSeconds: shiftClockSecondsForShift(currentShiftNumber) });
     pendingCustomers = {};
+    payingCustomers = [];
     karen = null;
     mel = null;
     couple = null;
@@ -1769,6 +1801,7 @@ export function init(canvas, elements) {
     updateRoomButton();
     moveTarget = null;
     pendingCustomers = {};
+    payingCustomers = [];
     inventory = [];
     cookware = new Set();
     heldDish = null;
@@ -2080,8 +2113,13 @@ export function init(canvas, elements) {
       const isMelTable = mel && mel.tableId === tableId;
       const isCoupleTable = couple && couple.tableId === tableId;
       const matched = order.dishName === heldDish;
+      const servedDish = heldDish;
       shiftState = serveDish(shiftState, tableId, heldDish);
       heldDish = null;
+      if (matched) {
+        const appearance = isKarenTable ? 'karen' : isMelTable ? 'mel' : isCoupleTable ? 'couple' : 'regular';
+        spawnPayingCustomer(tableId, appearance, servedDish);
+      }
       if (isKarenTable) {
         if (matched) karen = null;
         else triggerKarenRipple();
@@ -2105,6 +2143,125 @@ export function init(canvas, elements) {
     }
   }
 
+  /**
+   * v3.28: spawns an eat-at-the-table → walk-to-counter → pay → leave
+   * animation for a customer who was just correctly served (called from
+   * handleTableArrival's matched branch, right after serveDish — the
+   * table itself is already free by then). `appearance` picks which
+   * figure to draw at each step, `dishName` which icon they're eating.
+   * Gard is credited once, when the 'paying' phase completes (see
+   * updatePayingCustomers), not at spawn time. v3.29: `eatingDuration`
+   * is randomized here (picked once, up front) so simultaneously-served
+   * customers don't all finish eating in lockstep; `payingDuration` is
+   * randomized too, but picked lazily on arrival at the Counter (see
+   * updatePayingCustomers) since picking it this early would go stale if
+   * the entry sits in 'eating' for a while first.
+   */
+  function spawnPayingCustomer(tableId, appearance, dishName) {
+    const tableStation = stations.find((s) => s.kind === 'table' && s.tableId === tableId);
+    const counterStation = stations.find((s) => s.kind === 'counter');
+    if (!tableStation || !counterStation) return; // shouldn't happen — both always exist in ROOM_DINING
+    payingCustomers.push({
+      x: tableStation.x,
+      y: tableStation.y + tableStation.size / 2 + 8, // matches drawTableContents' seated position
+      targetX: counterStation.x,
+      targetY: counterStation.y,
+      phase: 'eating',
+      elapsed: 0,
+      eatingDuration: randomBetween(CUSTOMER_EATING_SECONDS_MIN, CUSTOMER_EATING_SECONDS_MAX),
+      payingDuration: null, // picked on arrival at the Counter, once 'walking' completes
+      appearance,
+      dishName,
+    });
+  }
+
+  function updatePayingCustomers(deltaSeconds) {
+    if (payingCustomers.length === 0) return;
+    const step = PAYING_CUSTOMER_WALK_SPEED * deltaSeconds;
+    payingCustomers = payingCustomers.filter((c) => {
+      if (c.phase === 'eating') {
+        c.elapsed += deltaSeconds;
+        if (c.elapsed >= c.eatingDuration) {
+          c.phase = 'walking';
+        }
+        return true;
+      }
+
+      if (c.phase === 'paying') {
+        c.elapsed += deltaSeconds;
+        if (c.elapsed >= c.payingDuration) {
+          save.monthToDateGard += COUNTER_PAYMENT_GARD;
+          persistSave(storageAvailable, save);
+          c.phase = 'leaving';
+          c.targetX = INTRO_ENTRANCE_POSITION.x;
+          c.targetY = INTRO_ENTRANCE_POSITION.y;
+        }
+        return true;
+      }
+
+      const dx = c.targetX - c.x;
+      const dy = c.targetY - c.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist <= step || dist === 0) {
+        c.x = c.targetX;
+        c.y = c.targetY;
+        if (c.phase === 'walking') {
+          c.phase = 'paying';
+          c.elapsed = 0;
+          c.payingDuration = randomBetween(PAYING_CUSTOMER_TRANSACTION_SECONDS_MIN, PAYING_CUSTOMER_TRANSACTION_SECONDS_MAX);
+          return true;
+        }
+        return false; // 'leaving' arrived at the exit — done
+      }
+      c.x += (dx / dist) * step;
+      c.y += (dy / dist) * step;
+      return true;
+    });
+  }
+
+  /**
+   * v3.29: a small dish icon bobbing between "plate" and "mouth" height,
+   * one bob per bite — reuses drawDishIcon (the same icon shown in the
+   * order bubble/tray) rather than a new asset, per this project's no-
+   * image-assets convention. Purely decorative: eatingDuration (how long
+   * this plays for) is already decided at spawn time regardless of bite
+   * count.
+   */
+  function drawEatingAnimation(c) {
+    const biteCycle = (c.elapsed % 0.6) / 0.6; // one bite every 0.6s
+    const bob = Math.sin(biteCycle * Math.PI); // 0 -> 1 -> 0 per bite
+    // Held up beside the head at roughly mouth height (drawPixelPerson's
+    // head center sits around y-32*scale) — a small, mostly-stationary
+    // bob reads as "taking a bite" much better than a long plate-to-mouth
+    // travel would on a figure this small (~50px tall).
+    const iconX = c.x + 10;
+    const iconY = c.y - 34 - bob * 4;
+    const iconSize = 13 + bob * 2;
+    drawDishIcon(ctx, iconX, iconY, c.dishName, iconSize);
+  }
+
+  function drawPayingCustomers() {
+    for (const c of payingCustomers) {
+      if (c.appearance === 'mel') {
+        drawMel(ctx, c.x, c.y, 1.05);
+      } else if (c.appearance === 'couple') {
+        drawPixelPerson(ctx, c.x - 12, c.y, { bodyColor: OLIVE_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#fdf1e4', hairColor: '#7a4a2e', bowColor: '#ffffff', scale: 0.85 });
+        drawPixelPerson(ctx, c.x + 12, c.y, { bodyColor: OLIVER_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#2c3140', hairColor: '#33261a', scale: 0.85 });
+      } else {
+        drawPixelPerson(ctx, c.x, c.y, {
+          bodyColor: c.appearance === 'karen' ? '#e88ba0' : '#f2c88a',
+          headColor: '#f6dcc0',
+          pantsColor: c.appearance === 'karen' ? '#2a2a2a' : '#5a3a22',
+          hairColor: c.appearance === 'karen' ? '#3a2a2a' : '#6b4a30',
+          bowColor: c.appearance === 'karen' ? '#2a2a2a' : null,
+          scale: 1.05,
+          marker: c.appearance === 'karen' ? '#ffe066' : null,
+        });
+      }
+      if (c.phase === 'eating') drawEatingAnimation(c);
+    }
+  }
+
   function handleGatherArrival(stationKind) {
     openPanel(stationKind === 'fridge' ? 'fridge' : 'cabinet');
   }
@@ -2116,7 +2273,19 @@ export function init(canvas, elements) {
     }
     const order = shiftState.orders.find((o) => o.tableId === activeOrderTableId);
     if (!order) {
+      // v3.30: this used to silently return — no toast, nothing on screen
+      // — which read as "the stove/oven does nothing" from the player's
+      // side. It fires whenever the tracked order resolved out from under
+      // them while they were still gathering (most often a patience
+      // timeout, engine-state.js's failOrderAt/tick): the order vanishes
+      // from shiftState.orders, but activeOrderTableId — a cooking-game.js
+      // closure variable tick() has no way to reach — keeps pointing at
+      // that now-gone order. Oven dishes (fridge + cabinet + cookware
+      // closet + oven, the longest gather chain) are the likeliest to
+      // still be mid-gather when a timeout lands, which is why this read
+      // as an oven-specific bug rather than the generic gap it actually is.
       activeOrderTableId = null;
+      showToast("That order's gone — take a new one first");
       return;
     }
     const dish = findDish(order.dishName);
@@ -2278,6 +2447,48 @@ export function init(canvas, elements) {
     { x: 480, y: 300 },
   ];
 
+  /**
+   * v3.32: "generate a door or sprite image for entrance and exit" — this
+   * spot used to be plain floor text ("★ Entrance / Exit ★", no graphic at
+   * all). Drawn directly in `drawFloor` (world coordinates, not a
+   * station's local translated space, since — per the comment below —
+   * this was deliberately never made a real clickable station) rather
+   * than through `drawStation`. Sits on the room's bottom "wall", centered
+   * on `INTRO_ENTRANCE_POSITION.x` (650) — the exact spot the one-time
+   * walk-in intro and every departing paid customer (`payingCustomers`'
+   * 'leaving' phase) already walk to/from, so the graphic now visually
+   * explains why characters converge there. Same canvas-primitives-only
+   * convention as every other sprite in this file.
+   */
+  function drawEntranceDoor() {
+    const doorX = 650;
+    const doorTop = 508;
+    const doorHalfWidth = 30;
+    const doorHeight = 62;
+
+    // Frame: a warm wood arch, slightly darker than the counter-front
+    // panel's tone so it reads as a distinct fixture against the floor.
+    drawRoundRect(ctx, doorX - doorHalfWidth, doorTop, doorHalfWidth * 2, doorHeight, 10, '#8a6a4a');
+    // Open doorway showing warm light from outside — brighter near the
+    // top, like daylight/porch light spilling in, built from two layered
+    // fills rather than a canvas gradient (kept simple, same spirit as
+    // every other flat-shaded icon here).
+    drawRoundRect(ctx, doorX - doorHalfWidth + 6, doorTop + 6, doorHalfWidth * 2 - 12, doorHeight - 12, 6, '#ffdf95');
+    drawRoundRect(ctx, doorX - doorHalfWidth + 6, doorTop + 6, doorHalfWidth * 2 - 12, (doorHeight - 12) * 0.45, 6, '#fff3d6');
+    // The door itself, propped open against the right side of the frame.
+    drawRoundRect(ctx, doorX + doorHalfWidth - 13, doorTop + 6, 9, doorHeight - 12, 3, '#5a3a22');
+    ctx.fillStyle = '#3a2a1a';
+    ctx.beginPath();
+    ctx.arc(doorX + doorHalfWidth - 16, doorTop + doorHeight / 2, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    // A small star lantern above the frame and a welcome mat below it —
+    // the restaurant's existing star theme, either side of the doorway.
+    drawStar(ctx, doorX - doorHalfWidth - 6, doorTop + 4, 6, 2.5, '#f2d98a');
+    drawStar(ctx, doorX + doorHalfWidth + 6, doorTop + 4, 6, 2.5, '#f2d98a');
+    drawRoundRect(ctx, doorX - doorHalfWidth - 6, doorTop + doorHeight, doorHalfWidth * 2 + 12, 9, 4, '#c65f7c');
+    drawStar(ctx, doorX, doorTop + doorHeight + 4.5, 4, 1.8, '#fdf1e4');
+  }
+
   function drawFloor() {
     drawPixelRect(ctx, 0, 0, world.width, world.height, FLOOR_COLOR);
     for (let x = 0; x < world.width; x += FLOOR_TILE_SIZE) {
@@ -2291,16 +2502,17 @@ export function init(canvas, elements) {
       drawStar(ctx, p.x, p.y, 10, 4, 'rgba(255,255,255,0.35)');
     }
 
-    // The star-themed sign and the entrance/exit marker only make sense in
+    // The star-themed sign and the entrance/exit door only make sense in
     // the Dining room (the Kitchen has no entrance/exit of its own — its
-    // only way out is the dining-door station) — both purely decorative
-    // text, not interactive stations (the user asked "where is the
-    // entrance/exit" — this answers it directly rather than adding a new
-    // clickable station for something with no separate mechanic). Stations
-    // draw on top of the floor, so the sign must sit somewhere no station
-    // box or label chip ever occupies — Duke's Office (x 445-515) owns the
-    // top-center column including its label chip below it, so the sign is
-    // offset well clear of that column instead of centered on it.
+    // only way out is the dining-door station) — the door is purely
+    // decorative, not an interactive station (the user originally asked
+    // "where is the entrance/exit" — this answers it directly rather than
+    // adding a new clickable station for something with no separate
+    // mechanic). Stations draw on top of the floor, so the sign must sit
+    // somewhere no station box or label chip ever occupies — Duke's
+    // Office (x 445-515) owns the top-center column including its label
+    // chip below it, so the sign is offset well clear of that column
+    // instead of centered on it.
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2309,11 +2521,10 @@ export function init(canvas, elements) {
       ctx.font = 'bold 13px sans-serif';
       ctx.fillText('✨ Startime Diner ✨', 240, 18);
 
-      // Placed clear of the counter/coffee-machine boxes that already
-      // occupy the rest of the bottom row.
-      ctx.fillStyle = 'rgba(198,95,124,0.6)';
+      drawEntranceDoor();
+      ctx.fillStyle = 'rgba(198,95,124,0.7)';
       ctx.font = '10px sans-serif';
-      ctx.fillText('★ Entrance / Exit ★', 650, world.height - 10);
+      ctx.fillText('Entrance / Exit', 650, world.height - 8);
     } else {
       ctx.fillStyle = '#c65f7c';
       ctx.font = 'bold 13px sans-serif';
@@ -2413,6 +2624,342 @@ export function init(canvas, elements) {
     ctx.fillText(text, cx, cy + 0.5);
   }
 
+  /**
+   * v3.26: the user asked to "improve the sprites" for the Counter and
+   * Coffee Machine, which previously drew as a plain flat-colored box
+   * (counter) or a plain flat-colored box with one decorative stripe
+   * (coffee machine) — the least detailed stations in the room. Both are
+   * drawn in the station's own local coordinate space (already
+   * translated/centered by `drawStation`), same convention as every
+   * other on-canvas icon in this file — no image assets, only canvas
+   * primitives.
+   *
+   * v3.27: the employee previously stood at `-half - 45`, entirely above
+   * and outside the box — a floating figure with a visible gap. v3.27
+   * fixed that by drawing them small and inside the box, with a thin
+   * "counter-top ledge" strip drawn *after* them meant to occlude just
+   * their lower torso. v3.31: that thin ledge (9px, positioned by eye
+   * rather than checked against the person's actual geometry) landed
+   * squarely across their *face* instead — `drawPixelPerson`'s head
+   * center sits at `y - 32*scale`, and the old ledge band overlapped
+   * nearly the whole face circle, exactly the "dashed line across the
+   * face" the user reported. Redesigned from the geometry up: the
+   * employee's own torso-bottom (`y - 4*scale`, computed directly from
+   * the same waist/scale values passed to `drawPixelPerson` below, not
+   * eyeballed) is now the *exact* top edge of a solid counter-front
+   * panel — full head, neck, and shoulders always clear above it, legs
+   * always fully hidden behind it, no band ever crosses the face.
+   */
+  function drawCounterDetail(half) {
+    const waistY = -half + 22;
+    const scale = 0.5;
+    // Employee first, fully visible — the front panel (drawn next) is
+    // sized to start exactly at their torso-bottom, below.
+    drawPixelPerson(ctx, 0, waistY, {
+      bodyColor: '#e8b95a', // apron, matching the counter-front accent color
+      headColor: '#f4c99a',
+      pantsColor: '#5a3a22',
+      hairColor: '#3a2a1a',
+      bowColor: '#ffffff', // a small collar/pin accent
+      scale,
+    });
+
+    // Solid counter-front panel: starts exactly at the employee's own
+    // torso-bottom (drawPixelPerson's y - 4*scale) so it never climbs
+    // higher than their waist, and always fully hides their legs.
+    const panelTop = waistY - 4 * scale;
+    drawRoundRect(ctx, -half, panelTop, half * 2, half - panelTop, 6, '#d99a5c');
+    // A lighter countertop-surface highlight along the panel's top edge.
+    drawRoundRect(ctx, -half, panelTop, half * 2, 5, 3, '#f7e3b0');
+    // A small register on the panel: body + screen + a bell on top.
+    drawRoundRect(ctx, -12, panelTop + 14, 24, 16, 3, '#8a6a4a');
+    drawRoundRect(ctx, -9, panelTop + 17, 18, 8, 2, '#bcdcf2');
+    ctx.fillStyle = '#e0a85a';
+    ctx.beginPath();
+    ctx.arc(10, panelTop + 11, 4, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(8, panelTop + 11, 4, 3);
+  }
+
+  function drawCoffeeMachineDetail(half) {
+    // Darker machine-body panel, inset from the outer box.
+    drawRoundRect(ctx, -half + 7, -half + 5, half * 2 - 14, half * 1.1, 6, '#7a5a42');
+    // Group head + spout the portafilter/cup sits under.
+    drawRoundRect(ctx, -7, -half + 12, 14, 7, 2, '#5a4230');
+    ctx.fillStyle = '#5a4230';
+    ctx.fillRect(-2, -half + 18, 4, 9);
+    // Two small control buttons.
+    ctx.fillStyle = '#e8b95a';
+    ctx.beginPath();
+    ctx.arc(-half + 15, -half + 13, 2.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(half - 15, -half + 13, 2.3, 0, Math.PI * 2);
+    ctx.fill();
+    // A cup on a saucer at the base, catching the spout.
+    drawRoundRect(ctx, -10, half - 15, 20, 4, 2, '#fdf1e4');
+    drawRoundRect(ctx, -7, half - 20, 14, 8, 2, '#6a4a30');
+    ctx.strokeStyle = '#6a4a30';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(8, half - 16, 3, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+    // Steam wisps above the cup.
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.5;
+    for (const dx of [-3, 3]) {
+      ctx.beginPath();
+      ctx.moveTo(dx, half - 23);
+      ctx.quadraticCurveTo(dx - 3, half - 29, dx, half - 35);
+      ctx.stroke();
+    }
+  }
+
+  /**
+   * v3.30: "generate kitchen utility sprites" — the six Kitchen-room
+   * stations (fridge, cabinet, cookware closet, cleaning closet, stove,
+   * oven) previously drew as a plain flat-colored box (fridge/cabinet/
+   * cookware-closet/cleaning-closet: box + the generic door knob every
+   * DOOR_KINDS station gets; stove/oven: box and nothing else at all) —
+   * the same "least detailed stations" gap the Counter/Coffee Machine
+   * were in before v3.26. Same conventions as those: drawn in the
+   * station's own local coordinate space, canvas primitives only (no
+   * image assets/generation tooling in this project).
+   *
+   * fridge/cabinet/cookware-closet/cleaning-closet are DOOR_KINDS
+   * stations (drawStation's shared open-inset+knob logic still applies
+   * to them) — these four detail drawers are called *before* that shared
+   * logic runs, so the knob/open-panel still reads on top, same layering
+   * `drawCounterDetail` uses for the counter employee vs. the counter-
+   * front panel. stove/oven are not DOOR_KINDS (nothing to interact with
+   * beyond the cook mini-game), so they get their own top-level branch,
+   * same as counter/coffee-machine. v3.31 extended this same pattern to
+   * the remaining DOOR_KINDS stations (toilet, boss-office, both doors) —
+   * see DOOR_KIND_DETAIL_DRAWERS below.
+   */
+  function drawFridgeDetail(half) {
+    // A horizontal seam splitting a small top freezer section from the
+    // larger fridge-body section below, each with its own vertical handle
+    // bar — the shared door knob (drawn after this) still lands on the
+    // lower/bigger section, roughly where its handle bar ends.
+    ctx.strokeStyle = 'rgba(90,50,60,0.25)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-half + 6, -half + 20);
+    ctx.lineTo(half - 6, -half + 20);
+    ctx.stroke();
+    drawRoundRect(ctx, half - 13, -half + 8, 3, 9, 1.5, 'rgba(90,50,60,0.3)');
+  }
+
+  function drawCabinetDetail(half) {
+    // Two wood-panel cabinet doors: a center seam plus a shallow inset
+    // rectangle on each half suggesting a raised panel look.
+    ctx.strokeStyle = 'rgba(90,50,60,0.25)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, -half + 6);
+    ctx.lineTo(0, half - 6);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(90,50,60,0.18)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-half + 10, -half + 10, half - 16, half * 2 - 20);
+    ctx.strokeRect(6, -half + 10, half - 16, half * 2 - 20);
+  }
+
+  function drawCookwareClosetDetail(half) {
+    // An open shelf holding a pot and a pan — the shared door knob still
+    // draws after this, on the right edge, clear of both.
+    drawRoundRect(ctx, -half + 6, 6, half * 2 - 20, 3, 1.5, 'rgba(90,50,60,0.3)'); // shelf
+    // Pot: body + two side-handle nubs flush against its edges + a
+    // top-center lid knob — kept on the closet's left side, clear of the
+    // shared door knob that draws after this on the right edge.
+    const potLeft = -half + 10;
+    const potWidth = 18;
+    const potTop = -14;
+    drawRoundRect(ctx, potLeft, potTop, potWidth, 16, 4, '#8a6a4a');
+    ctx.fillStyle = '#8a6a4a';
+    ctx.fillRect(potLeft - 3, potTop + 4, 3, 5);
+    ctx.fillRect(potLeft + potWidth, potTop + 4, 3, 5);
+    ctx.beginPath();
+    ctx.arc(potLeft + potWidth / 2, potTop - 2, 2.3, 0, Math.PI * 2);
+    ctx.fill();
+    // Pan: a circle with a handle stick, to the right of the pot.
+    ctx.fillStyle = '#6a4a30';
+    ctx.beginPath();
+    ctx.arc(15, -6, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(21, -8, 10, 3.5);
+  }
+
+  function drawCleaningClosetDetail(half) {
+    // A mop (stick + fan-shaped head) and a small bucket beside it, kept
+    // off-center/toward the top — drawStation draws the dirty-dish count
+    // dead center over this, once shiftState.dirtyDishCount > 0.
+    ctx.strokeStyle = '#a68a6a';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-10, -half + 8);
+    ctx.lineTo(-10, half - 16);
+    ctx.stroke();
+    ctx.strokeStyle = '#c9b896';
+    ctx.lineWidth = 2;
+    for (const dx of [-16, -10, -4]) {
+      ctx.beginPath();
+      ctx.moveTo(-10, half - 18);
+      ctx.lineTo(dx, half - 6);
+      ctx.stroke();
+    }
+    // Bucket: a trapezoid with a small handle arc.
+    ctx.fillStyle = '#8fbfae';
+    ctx.beginPath();
+    ctx.moveTo(4, half - 20);
+    ctx.lineTo(24, half - 20);
+    ctx.lineTo(21, half - 6);
+    ctx.lineTo(7, half - 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#6a9a88';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(14, half - 24, 8, Math.PI, 0);
+    ctx.stroke();
+  }
+
+  function drawStoveDetail(half) {
+    // Two burners on the cooktop, plus a small control-knob row along the
+    // front edge — no door/knob on this station (not a DOOR_KINDS kind).
+    ctx.strokeStyle = 'rgba(90,50,60,0.35)';
+    ctx.lineWidth = 2;
+    for (const [dx, dy] of [[-11, -10], [11, -10], [-11, 8], [11, 8]]) {
+      ctx.beginPath();
+      ctx.arc(dx, dy, 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(dx, dy, 2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(90,50,60,0.35)';
+      ctx.fill();
+    }
+    ctx.fillStyle = '#8a6a4a';
+    drawRoundRect(ctx, -half + 6, half - 12, half * 2 - 12, 4, 2, '#8a6a4a');
+    ctx.fillStyle = '#e8b95a';
+    for (const dx of [-half + 14, -half + 24, -half + 34]) {
+      ctx.beginPath();
+      ctx.arc(dx, half - 10, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawOvenDetail(half) {
+    // A small control panel (three knobs), a clear gap, a horizontal
+    // handle bar, then the door itself with a centered window "glow" —
+    // each element given its own band so they read as distinct parts
+    // rather than merging together at this box's small (70px) scale.
+    ctx.fillStyle = '#e8b95a';
+    for (const dx of [-12, 0, 12]) {
+      ctx.beginPath();
+      ctx.arc(dx, -half + 8, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawRoundRect(ctx, -half + 8, -half + 15, half * 2 - 16, 3, 1.5, '#7a5a4a'); // handle bar
+    // Door: an inset panel with a rounded window showing a warm "glow".
+    drawRoundRect(ctx, -half + 6, -half + 21, half * 2 - 12, half - 27, 5, '#c97a6a');
+    ctx.fillStyle = '#f7d9a0';
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 13, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#8a5a4a';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 13, 10, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  /**
+   * v3.31: "generate new sprites for restroom... change the sprite for
+   * Duke's office too and kitchen" — the remaining four `DOOR_KINDS`
+   * stations (toilet, boss-office, kitchen-door, dining-door) were the
+   * last ones still drawing as a plain flat-colored box + the generic
+   * door knob, no station-specific detail at all. Same conventions as
+   * every other detail drawer in this file.
+   */
+  function drawRestroomDetail(half) {
+    // A small WC silhouette — tank + bowl + seat-lid outline — plus a
+    // sparkle accent (this game's existing "clean/sparkly" motif, see
+    // drawStar's other call sites) rather than anything more literal.
+    drawRoundRect(ctx, -9, -half + 12, 18, 9, 3, '#eef6f8');
+    ctx.fillStyle = '#eef6f8';
+    ctx.beginPath();
+    ctx.ellipse(0, half - 18, 13, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(90,50,60,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(0, half - 27, 10, 5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    drawStar(ctx, 13, -half + 8, 5, 2.2, '#f2d98a');
+  }
+
+  function drawBossOfficeDetail(half) {
+    // A name plaque (two thin engraved-looking lines) near the top, a
+    // small "boss" star badge, and a briefcase below — Duke's office
+    // door, not an interior scene, same convention as every other
+    // DOOR_KINDS detail (a closed door with a identifying detail, not a
+    // room preview).
+    drawRoundRect(ctx, -16, -half + 12, 32, 12, 3, '#e8cf8a');
+    ctx.strokeStyle = 'rgba(90,50,60,0.4)';
+    ctx.lineWidth = 1.3;
+    for (const dy of [-half + 16, -half + 20]) {
+      ctx.beginPath();
+      ctx.moveTo(-11, dy);
+      ctx.lineTo(11, dy);
+      ctx.stroke();
+    }
+    drawStar(ctx, 0, -half + 32, 5, 2.2, '#f2d98a');
+    // Briefcase: body + a small handle arc on top.
+    drawRoundRect(ctx, -14, half - 20, 28, 14, 3, '#8a6a4a');
+    ctx.strokeStyle = '#5a3a22';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, half - 20, 6, Math.PI, 0);
+    ctx.stroke();
+  }
+
+  /**
+   * Shared by both kitchen-door (Dining -> Kitchen) and dining-door
+   * (Kitchen -> Dining) — the same physical doorway seen from either
+   * side, so both get the identical "swinging restaurant door" look: a
+   * center seam plus a small round window in each leaf.
+   */
+  function drawSwingDoorDetail(half) {
+    ctx.strokeStyle = 'rgba(90,50,60,0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, -half + 6);
+    ctx.lineTo(0, half - 6);
+    ctx.stroke();
+    for (const dx of [-12, 12]) {
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.beginPath();
+      ctx.arc(dx, -half + 17, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(90,50,60,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  const DOOR_KIND_DETAIL_DRAWERS = {
+    fridge: drawFridgeDetail,
+    cabinet: drawCabinetDetail,
+    'cookware-closet': drawCookwareClosetDetail,
+    'cleaning-closet': drawCleaningClosetDetail,
+    toilet: drawRestroomDetail,
+    'boss-office': drawBossOfficeDetail,
+    'kitchen-door': drawSwingDoorDetail,
+    'dining-door': drawSwingDoorDetail,
+  };
+
   function drawStation(station) {
     // Locked (not-yet-unlocked-this-tier) tables render nothing at all —
     // not even dimmed — per the user's explicit "tables not available
@@ -2444,6 +2991,12 @@ export function init(canvas, elements) {
       drawRoundRect(ctx, -half, -half, size, size, STATION_CORNER_RADIUS, fillColor);
 
       if (DOOR_KINDS.has(station.kind)) {
+        // v3.30/v3.31: every DOOR_KINDS station now has its own detail
+        // drawer (DOOR_KIND_DETAIL_DRAWERS), run first so the knob/open-
+        // panel below still layers on top, same as drawCounterDetail's
+        // employee-then-panel ordering.
+        const doorDetail = DOOR_KIND_DETAIL_DRAWERS[station.kind];
+        if (doorDetail) doorDetail(half);
         // Door handle: a small round knob, and (while "open") an inset panel reading as an ajar door.
         if (open) {
           drawRoundRect(ctx, -half + 6, -half + 6, size - 12, size - 12, STATION_CORNER_RADIUS - 4, baseColor);
@@ -2453,7 +3006,13 @@ export function init(canvas, elements) {
         ctx.arc(half - 9, 0, 3, 0, Math.PI * 2);
         ctx.fill();
       } else if (station.kind === 'counter') {
-        drawRoundRect(ctx, -half, -half + 10, size, 10, 4, '#e8b95a');
+        drawCounterDetail(half);
+      } else if (station.kind === 'coffee-machine') {
+        drawCoffeeMachineDetail(half);
+      } else if (station.kind === 'stove') {
+        drawStoveDetail(half);
+      } else if (station.kind === 'oven') {
+        drawOvenDetail(half);
       }
     }
 
@@ -2833,6 +3392,7 @@ export function init(canvas, elements) {
     stationsInRoom(stations, currentRoom).forEach((station) => drawStation(station));
     // Guard stands watch by the Dining entrance — not a Kitchen fixture.
     if (currentRoom === ROOM_DINING) drawSecurityGuard();
+    if (currentRoom === ROOM_DINING) drawPayingCustomers();
     drawPlayer();
     drawOrderBubble();
     drawSanityBar();
@@ -2887,6 +3447,7 @@ export function init(canvas, elements) {
     }
 
     updateOrderBubble(deltaSeconds);
+    updatePayingCustomers(deltaSeconds);
     updateHoverHint();
     renderHud();
     renderOrderQueue();

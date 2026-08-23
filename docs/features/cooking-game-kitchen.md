@@ -58,6 +58,103 @@ success window per level. Sweep speed scales up slightly with shift
 number, the cooking-side equivalent of descent speed ramping with depth
 in the Fishing Game.
 
+## Kitchen station sprites (v3.30)
+
+`cooking-game.js`'s `drawStation` used to render five of the six Kitchen-
+room stations as a plain flat-colored box — fridge/cabinet/cookware-
+closet/cleaning-closet got only the generic `DOOR_KINDS` door-knob dot
+every door station shares (toilet, boss-office, the two room doors
+included), and stove/oven got nothing at all beyond the box itself — the
+same "least detailed stations" gap the Counter/Coffee Machine were in
+before v3.26 (food-server doc's Counter payment animation section
+references that same precedent). Six new canvas-drawn detail functions
+fixed this, same conventions as every other sprite in this file (no image
+assets/generation tooling in this project; local coordinate space already
+centered/translated by `drawStation`):
+
+* **Fridge** — a horizontal seam splitting a small freezer section from
+  the larger body below, plus a vertical handle bar.
+* **Cabinet** — a center seam and two shallow raised-panel insets, reading
+  as a pair of wood cabinet doors.
+* **Cookware Closet** — a shelf line holding a pot (body + two side
+  handles + a lid knob) and a pan (circle + handle stick).
+* **Cleaning Closet** — a mop (stick + a fan of strands) and a small
+  bucket, kept off-center since `drawStation` still draws the dirty-dish
+  count dead-center over this once `shiftState.dirtyDishCount > 0`.
+* **Stove** — four burner rings in a 2x2 grid plus a control-knob row
+  along the front edge.
+* **Oven** — a three-knob control panel, a horizontal handle bar, then an
+  inset door with a centered oval "glow" window, each given its own
+  vertical band so they read as distinct parts rather than merging
+  together at this box's small (70px) scale.
+
+The four `DOOR_KINDS` stations' new detail drawers run *before* that
+shared open-inset/knob logic, so the knob (and, while a panel is open, the
+cream open-panel inset) still layers on top — same ordering
+`drawCounterDetail` uses for the counter employee vs. the counter-front
+panel (see below). Stove/oven aren't `DOOR_KINDS` (nothing to browse —
+only the cook mini-game), so they get their own top-level branch in
+`drawStation`, parallel to the Counter/Coffee Machine one.
+
+## Door-kind station sprites, and a Counter face-occlusion fix (v3.31)
+
+The same detail-drawer mechanism above (`DOOR_KIND_DETAIL_DRAWERS`, one
+entry per `DOOR_KINDS` station) was extended to the remaining four
+`DOOR_KINDS` stations that hadn't gotten one yet — Restroom (`toilet`),
+Duke's Office (`boss-office`), and both room doors (`kitchen-door`/
+`dining-door`, Dining-room fixtures rather than Kitchen-room ones, but
+documented here alongside the rest since they share this exact mechanism):
+
+* **Restroom** — a small WC silhouette (tank + bowl + seat-lid outline)
+  plus a sparkle accent (`drawStar`, this game's existing "clean/sparkly"
+  motif). Also moved from its original top-left corner anchor to the
+  bottom-right of the Dining room (`floor-plan.js`'s `buildStations`,
+  `x: 870, y: 540`), mirroring the Coffee Machine/Counter cluster at the
+  bottom-left — the same `y: 540`/`labelBelowFits` reasoning the v3.27 fix
+  used for that cluster.
+* **Duke's Office** — a name plaque (two thin engraved-looking lines), a
+  small star badge, and a briefcase below — a closed door with an
+  identifying detail, same convention as every other `DOOR_KINDS` station,
+  not an interior scene.
+* **Both room doors** — share one drawer (`drawSwingDoorDetail`): a center
+  seam plus a small round window in each leaf, the same physical doorway
+  seen from either side.
+
+Also fixed in the same pass: `drawCounterDetail` (v3.26/v3.27) drew a thin
+9px "counter-top ledge" strip *after* the employee, meant to occlude only
+their lower torso — but the strip's position was chosen by eye rather than
+checked against `drawPixelPerson`'s actual geometry, and it landed
+squarely across their face instead (`drawPersonHead`'s face circle is
+centered at `y - 32*scale`, well inside the old ledge's y-range). The
+user's exact words were "a dash line that prevents the face to be seen."
+Redesigned from the geometry up: the employee's own torso-bottom
+(`y - 4*scale`, the same `y`/`scale` values passed to `drawPixelPerson`,
+not a separately eyeballed number) is now the *exact* top edge of a solid
+counter-front panel, so the face is always fully clear above it and the
+legs always fully hidden behind it — no band can ever cross the face
+again, by construction rather than by eye.
+
+## Stale `activeOrderTableId` after a patience timeout (v3.30 fix)
+
+`handleCookArrival(stationKind)` (called on arriving at the Stove or
+Oven) used to return silently — no toast, nothing on screen — when
+`shiftState.orders` no longer contained an order for
+`activeOrderTableId`. That closure variable is only ever reassigned when
+the player interacts with a table directly (taking or re-visiting an
+order); it has no way to learn that a `tick()`-driven patience timeout
+(`failOrderAt`, food-server doc) removed that same order out from under
+them while they were still off gathering ingredients/cookware elsewhere.
+The result: walk all the way to the Stove or Oven holding a
+now-pointless dish and click it, and *nothing visibly happens* — read by
+a player as "the stove/oven doesn't work," not as "my customer already
+left." Oven dishes (Fridge + Cabinet + Cookware Closet + Oven, this
+game's longest gather chain) are the likeliest to still be mid-gather
+when a timeout lands, which is why this surfaced as an oven-specific
+complaint rather than the station-agnostic gap it actually is (the same
+silent branch exists for the Stove). Fixed by showing
+`"That order's gone — take a new one first"` in that branch, same
+`showToast` every other `handleCookArrival` precondition already used.
+
 ## The Dining/Kitchen room split (v3.1)
 
 Exactly one room is ever active; only its stations render, are clickable,

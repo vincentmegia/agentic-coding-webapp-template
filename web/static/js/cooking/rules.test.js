@@ -17,6 +17,7 @@ import {
   SHIFT_PAYCHECK_FULL,
   SHIFT_PAYCHECK_PENALTY_PER_MISTAKE,
   SHIFT_PAYCHECK_MIN,
+  COUNTER_PAYMENT_GARD,
   SHIFT_CLOCK_SECONDS,
   PHYSICAL_TABLE_COUNT,
   RECIPE_BANDS,
@@ -340,6 +341,13 @@ describe('shiftPaycheck', () => {
     assert.equal(shiftPaycheck(-3), SHIFT_PAYCHECK_FULL);
     assert.equal(shiftPaycheck(NaN), SHIFT_PAYCHECK_FULL);
     assert.equal(shiftPaycheck(undefined), SHIFT_PAYCHECK_FULL);
+  });
+});
+
+describe('COUNTER_PAYMENT_GARD', () => {
+  test('is a small, positive amount — additive on top of shiftPaycheck, not a replacement for it', () => {
+    assert.ok(COUNTER_PAYMENT_GARD > 0);
+    assert.ok(COUNTER_PAYMENT_GARD < SHIFT_PAYCHECK_MIN);
   });
 });
 

@@ -214,14 +214,17 @@ function preferredSpacingForSize(size) {
 
 /**
  * The room's available space for table centers — clear of every
- * surrounding fixture (toilet/kitchen-door above, counter/coffee-machine
- * below) at the doubled `TABLE_BOX_SIZE`, with the x-bounds matching
- * those fixtures' own x positions for a clean shared margin. The lower
- * y-bound (450, not counter/coffee-machine's box edge at 525) leaves room
- * for their own label chip — cooking-game.js's drawStation flips a
- * bottom-row station's label to draw *above* its box when it wouldn't fit
- * below the canvas, and that flipped label lands around y=505-519; a
- * table's bottom edge needs to clear that, not just the box itself.
+ * surrounding fixture (kitchen-door above; counter/coffee-machine, and,
+ * since v3.31, toilet too, below) at the doubled `TABLE_BOX_SIZE`, with
+ * the x-bounds matching those fixtures' own x positions for a clean
+ * shared margin. The lower y-bound (450, not counter/coffee-machine's box
+ * edge at 525) originally left room for their label chip flipping to
+ * draw *above* the box (cooking-game.js's drawStation, for a bottom-row
+ * station whose label wouldn't fit below the canvas edge) — as of v3.27
+ * none of the bottom-row fixtures (all now at y=540, including toilet)
+ * actually trigger that flip any more (`540 + 35 + 13 + 7 = 595 <= 600`),
+ * so today this bound is just a comfortable, still-accurate margin above
+ * their box edges, not active flipped-label clearance.
  */
 const TABLE_AREA_X = [90, 870];
 const TABLE_AREA_Y = [165, 450];
@@ -302,7 +305,6 @@ function tableGridPosition(index, count, size) {
 export function buildStations(tableIds, level = FOOD_SERVER_MAX_LEVEL) {
   const stations = [
     // Dining room
-    { id: 'toilet', kind: 'toilet', room: ROOM_DINING, x: 90, y: 80, size: STATION_BOX_SIZE },
     { id: 'kitchen-door', kind: 'kitchen-door', room: ROOM_DINING, x: 870, y: 80, size: STATION_BOX_SIZE },
     // v3.25: moved to the left side of the dining room (was centered at
     // the bottom, x=480/376) per the user's explicit request — the
@@ -311,8 +313,20 @@ export function buildStations(tableIds, level = FOOD_SERVER_MAX_LEVEL) {
     // doesn't conflict with the "Entrance / Exit" floor text or the
     // security guard, both well to the right (x=560-785, see drawFloor/
     // SECURITY_GUARD_POSITION in cooking-game.js).
-    { id: 'coffee-machine', kind: 'coffee-machine', room: ROOM_DINING, x: 90, y: 560, size: STATION_BOX_SIZE },
-    { id: 'counter', kind: 'counter', room: ROOM_DINING, x: 194, y: 560, size: STATION_BOX_SIZE },
+    // v3.27: nudged up from y=560 to y=540 so `station.y + half + 13 + 7`
+    // (35 + 20 = 55) stays within CANVAS_HEIGHT (600) — keeps the label
+    // chip drawing normally below the box instead of flipping above it,
+    // which would otherwise collide with the counter's employee sprite.
+    { id: 'coffee-machine', kind: 'coffee-machine', room: ROOM_DINING, x: 90, y: 540, size: STATION_BOX_SIZE },
+    { id: 'counter', kind: 'counter', room: ROOM_DINING, x: 194, y: 540, size: STATION_BOX_SIZE },
+    // v3.31: moved from the top-left corner (x=90, y=80, alongside where
+    // kitchen-door still sits) down to the bottom-right, mirroring the
+    // Coffee Machine/Counter cluster at the bottom-left — same y=540 (and
+    // same labelBelowFits reasoning above) and x=870 to match
+    // kitchen-door's/the table area's right edge, clear of both the
+    // security guard (x=560) and the "Entrance / Exit" floor text
+    // (centered around x=650), well to its left.
+    { id: 'toilet', kind: 'toilet', room: ROOM_DINING, x: 870, y: 540, size: STATION_BOX_SIZE },
     { id: 'boss-office', kind: 'boss-office', room: ROOM_DINING, x: 480, y: 40, size: STATION_BOX_SIZE },
     // Kitchen room
     { id: 'fridge', kind: 'fridge', room: ROOM_KITCHEN, x: 200, y: 160, size: STATION_BOX_SIZE },

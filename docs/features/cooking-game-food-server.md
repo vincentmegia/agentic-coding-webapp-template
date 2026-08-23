@@ -33,6 +33,52 @@ customer doc's Restaurant reputation rule for the other half of this
 change — mistakes don't just cost money, they make every later customer
 that shift harder to keep happy too.
 
+## Counter payment animation (v3.28, eating step added v3.29)
+
+Every *correctly* served customer (matched dish, `serveDish` in
+`engine-state.js`) triggers a short cosmetic sequence, independent of the
+table itself — the table is already freed the instant they're served, same
+as before this existed. `cooking-game.js`'s `spawnPayingCustomer` pushes an
+entry onto `payingCustomers`; each frame, `updatePayingCustomers` walks it
+through four phases at `PAYING_CUSTOMER_WALK_SPEED` (130px/s): `eating` (a
+randomized pause at the table, see below), `walking` from the table to the
+Counter station, `paying` (a randomized pause once they arrive), then
+`leaving` toward the same entrance/exit spot the one-time walk-in intro
+uses. The figure drawn matches whoever was actually seated there (Mel,
+Karen, Olive & Oliver as a pair, or a generic customer) via an `appearance`
+tag captured at spawn time, reusing the same `drawMel`/`drawPixelPerson`
+calls `drawTableContents` already used to draw them at the table.
+
+While `eating`, `drawEatingAnimation` bobs the served dish's own icon
+(`drawDishIcon` — the same icon shown in the order bubble and on the
+player's tray, per this project's no-image-assets convention) beside the
+customer's head at roughly mouth height, once per simulated "bite"
+(~0.6s/cycle) — a small, mostly-stationary bob reads better on a ~50px-tall
+figure than a long plate-to-mouth travel would.
+
+v3.29: both the `eating` duration (`CUSTOMER_EATING_SECONDS_MIN`/`_MAX`,
+2.5–5.5s) and the `paying` duration
+(`PAYING_CUSTOMER_TRANSACTION_SECONDS_MIN`/`_MAX`, 0.8–1.8s) are randomized
+per customer via a shared `randomBetween(min, max)` helper — the eating
+duration is picked once at spawn time, the paying duration lazily on
+arrival at the Counter (picking it at spawn would go stale sitting through
+a variable-length `eating` phase first). This is purely a timing/feel
+choice — several customers served close together visibly eat, pay, and
+leave at different moments instead of in lockstep — and has no effect on
+`COUNTER_PAYMENT_GARD` or `shiftPaycheck()`, both still exact and
+unrandomized.
+
+The moment the `paying` phase completes, `rules.js`'s
+`COUNTER_PAYMENT_GARD` (50) is added to `save.monthToDateGard` and
+persisted immediately — **additive on top of, not a replacement for**, the
+unchanged end-of-shift `shiftPaycheck()` lump sum above. This is
+deliberately small relative to that 500–4,000 range: it gives a per-customer
+sense of progress toward shop upgrades (`GEAR_DEFS`, costs starting around
+200–400 Gard) without shifting where a shift's earnings actually come from,
+and without touching the `cooking_scores` leaderboard's `total_earnings`
+bound (still 150,000 — see the main doc's Data Model — which already
+carried ~25% headroom above the pure lump-sum max before this existed).
+
 ## Wrong-dish serves and missed orders
 
 Cost the wasted dish/ingredients and time, latch `shiftUpset` (Shift

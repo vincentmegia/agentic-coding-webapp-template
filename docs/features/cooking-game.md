@@ -193,7 +193,8 @@ specific opening line of dialogue. Shipped as a short scripted sequence
 very first "Start Shift" click on a given device — gated on a new
 `hasSeenIntro` boolean in the `cooking-game:v2` `localStorage` save (see
 Client-side Behavior's Progress persistence). The player character walks
-from a fixed spot near the floor's "★ Entrance / Exit ★" marker to their
+from a fixed spot near the floor's Entrance/Exit door (v3.32: a door
+sprite; plain floor text at the time this intro shipped) to their
 normal `PLAYER_START` position using the same movement code real gameplay
 uses (`updatePlayer`, `floor-plan.js`'s geometry), then a dialogue box
 reveals the line verbatim and a "Let's get to work!" button starts the
@@ -982,6 +983,37 @@ second data point for that pattern rather than a reskin of the first game.
   that shift's paycheck and sours the restaurant's reputation for every
   customer seated afterward (see the food-server and customer rules
   docs).
+* v3.28: a *correctly* served customer visibly eats at their table (v3.29:
+  a bobbing dish icon beside their head), then walks to the Counter,
+  pauses to "pay," and leaves toward the entrance — a cosmetic animation
+  layered on top of the unchanged serve/paycheck rules above, not a
+  replacement for them; the eating pause and paying pause are each
+  independently randomized per customer, so several served close together
+  don't all move in lockstep. Each completed payment adds a small,
+  immediate Gard bonus (`COUNTER_PAYMENT_GARD`, 50) to that month's
+  running total, on top of the shift-end paycheck (see the food-server
+  rules doc's Counter payment animation section).
+* v3.30: all six Kitchen-room stations (Fridge, Cabinet, Cookware Closet,
+  Cleaning Closet, Stove, Oven) got dedicated canvas-drawn sprites,
+  closing the same "least detailed stations" gap the Counter/Coffee
+  Machine were in before v3.26 (see the kitchen rules doc's Kitchen
+  station sprites section). Same fix also closed a bug where arriving at
+  the Stove or Oven after your customer's patience had already timed out
+  mid-gather silently did nothing — now shows a toast explaining the
+  order's gone (kitchen rules doc's `activeOrderTableId` section).
+* v3.31: the remaining four `DOOR_KINDS` stations (Restroom, Duke's
+  Office, and both room doors) got dedicated sprites too, closing the
+  same gap for the rest of the Dining room; the Restroom also moved from
+  the top-left corner to the bottom-right (see the Restroom station bullet
+  above). Also fixed: the Counter employee's sprite had a "counter-top
+  ledge" strip drawn squarely across their face (a geometry bug in the
+  v3.27 fix, not by design) — redesigned as a solid counter-front panel
+  sized from the employee's own torso-bottom, so the face is always fully
+  clear and the legs always fully hidden (kitchen rules doc's Door-kind
+  station sprites section).
+* v3.32: the Entrance/Exit floor marker got a real door sprite in place of
+  plain text (see the On-canvas signage bullet above) — the last
+  remaining "just text, no graphic" spot in the Dining room.
 * A shift clock, displayed as an in-game restaurant time of day (8:30
   AM–11:30 PM): new customers/orders stop spawning at zero, any orders
   still queued are auto-failed, and the shift moves into its closing
@@ -1193,11 +1225,25 @@ Follows `tailwind-ui`'s Visual Style principles; specifics for this feature:
   favorite flowers dandelions/tulips/roses, favorite hobby drawing and
   cycling, per the user's full character spec.
 * **Restroom station** (`toilet` kind) — cosmetic only, no gameplay effect,
-  same "just presence" role as the Security Guard.
+  same "just presence" role as the Security Guard. v3.31: moved from the
+  top-left corner (its original anchor position, referenced elsewhere in
+  this doc's older history) to the bottom-right, mirroring the Coffee
+  Machine/Counter cluster at the bottom-left, and got a dedicated sprite
+  (tank + bowl + a sparkle accent) — see the kitchen rules doc's Door-kind
+  station sprites section.
 * **On-canvas signage**: "Startime Diner" and "Entrance / Exit" render
   directly on the floor (not HUD chrome), and star-themed pillows decorate
   every table's chairs — matching the user's explicit "star themed" and
-  "where is the entrance and the exit???" requests.
+  "where is the entrance and the exit???" requests. v3.32: the "Entrance /
+  Exit" marker went from plain floor text to an actual door graphic
+  (`drawEntranceDoor`, called from `drawFloor`) — an open doorway with
+  warm light spilling in, a door leaf propped against the frame, two star
+  "lanterns," and a small welcome mat, with the "Entrance / Exit" caption
+  now sitting below it rather than standing alone. Deliberately still not
+  a real station (drawn straight into `drawFloor`'s world coordinates, not
+  through `drawStation`/the `stations` array) — same "purely decorative,
+  no separate mechanic" reasoning as before, now just with a real sprite
+  instead of only text.
 * The canvas game scene (floor plan, player, customers, stations) uses its
   own fixed warm "diner" palette regardless of site light/dark mode, the
   same reasoning as the Fishing Game's fixed ocean palette — a game scene
@@ -1617,6 +1663,24 @@ bounds, etc.) is covered in Security Considerations below.
       it; Sharp Knife level widens the zone monotonically.
 * [x] Shift paycheck rule (`shiftPaycheck(mistakeCount)`): 0 mistakes →
       4,000 Gard; each mistake deducts 500, floored at 500.
+* [x] `COUNTER_PAYMENT_GARD` (v3.28's per-customer counter payment) is a
+      small, positive amount, strictly less than `SHIFT_PAYCHECK_MIN` —
+      confirms it's additive on top of the shift-end paycheck, never able
+      to dominate it (`rules.test.js`). The eat/walk/pay/leave animation
+      and state-machine transitions themselves (`payingCustomers` in
+      `cooking-game.js`) are not unit-tested — that file has no automated
+      test file; verified manually instead via a live Playwright run:
+      spawn → eat (bobbing dish icon, randomized duration) → walk → pay
+      (randomized duration, Gard credited exactly once) → leave → removed,
+      and two customers spawned together finish each phase at visibly
+      different times rather than in lockstep.
+* [x] v3.30's `handleCookArrival` fix: forcing an order, then clearing it
+      out from under a stale `activeOrderTableId` (`failOrderAt`, same as
+      a real patience timeout) while ingredients/cookware are already
+      gathered, then arriving at the Oven — confirmed via a live
+      Playwright run that this now shows the "order's gone" toast instead
+      of the previous silent no-op (no automated test file for
+      `cooking-game.js` — see the entry above).
 * [x] Order queue: adding an order respects the current table-capacity cap
       (physical tables vs. Extra Table Service level, whichever is lower);
       a patience timer reaching zero auto-fails that order, marks the table

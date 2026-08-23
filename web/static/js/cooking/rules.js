@@ -314,6 +314,18 @@ export function monthTotal(shiftPaychecks) {
   return Array.isArray(shiftPaychecks) ? shiftPaychecks.reduce((sum, p) => sum + (Number.isFinite(p) ? p : 0), 0) : 0;
 }
 
+/**
+ * v3.28: Gard credited immediately to `save.monthToDateGard` when a served
+ * customer's counter-payment animation completes (cooking-game.js's
+ * `payingCustomers`), on top of — not instead of — the unchanged
+ * `shiftPaycheck()` lump sum paid once at shift end. Deliberately modest
+ * relative to that 4,000/500 range so a shift's earnings are still
+ * dominated by the end-of-shift mistake-free/mistake-penalized payout;
+ * this only adds a small, immediate, per-customer sense of progress toward
+ * shop upgrades (`GEAR_DEFS`, whose costs start around 200-400 Gard).
+ */
+export const COUNTER_PAYMENT_GARD = 50;
+
 // ---------------------------------------------------------------------------
 // 5. The Karen event — a one-time scripted customer on a single shift, not
 //    part of the normal random arrival pool. Picked as shift 12 out of the
