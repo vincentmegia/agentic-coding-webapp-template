@@ -94,12 +94,24 @@ newly spawned customer now visibly walks in from the Entrance/Exit door
 before taking their seat, instead of appearing at their table instantly —
 the mirror image of a paid customer's existing walk-to-the-Counter-and-
 leave animation.
-`/projects` now leads with two real cards
-— Fishing Game and Kitchen Shift, both linking straight into their games
-via "Play now" — and the landing page's "Selected work" section now
-features both too, same cards/copy as `/projects`. Kitchen Shift still
-isn't linked from the header nav itself, same as the Fishing Game's own
-gradual nav rollout.
+A third feature, Puzzle Solver (a 30×30 canvas grid at `/puzzle-solver` —
+click a tool to mark a Start cell, an End cell, or click-and-drag to draw
+walls, then click Solve to watch an animated, orthogonal-only depth-first
+search explore the grid and, if reachable, trace the Start→End path it
+found), is implemented and covered by tests — see
+`docs/features/puzzle-solver.md`. Unlike the two games, it's entirely
+client-side: no Postgres table, no leaderboard, no `localStorage`
+persistence — a fresh page load always starts from an empty grid. The DFS
+itself and the grid's wall/Start/End state each live in a small, pure,
+DOM-free JS module (`web/static/js/puzzle/dfs.js`,
+`web/static/js/puzzle/grid-state.js`) unit-tested the same way
+`fishing/rules.js`/`cooking/rules.js` are.
+`/projects` now leads with three real cards
+— Fishing Game, Kitchen Shift, and Puzzle Solver, each linking straight
+into its game/demo via "Play now" — and the landing page's "Selected work"
+section now features all three too, same cards/copy as `/projects`. Puzzle
+Solver still isn't linked from the header nav itself, same gradual nav
+rollout the other two started with.
 The site's visual design system is "Organic" (warm cream ground,
 terracotta/sage accents, Caprasimo + Figtree), pulled in from a
 claude.ai/design project and adapted into Tailwind tokens — see
@@ -109,9 +121,10 @@ website and portfolio" project; a from-scratch restyle of page-specific
 components (resume, fishing game, carousel) to the new tokens is still
 open. The `/projects` page now renders a card grid too (same "Personal
 website and portfolio" pull — see `docs/features/projects.md`), currently
-two real cards linking into the Fishing Game and Kitchen Shift — the
-design mockup's four fictional placeholder projects were removed rather
-than left sitting next to them. Blogs and About are still placeholders.
+three real cards linking into the Fishing Game, Kitchen Shift, and Puzzle
+Solver — the design mockup's four fictional placeholder projects were
+removed rather than left sitting next to them. Blogs and About are still
+placeholders.
 Update this file as decisions are made or change.
 
 ## What this is

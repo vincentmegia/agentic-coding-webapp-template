@@ -1,0 +1,141 @@
+{{/* /puzzle-solver page: toolbar + canvas shell for the DFS pathfinding
+     visualizer, per docs/features/puzzle-solver.md's User Flow, UI, and
+     Visual Direction sections. Defines "puzzle-solver-content", not
+     "content" — reusing "content" would silently take over the shared
+     placeholder every other still-placeholder route renders. See
+     docs/features/resume.md's Template Rendering and
+     internal/handler/template.go's PageData.ContentTemplate/LoadTemplates,
+     the same pattern fishing-game.html/cooking-game.html established.
+
+     Supplies its own <main id="main-content"> wrapper rather than relying
+     on base.html for it — required because hx-swap="outerHTML" (home.md's
+     HTMX Interactions) replaces the *entire* #main-content element with
+     whatever this template renders; base.html renders .RenderedContent
+     directly with no wrapper of its own. See resume.html's doc comment for
+     the full explanation of why this is load-bearing, not a style choice.
+
+     Dot is PageData; this page reads none of its fields directly — there's
+     no server-side fetch or leaderboard here at all (docs/features/
+     puzzle-solver.md's Data Model: "None ... this feature has no
+     server-side state to persist").
+
+     puzzle-solver.js is loaded here, inside this page's own content block —
+     not in base.html — matching fishing-game.html/resume.html's script
+     placement: it's only needed on this one route. type="module" (not
+     defer) since the file uses ES `import`/`export`; module scripts defer
+     automatically, per that file's own header comment.
+
+     Toolbar buttons all start with aria-pressed="false" and #puzzle-solve-
+     button starts `disabled` — puzzle-solver.js's init() picks no tool by
+     default (see that file's ACTIVE_TOOL_DEFAULT comment) and enables Solve
+     only once both Start and End exist, so this markup's pre-JS state
+     already matches the JS-managed state exactly; nothing here needs
+     correcting on load the way fishing-game.html's start/round-over screen
+     visibility does. */}}
+{{define "puzzle-solver-content"}}
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<div class="space-y-6">
+		<section class="space-y-2">
+			<h1 class="text-2xl font-semibold text-ink">Puzzle Solver</h1>
+			<p class="text-muted">
+				A 30×30 grid pathfinding visualizer. Pick a tool below, mark a start cell and an end cell, draw some
+				walls, then hit Solve to watch a depth-first search explore the grid and trace the path it finds — DFS
+				finds *a* path, not necessarily the shortest one.
+			</p>
+		</section>
+
+		<div class="space-y-4">
+			{{/* Toolbar: four mutually-exclusive placement/drawing tools, then a
+			     divider, then the three action buttons (doc's UI: "Start, End,
+			     Wall, Erase Wall, Solve, Reset Grid" plus "Clear Path", our own
+			     addition per the doc's Business Rules). role="toolbar" groups
+			     them for assistive tech; each tool button's selected state is
+			     conveyed via aria-pressed (kept in sync by puzzle-solver.js),
+			     not color alone, per this doc's Definition of Done
+			     accessibility line. */}}
+			<div role="toolbar" aria-label="Puzzle solver tools" class="flex flex-wrap items-center gap-2">
+				<button
+					type="button"
+					id="puzzle-tool-start"
+					aria-pressed="false"
+					class="rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Start</button>
+				<button
+					type="button"
+					id="puzzle-tool-end"
+					aria-pressed="false"
+					class="rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>End</button>
+				<button
+					type="button"
+					id="puzzle-tool-wall"
+					aria-pressed="false"
+					class="rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Wall</button>
+				<button
+					type="button"
+					id="puzzle-tool-erase"
+					aria-pressed="false"
+					class="rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Erase Wall</button>
+
+				<span class="mx-1 hidden h-6 w-px bg-line sm:block" aria-hidden="true"></span>
+
+				<button
+					type="button"
+					id="puzzle-solve-button"
+					disabled
+					class="rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Solve</button>
+				<button
+					type="button"
+					id="puzzle-clear-path-button"
+					class="rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Clear Path</button>
+				<button
+					type="button"
+					id="puzzle-reset-button"
+					class="rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Reset Grid</button>
+			</div>
+
+			{{/* Status line: puzzle-solver.js's single source of truth for what
+			     state the grid/solve is in (doc's UI states table). role="status"
+			     + aria-live="polite" so screen-reader users hear "Path found — 47
+			     steps." etc. without needing focus, matching fishing-game.html's
+			     #fishing-sonar-callout convention. */}}
+			<p id="puzzle-status" role="status" aria-live="polite" class="text-sm text-muted">
+				Set a start and end cell to solve.
+			</p>
+
+			{{/* Canvas: fixed intrinsic 600×600 (20px per cell, 30 cells per
+			     doc's Visual Direction), scaled responsively via this aspect-
+			     [1/1] wrapper the same way fishing-game.html's canvas box scales
+			     its own fixed-size canvas — puzzle-solver.js converts pointer
+			     event coordinates from the rendered CSS box back into this fixed
+			     600×600 coordinate space, so the intrinsic size itself never
+			     changes (unlike fishing-game.js's resizeCanvasToDisplaySize,
+			     which this page deliberately doesn't need — see puzzle-
+			     solver.js's header comment). touch-none prevents touch-drag wall
+			     painting from also scrolling the page on mobile, same as
+			     fishing-game.html's canvas. Unlike Fishing Game's fixed dark-
+			     ocean palette, this canvas *does* follow the site's light/dark
+			     toggle (doc's Visual Direction) — bg-surface here is just this
+			     wrapper's own idle backdrop before the first paint, not a fixed
+			     scene color. */}}
+			<div class="relative mx-auto aspect-[1/1] w-full max-w-[600px] overflow-hidden rounded-card border border-line bg-surface shadow-sm">
+				<canvas
+					id="puzzle-canvas"
+					width="600"
+					height="600"
+					class="block h-full w-full touch-none"
+					role="img"
+					aria-label="30 by 30 pathfinding grid"
+				>Your browser doesn't support the canvas element needed to use this tool.</canvas>
+			</div>
+		</div>
+	</div>
+</main>
+
+<script type="module" src="/static/js/puzzle-solver.js"></script>
+{{end}}

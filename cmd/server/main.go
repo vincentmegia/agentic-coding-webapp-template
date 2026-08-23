@@ -147,6 +147,8 @@ func newMux(conn *sql.DB) (*http.ServeMux, error) {
 	mux.HandleFunc("GET /kitchen-shift/leaderboard", cookingGame.Leaderboard)
 	mux.HandleFunc("POST /kitchen-shift/score", cookingGame.SubmitScore)
 	mux.HandleFunc("GET /projects", pages.Projects)
+	// See docs/features/puzzle-solver.md's Routes/Handlers table.
+	mux.HandleFunc("GET /puzzle-solver", pages.PuzzleSolver)
 	mux.HandleFunc("GET /blogs", pages.Blogs)
 	mux.HandleFunc("GET /about", pages.About)
 	mux.HandleFunc("GET /settings/profile", pages.Profile)

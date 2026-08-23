@@ -1,10 +1,10 @@
 // /projects page: heading + subhead, and a grid of project cards
-// (internal/handler/pages.go's projectItems). Fishing Game and Kitchen
-// Shift are both real (this site's own shipped mini-games, each linked via
-// an internal "Play now" HTMX nav link) — the pulled-in design mockup's
-// four fictional sample cards (Fieldnotes/Tidewatch/Loom UI/Nightlight,
-// from a claude.ai/design "Personal website and portfolio" project's
-// Projects.dc.html) were removed once real projects existed. See
+// (internal/handler/pages.go's projectItems). Fishing Game, Kitchen Shift,
+// and Puzzle Solver are all real (this site's own shipped mini-games/demos,
+// each linked via an internal "Play now" HTMX nav link) — the pulled-in
+// design mockup's four fictional sample cards (Fieldnotes/Tidewatch/Loom
+// UI/Nightlight, from a claude.ai/design "Personal website and portfolio"
+// project's Projects.dc.html) were removed once real projects existed. See
 // web/templates/pages/projects.html and internal/handler/template.go's
 // Project struct for the full contract.
 const { test, expect } = require('@playwright/test');
@@ -19,6 +19,11 @@ const PROJECTS = [
 		title: 'Kitchen Shift',
 		description: 'A top-down restaurant-shift sim — take orders, cook, and close up clean across a 30-shift month, with a public leaderboard for the best months.',
 		tags: ['Go', 'Canvas', 'PostgreSQL'],
+	},
+	{
+		title: 'Puzzle Solver',
+		description: 'A 30×30 pathfinding visualizer — mark a start and end, draw walls, then watch a depth-first search explore the grid and trace the path it finds.',
+		tags: ['Go', 'Canvas', 'JavaScript'],
 	},
 ];
 
@@ -44,19 +49,20 @@ test('direct page load renders heading, subhead, and all project cards', async (
 	}
 });
 
-// Neither current project (internal/handler/pages.go's projectItems) sets
-// External: true, so projects.html's `{{if .External}}` "Live demo" branch
-// never renders — both LiveURLs instead take the `{{else}}` "Play now"
-// branch (tested separately below). Asserting the absence of "Live demo"
-// (rather than no test at all) still guards the conditional itself — a
-// future regression that renders it unconditionally would be caught here.
-test('no "Live demo" link renders — neither project sets External: true', async ({ page }) => {
+// None of the current projects (internal/handler/pages.go's projectItems)
+// set External: true, so projects.html's `{{if .External}}` "Live demo"
+// branch never renders — every LiveURL instead takes the `{{else}}` "Play
+// now" branch (tested separately below). Asserting the absence of "Live
+// demo" (rather than no test at all) still guards the conditional itself —
+// a future regression that renders it unconditionally would be caught here.
+test('no "Live demo" link renders — no project sets External: true', async ({ page }) => {
 	await page.goto('/projects');
 	await expect(page.getByRole('link', { name: 'Live demo' })).toHaveCount(0);
 });
 
-// Both projects have a LiveURL (External: false, the default), so both get
-// projects.html's `{{else}}` "Play now" branch instead of "Live demo".
+// Every project has a LiveURL (External: false, the default), so all of
+// them get projects.html's `{{else}}` "Play now" branch instead of "Live
+// demo".
 for (const project of PROJECTS) {
 	test(`the ${project.title} card has a "Play now" link`, async ({ page }) => {
 		await page.goto('/projects');
@@ -173,6 +179,47 @@ test.describe('the Kitchen Shift card\'s "Play now" link', () => {
 		await expect(nav.getByRole('link', { name: 'Home', exact: true })).not.toHaveAttribute('aria-current', 'page');
 		await expect(nav.getByRole('link', { name: 'Projects', exact: true })).not.toHaveAttribute('aria-current', 'page');
 		await expect(nav.getByRole('link', { name: 'About', exact: true })).not.toHaveAttribute('aria-current', 'page');
+	});
+});
+
+// Regression test for a real bug: cooking-game.js's DOM wiring only ran via
+// the bottom-of-file `bootstrap()` call fired once when the module's
+// top-level code first executed — but a `<script type="module">`'s
+// top-level code runs at most once per resolved URL for the page's whole
+// lifetime (per spec). htmx recreates and re-inserts the <script> tag on
+// every HTMX navigation, but the browser does not re-execute an
+// already-evaluated module, so a *second* visit to /kitchen-shift in the
+// same tab (navigate away, then back) left the freshly swapped-in
+// #cooking-canvas/start screen completely unwired — visually intact (the
+// start screen is static HTML) but totally inert. Fixed the same way
+// docs/features/puzzle-solver.md's "Later change" note describes for that
+// feature, which is where this bug was first caught. This test drives the
+// exact real-world path that surfaced it: /projects → Play now → back to
+// /projects → Play now again, all via HTMX, no full page reload in
+// between. Uses the shop button rather than starting a real shift as its
+// interactivity signal — deterministic and unaffected by the one-time
+// walk-in intro dialogue or any Postgres/leaderboard dependency.
+test.describe('revisiting Kitchen Shift via HTMX after navigating away', () => {
+	test('a second HTMX visit in the same tab still renders and stays fully interactive', async ({ page }) => {
+		await page.goto('/projects');
+		const playNow = () => page.locator('.project-card').filter({ hasText: 'Kitchen Shift' }).getByRole('link', { name: 'Play now' });
+		const projectsLink = () => page.locator('#primary-nav').getByRole('link', { name: 'Projects', exact: true });
+
+		await playNow().click();
+		await expect(page.locator('#cooking-canvas')).toBeVisible();
+
+		await projectsLink().click();
+		await expect(page).toHaveURL(/\/projects$/);
+
+		await playNow().click();
+		await expect(page.locator('#cooking-canvas')).toBeVisible();
+
+		// The real bug left the canvas/start screen visible but inert —
+		// assert actual interactivity on this second-visit instance, not
+		// just presence.
+		await expect(page.locator('#cooking-start-screen')).toBeVisible();
+		await page.locator('#cooking-start-shop-button').click();
+		await expect(page.locator('#cooking-shop-screen')).toBeVisible();
 	});
 });
 

@@ -92,7 +92,10 @@ func (h *PagesHandler) Home(w http.ResponseWriter, r *http.Request) {
 // Kitchen Shift joined Fishing Game here once it had shipped and been
 // verified the same way Fishing Game was — each entry's Description is
 // copied verbatim from its projectItems counterpart below, same convention
-// Fishing Game's entry already used.
+// Fishing Game's entry already used. Puzzle Solver joined the same way once
+// it shipped (docs/features/puzzle-solver.md) — its Kicker is "Tool" rather
+// than "Game" since it's a pathfinding visualizer, not a playable game like
+// the other two.
 var selectedWorkItems = []SelectedWorkItem{
 	{
 		Kicker:      "Game",
@@ -105,6 +108,12 @@ var selectedWorkItems = []SelectedWorkItem{
 		Title:       "Kitchen Shift",
 		Description: "A top-down restaurant-shift sim — take orders, cook, and close up clean across a 30-shift month, with a public leaderboard for the best months.",
 		LiveURL:     "/kitchen-shift",
+	},
+	{
+		Kicker:      "Tool",
+		Title:       "Puzzle Solver",
+		Description: "A 30×30 pathfinding visualizer — mark a start and end, draw walls, then watch a depth-first search explore the grid and trace the path it finds.",
+		LiveURL:     "/puzzle-solver",
 	},
 }
 
@@ -158,7 +167,16 @@ func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
 // — the pulled-in design's four fictional sample entries (Fieldnotes/
 // Tidewatch/Loom UI/Nightlight, from Projects.dc.html) were removed rather
 // than left sitting next to genuine projects; see Open Questions in
-// projects.md for that call.
+// projects.md for that call. Puzzle Solver (docs/features/puzzle-solver.md)
+// is the third real entry, added the same way once it shipped. Its
+// screenshot (web/static/images/puzzle/screenshot.png) is a real Playwright
+// capture too, same convention as the other two: Start/End placed, a
+// hand-built maze (a fully enclosed dead-end pocket plus a couple of
+// smaller obstacles) drawn, then solved — captured mid-result so the
+// pocket's fully-explored "visited" cells, the maze walls, and the solved
+// path threading out to End are all visible at once, clipped to the card's
+// 16:10 aspect the same way the Fishing Game screenshot's own doc comment
+// describes.
 var projectItems = []Project{
 	{
 		Title:       "Fishing Game",
@@ -176,6 +194,27 @@ var projectItems = []Project{
 		LiveURL:     "/kitchen-shift",
 		ImagePath:   "/static/images/cooking/screenshot.png",
 	},
+	{
+		Title:       "Puzzle Solver",
+		Description: "A 30×30 pathfinding visualizer — mark a start and end, draw walls, then watch a depth-first search explore the grid and trace the path it finds.",
+		Tags:        []string{"Go", "Canvas", "JavaScript"},
+		TagTint:     "accent",
+		LiveURL:     "/puzzle-solver",
+		ImagePath:   "/static/images/puzzle/screenshot.png",
+	},
+}
+
+// PuzzleSolver renders GET /puzzle-solver. See docs/features/puzzle-solver.md.
+// Unlike FishingGameHandler/CookingGameHandler, this feature has no
+// service/repository layer at all — the DFS visualizer is entirely
+// client-side, so it lives on PagesHandler like Projects/Blogs/About rather
+// than getting its own handler struct (docs/features/puzzle-solver.md's
+// Routes/Handlers table and Data Model: "None").
+func (h *PagesHandler) PuzzleSolver(w http.ResponseWriter, r *http.Request) {
+	data := shellPageData(r, h.Version, "Puzzle Solver", false)
+	data.NavActive = "/puzzle-solver"
+	data.ContentTemplate = "puzzle-solver-content"
+	h.Renderer.Render(w, r, data)
 }
 
 // Blogs renders GET /blogs. Real content is a separate feature. Not linked

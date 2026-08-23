@@ -1249,4 +1249,28 @@ function bootstrap() {
 
 if (typeof document !== 'undefined') {
   bootstrap();
+
+  // A `<script type="module">`'s top-level code runs at most once per
+  // resolved URL for the whole document's lifetime (per spec) — so if the
+  // visitor navigates away from /fishing-game and back via HTMX later in
+  // the same tab, htmx recreates and re-inserts this <script> tag, but the
+  // browser does NOT re-execute it, meaning the plain `bootstrap()` call
+  // above never fires again and the freshly swapped-in #fishing-canvas (and
+  // every HUD/start-screen/round-over-screen/shop element) is never wired
+  // up — a real bug this shipped with: a revisit left the start screen
+  // visually intact (it's static HTML, so it still *looked* fine) but
+  // completely inert, e.g. "Start Dive" silently doing nothing. See
+  // docs/features/puzzle-solver.md's "Later change" note for the full
+  // writeup of this bug, first caught on that feature (whose canvas draws
+  // immediately and so failed loudly, unlike this one). document.body
+  // survives every #main-content swap, so registering this listener once,
+  // during whichever visit happens to be this file's one-and-only
+  // execution, keeps it alive to catch every later swap too. init()'s own
+  // teardown-previous-instance guard (line ~439 above) makes calling
+  // bootstrap() again here safe even on the very first swap, where this
+  // listener and the direct call above can both fire for the same
+  // navigation.
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    if (e.target && e.target.id === 'main-content') bootstrap();
+  });
 }

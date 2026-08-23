@@ -135,6 +135,51 @@ test.describe('playing', () => {
 	});
 });
 
+// Regression test for a real bug: fishing-game.js's DOM wiring only ran via
+// the bottom-of-file `bootstrap()` call fired once when the module's
+// top-level code first executed — but a `<script type="module">`'s
+// top-level code runs at most once per resolved URL for the page's whole
+// lifetime (per spec). htmx recreates and re-inserts the <script> tag on
+// every HTMX navigation, but the browser does not re-execute an
+// already-evaluated module, so a *second* visit to /fishing-game in the
+// same tab (navigate away, then back) left the freshly swapped-in
+// #fishing-canvas/start screen completely unwired — visually intact (the
+// start screen is static HTML) but totally inert; "Start Dive" silently did
+// nothing. Fixed the same way docs/features/puzzle-solver.md's "Later
+// change" note describes for that feature, which is where this bug was
+// first caught. This test drives the exact real-world path that surfaced
+// it: /projects → Play now → back to /projects → Play now again, all via
+// HTMX, no full page reload in between.
+test.describe('revisiting via HTMX after navigating away', () => {
+	test('a second HTMX visit in the same tab still renders and stays fully interactive', async ({ page }) => {
+		await page.goto('/projects');
+		const playNow = () => page.locator('.project-card').filter({ hasText: 'Fishing Game' }).getByRole('link', { name: 'Play now' });
+		const projectsLink = () => page.locator('#primary-nav').getByRole('link', { name: 'Projects', exact: true });
+
+		await playNow().click();
+		await expect(page.locator('#fishing-canvas')).toBeVisible();
+
+		await projectsLink().click();
+		await expect(page).toHaveURL(/\/projects$/);
+
+		await playNow().click();
+		await expect(page.locator('#fishing-canvas')).toBeVisible();
+
+		// The real bug left the canvas/start screen visible but inert —
+		// assert actual interactivity on this second-visit instance, not
+		// just presence, the same signal the "playing" describe block above
+		// uses (depth HUD genuinely advancing, not RNG-dependent).
+		await page.locator('#fishing-start-dive-button').click();
+		await expect(page.locator('#fishing-start-screen')).toBeHidden();
+
+		const depthLocator = page.locator('#fishing-hud-depth');
+		const initialDepth = Number(await depthLocator.textContent());
+		await expect.poll(async () => Number(await depthLocator.textContent()), {
+			timeout: 5000,
+		}).toBeGreaterThan(initialDepth);
+	});
+});
+
 test.describe('shop', () => {
 	test('lists all 6 gear rows in the documented order, each disabled with 0 tokens, and closes back to the start screen', async ({ page }) => {
 		await page.goto('/fishing-game');

@@ -30,6 +30,28 @@ renders with a navigable gap, and a strand collision costs a life exactly
 like any other hazard) — nothing about the original hazard rotation or its
 own tests changed.
 
+**Later change**: a real bug, first reported against Puzzle Solver
+(`docs/features/puzzle-solver.md`'s own "Later change" note has the full
+writeup) but confirmed to affect this game identically — `fishing-game.js`'s
+DOM wiring (`bootstrap()`) only ran from a plain top-level call, and a
+`<script type="module">`'s top-level code executes at most once per
+resolved URL for the page's whole lifetime (per spec). htmx recreates and
+re-inserts the `<script>` tag on every HTMX navigation, but the browser
+does not re-execute an already-evaluated module — so a second visit to
+`/fishing-game` in the same browser tab (navigate away, then back) left the
+freshly swapped-in canvas/start screen completely unwired. It was invisible
+here (unlike Puzzle Solver, where it was obvious) because the start screen
+is static HTML that still renders correctly even when totally inert — only
+clicking "Start Dive" revealed nothing happened. Fixed by also re-running
+`bootstrap()` from a persistent `htmx:afterSwap` listener on
+`document.body`. Covered by a new regression test in
+`e2e/fishing-game.spec.js` ("revisiting via HTMX after navigating away")
+that drives the exact real-world path (`/projects` → Play now → back →
+Play now again) and asserts genuine interactivity (the depth HUD advancing
+after Start Dive), not just that the canvas is present. Verified against a
+real Postgres instance — the full spec's leaderboard/round-over/shop tests
+all still pass.
+
 ## Summary
 
 A playable arcade mini-game at `/fishing-game` (no longer linked from the

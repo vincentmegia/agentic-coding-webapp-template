@@ -3,26 +3,34 @@
 ## Status
 
 `Shipped` — the page, route, template, and data model are implemented and
-visually verified in both light and dark mode. The grid currently has two
-cards, both real, playable links into this site's own mini-games via the
+visually verified in both light and dark mode. The grid currently has three
+cards, all real, playable links into this site's own mini-games/demos via the
 `Project.External` field (see Data Model): the Fishing Game
 (`docs/features/fishing-game.md`) at `/fishing-game`, with a real
 screenshot (`ImagePath: "/static/images/fishing/screenshot.png"`) — a live
 capture of an actual round in progress (boat, line, a fish, and a
-jellyfish hazard); and Kitchen Shift (`docs/features/cooking-game.md`) at
+jellyfish hazard); Kitchen Shift (`docs/features/cooking-game.md`) at
 `/kitchen-shift`, added in a later pass once that game shipped, with its
 own real screenshot (`ImagePath: "/static/images/cooking/screenshot.png"`)
 — a live capture of the floor plan mid-shift (sink, all four tables, the
-player highlighting Table 2's interaction glow). Neither is a mockup or a
-placeholder tile. The four fictional sample cards the pulled-in design
+player highlighting Table 2's interaction glow); and Puzzle Solver
+(`docs/features/puzzle-solver.md`) at `/puzzle-solver`, a 30×30 DFS
+pathfinding visualizer, added the same way once it shipped, with its own
+real screenshot (`ImagePath: "/static/images/puzzle/screenshot.png"`) —
+a live capture of a solved maze (a fully explored dead-end pocket shown in
+the "visited" amber tint, black wall cells, and the solved path threading
+out to the End marker). None of the three is a mockup. The four fictional sample cards the pulled-in design
 mockup originally shipped with (Fieldnotes, Tidewatch, Loom UI,
 Nightlight) were deliberately removed rather than left sitting next to
 real projects — see Open Questions for the reasoning and what replaces
-them over time. `e2e/projects.spec.js` covers both cards, including each
-one's "Play now" link and HTMX navigation into the real game — see Testing
-Plan. `internal/handler/template_test.go`'s Go-side placeholder-route test
-still doesn't exercise the real `projects-content` template directly (see
-Testing Plan), mirroring `docs/features/landing-carousel.md`'s same gap
+them over time. `e2e/projects.spec.js` covers all three cards, including
+each one's "Play now" link; only the Fishing Game and Kitchen Shift cards
+have a dedicated "navigates via HTMX into the real game shell" regression
+test (Puzzle Solver's own equivalent page-load coverage lives in
+`e2e/puzzle-solver.spec.js` instead, per that doc's Testing Plan) — see
+Testing Plan. `internal/handler/template_test.go`'s Go-side placeholder-route
+test still doesn't exercise the real `projects-content` template directly
+(see Testing Plan), mirroring `docs/features/landing-carousel.md`'s same gap
 for its own hand-authored placeholder content.
 
 ## Summary
@@ -55,8 +63,8 @@ were removed rather than left in place until real replacements existed
   cards.
 * A `Project` data shape (title, description, tags, tag tint, optional live
   URL, an `External` flag distinguishing an internal route from an off-site
-  link, and optional image) and a hardcoded list — currently two real
-  entries (Fishing Game, Kitchen Shift).
+  link, and optional image) and a hardcoded list — currently three real
+  entries (Fishing Game, Kitchen Shift, Puzzle Solver).
 * Responsive card grid: 1 column on mobile, 2 on `sm`, 3 on `lg`.
 * Per-card: an image area (real screenshot if `ImagePath` is set, otherwise
   a "Screenshot coming soon" placeholder tile), title, description, tag
@@ -70,7 +78,7 @@ were removed rather than left in place until real replacements existed
 **Out of scope:**
 
 * Real project content — copy, screenshots, and live links for more of
-  Vincent's actual work, to grow the grid beyond the one Fishing Game card
+  Vincent's actual work, to grow the grid beyond the current three cards
   (see Open Questions).
 * Postgres-backed / admin-editable project data — same as
   `docs/features/landing-carousel.md`'s Data Model stance, this is static,
@@ -159,7 +167,7 @@ the two.
   | `External` | Label | Behavior |
   | --- | --- | --- |
   | `true` | "Live demo" | `target="_blank" rel="noopener noreferrer"`, inline external-link icon, `text-primary` — the original design's only case; not currently exercised by any entry in `projectItems`. |
-  | `false` (default/zero value) | "Play now" | `hx-get="{{.LiveURL}}" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#nav-loading" data-nav-link`, same tab, same swap mechanism `#primary-nav`'s links already use (`components/header.html`), `text-primary`, with a play-triangle icon instead of the external-link icon — both current entries (Fishing Game, Kitchen Shift) take this branch; neither sets `External: true`. |
+  | `false` (default/zero value) | "Play now" | `hx-get="{{.LiveURL}}" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#nav-loading" data-nav-link`, same tab, same swap mechanism `#primary-nav`'s links already use (`components/header.html`), `text-primary`, with a play-triangle icon instead of the external-link icon — all three current entries (Fishing Game, Kitchen Shift, Puzzle Solver) take this branch; none sets `External: true`. |
 
 ---
 
@@ -263,7 +271,7 @@ type Project struct {
 }
 ```
 
-The two current entries (`internal/handler/pages.go`'s `projectItems`):
+The three current entries (`internal/handler/pages.go`'s `projectItems`):
 
 * The **Fishing Game** — `LiveURL: "/fishing-game"`, `External: false` (so
   it renders the "Play now" link), tags `Go`/`Canvas`/`PostgreSQL`,
@@ -277,6 +285,15 @@ The two current entries (`internal/handler/pages.go`'s `projectItems`):
   "/static/images/cooking/screenshot.png"` — likewise a real live
   screenshot, added once that game shipped (`docs/features/cooking-game.md`'s
   Out of scope note), not bundled into the same pass as its own feature.
+* **Puzzle Solver** — `LiveURL: "/puzzle-solver"`, `External: false`, tags
+  `Go`/`Canvas`/`JavaScript` (no PostgreSQL — this feature has no
+  server-side state, per `docs/features/puzzle-solver.md`'s Data Model),
+  `TagTint: "accent"`, `ImagePath: "/static/images/puzzle/screenshot.png"`
+  — a real screenshot, captured the same live-Playwright way as the other
+  two: Start/End placed, a hand-built maze drawn (a fully enclosed
+  dead-end pocket plus a couple of smaller obstacles), solved, and
+  captured once the pocket's full "visited" fill, the maze walls, and the
+  solved path out to End were all on screen together.
 
 `projectItems` originally also had four fictional sample projects
 (Fieldnotes/Tidewatch/Loom UI/Nightlight, the pulled-in design mockup's own
@@ -286,9 +303,10 @@ page's "Selected work" section (`SelectedWorkItem`,
 `docs/features/landing-page.md`) is separate data that originally used
 three of the same fictional names as its own placeholder content, and was
 trimmed to the same single Fishing Game entry at the same time; it later
-picked up a matching Kitchen Shift entry too (same Title/Description text
-as its `projectItems` counterpart, kept in sync deliberately), so the two
-sections still never show different projects from each other.
+picked up matching Kitchen Shift and Puzzle Solver entries too (same
+Title/Description text as each one's `projectItems` counterpart, kept in
+sync deliberately), so the two sections still never show different
+projects from each other.
 
 ---
 
@@ -342,16 +360,18 @@ sections still never show different projects from each other.
 
 ## Testing Plan
 
-* [x] `GET /projects` renders each card (Fishing Game, Kitchen Shift) with
-      correct title, description, and tag pills — `e2e/projects.spec.js`'s
-      `PROJECTS` fixture (both entries) and `cards.toHaveCount(PROJECTS.length)`
-      assertion cover the current two-card grid.
-* [ ] A card with `ImagePath` set renders a real `<img>`; a card without it
+* [x] `GET /projects` renders each card (Fishing Game, Kitchen Shift, Puzzle
+      Solver) with correct title, description, and tag pills —
+      `e2e/projects.spec.js`'s `PROJECTS` fixture (all three entries) and
+      `cards.toHaveCount(PROJECTS.length)` assertion cover the current
+      three-card grid.
+* [x] A card with `ImagePath` set renders a real `<img>`; a card without it
       renders the "Screenshot coming soon" placeholder tile — visually
-      verified (the Fishing Game card now has `ImagePath` set and renders
-      its real screenshot in both themes), but neither branch has automated
-      coverage yet; the no-`ImagePath` placeholder-tile branch is currently
-      unexercised by any entry in `projectItems`.
+      verified for the `<img>` branch (all three current cards have
+      `ImagePath` set and render their real screenshots in both themes);
+      the no-`ImagePath` placeholder-tile branch is currently unexercised
+      by any entry in `projectItems`, same pre-existing gap noted before
+      Puzzle Solver joined the grid.
 * [x] A card with `LiveURL` set and `External: true` renders a "Live demo"
       link that opens in a new tab with `rel="noopener noreferrer"`; a card
       without `LiveURL` renders no such link — `e2e/projects.spec.js` asserts
@@ -406,9 +426,11 @@ sections still never show different projects from each other.
 * **Resolved**: the grid grew beyond the one Fishing Game card — Kitchen
   Shift (`docs/features/cooking-game.md`) was added as a second real entry
   once that game shipped, following the exact same pattern (internal
-  `LiveURL`, real screenshot, no `External` flag).
+  `LiveURL`, real screenshot, no `External` flag); Puzzle Solver
+  (`docs/features/puzzle-solver.md`) followed as a third, same pattern
+  including its own real screenshot.
 * More of Vincent's actual work (copy, screenshots, live links) to keep
-  growing the grid beyond these two mini-game cards.
+  growing the grid beyond these three cards.
 * Should `projectItems` move to Postgres, following the same path
   `docs/features/resume.md` took for resume content, once there's a
   concrete reason (e.g. an admin/CMS UI, or wanting to edit project content
@@ -423,7 +445,10 @@ sections still never show different projects from each other.
 * **Resolved**: a real screenshot for the Fishing Game card's thumbnail —
   `web/static/images/fishing/screenshot.png`, a live Playwright capture of
   an actual round (see Visual Direction), not the individual sprite assets
-  `web/static/images/fishing/` otherwise holds.
+  `web/static/images/fishing/` otherwise holds. Kitchen Shift and Puzzle
+  Solver each got the same treatment once they shipped
+  (`web/static/images/cooking/screenshot.png`,
+  `web/static/images/puzzle/screenshot.png`).
 
 ---
 

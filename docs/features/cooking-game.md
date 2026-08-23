@@ -27,6 +27,27 @@ skipping straight to `closing-dishes` when nothing needs cleaning — see
 `allTablesClean()` in `engine-state.js`. Covered by a regression test in
 `engine-state.test.js`.
 
+**Another real bug, first reported against Puzzle Solver**
+(`docs/features/puzzle-solver.md`'s own "Later change" note has the full
+writeup) but confirmed to affect this game identically —
+`cooking-game.js`'s DOM wiring (`bootstrap()`) only ran from a plain
+top-level call, and a `<script type="module">`'s top-level code executes at
+most once per resolved URL for the page's whole lifetime (per spec). htmx
+recreates and re-inserts the `<script>` tag on every HTMX navigation, but
+the browser does not re-execute an already-evaluated module — so a second
+visit to `/kitchen-shift` in the same browser tab (navigate away, then
+back) left the freshly swapped-in canvas/start screen completely unwired.
+It was invisible here (unlike Puzzle Solver, where it was obvious) because
+the start screen is static HTML that still renders correctly even when
+totally inert. Fixed by also re-running `bootstrap()` from a persistent
+`htmx:afterSwap` listener on `document.body`. Covered by a new regression
+test in `e2e/projects.spec.js` ("revisiting Kitchen Shift via HTMX after
+navigating away", grouped there rather than in a dedicated
+`e2e/cooking-game.spec.js` since no such file exists yet) that drives the
+exact real-world path (`/projects` → Play now → back → Play now again) and
+asserts genuine interactivity (the shop opens) on the second-visit
+instance, not just that the canvas is present.
+
 No sprite art (Visual Direction's canvas-primitives-only v1 scope cut) and
 on-screen touch controls remain open, tracked in Open Questions — neither
 blocks desktop keyboard play, which is what v1 targets.

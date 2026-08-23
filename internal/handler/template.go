@@ -240,6 +240,11 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "cooking-leaderboard.html"),
 		filepath.Join(templatesDir, "components", "cooking-shop.html"),
 		filepath.Join(templatesDir, "pages", "cooking-game.html"),
+		// No leaderboard/shop component templates for this one — Puzzle
+		// Solver has no server-side state at all (docs/features/
+		// puzzle-solver.md's Data Model: "None"), so it's just the one
+		// page file, unlike the two games above it.
+		filepath.Join(templatesDir, "pages", "puzzle-solver.html"),
 	}
 	return template.New(filepath.Base(files[0])).Funcs(templateFuncs).ParseFiles(files...)
 }

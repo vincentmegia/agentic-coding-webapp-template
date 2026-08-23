@@ -49,11 +49,13 @@ which is why it's worth the added implementation complexity documented below.
   claude.ai/design "Personal website and portfolio" project's Home.dc.html
   (see DesignSync and `internal/handler/nav.go`'s `primaryNavItems` doc
   comment for the same project's header/nav pull). Its cards are this
-  site's two real shipped mini-games — Fishing Game
-  (`docs/features/fishing-game.md`) and, since it shipped and was verified
-  the same way, Kitchen Shift (`docs/features/cooking-game.md`) — each
-  clickable straight into its game via the same "Play now" HTMX link
-  `/projects` uses. The mockup's three fictional placeholder cards
+  site's three real shipped mini-games/demos — Fishing Game
+  (`docs/features/fishing-game.md`), Kitchen Shift
+  (`docs/features/cooking-game.md`), and Puzzle Solver
+  (`docs/features/puzzle-solver.md`) — each added once it shipped and was
+  verified the same way, each clickable straight into its game/demo via the
+  same "Play now" HTMX link `/projects` uses. The mockup's three fictional
+  placeholder cards
   (Fieldnotes/Tidewatch/Loom UI) were removed so this teaser always
   matches what `/projects`' "See all projects" link actually leads to
   (`internal/handler/pages.go`'s `selectedWorkItems`, kept in sync with
