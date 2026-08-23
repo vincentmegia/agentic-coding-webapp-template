@@ -10,6 +10,7 @@ import {
   stationAtPoint,
   approachPoint,
   clampToCanvas,
+  resolveObstacleCollisions,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   STATION_BOX_SIZE,
@@ -418,5 +419,65 @@ describe('clampToCanvas', () => {
     const { x, y } = clampToCanvas(CANVAS_WIDTH + 50, CANVAS_HEIGHT + 50, 16);
     assert.equal(x, CANVAS_WIDTH - 16);
     assert.equal(y, CANVAS_HEIGHT - 16);
+  });
+});
+
+describe('resolveObstacleCollisions', () => {
+  test('leaves a position untouched when no obstacle is anywhere near it', () => {
+    const { x, y } = resolveObstacleCollisions(500, 500, 14, [{ x: 0, y: 0, radius: 20 }]);
+    assert.equal(x, 500);
+    assert.equal(y, 500);
+  });
+
+  test('leaves a position untouched with no obstacles at all', () => {
+    const { x, y } = resolveObstacleCollisions(10, 10, 14, []);
+    assert.equal(x, 10);
+    assert.equal(y, 10);
+  });
+
+  test('pushes a circle-vs-circle overlap apart to exactly the combined radius', () => {
+    // Entity radius 10 at (100, 100), a radius-10 obstacle 5px away on the x-axis.
+    const { x, y } = resolveObstacleCollisions(105, 100, 10, [{ x: 100, y: 100, radius: 10 }]);
+    assert.equal(y, 100); // pushed purely along x, the axis of approach
+    assert.ok(x > 105); // pushed further away from the obstacle, not into it
+    assert.equal(Math.hypot(x - 100, y - 100), 20); // exactly radius (10) + obstacle radius (10)
+  });
+
+  test('does not move a circle obstacle when already exactly far enough apart', () => {
+    const { x, y } = resolveObstacleCollisions(120, 100, 10, [{ x: 100, y: 100, radius: 10 }]);
+    assert.equal(x, 120);
+    assert.equal(y, 100);
+  });
+
+  test('pushes out of a rectangular obstacle along the closest edge', () => {
+    // A 40x40 obstacle centered at (200, 200) (halfWidth/halfHeight 20, so
+    // its top edge is at y=180); entity radius 10 approaching from
+    // directly above, 5px into the obstacle's radius-10 reach.
+    const { x, y } = resolveObstacleCollisions(200, 175, 10, [{ x: 200, y: 200, halfWidth: 20, halfHeight: 20 }]);
+    assert.equal(x, 200);
+    assert.equal(y, 170); // pushed up to exactly the box's top edge (180) minus the entity's own radius (10)
+  });
+
+  test('leaves a position untouched when well clear of a rectangular obstacle', () => {
+    const { x, y } = resolveObstacleCollisions(300, 300, 10, [{ x: 200, y: 200, halfWidth: 20, halfHeight: 20 }]);
+    assert.equal(x, 300);
+    assert.equal(y, 300);
+  });
+
+  test('an entity centered inside a rectangular obstacle is pushed out along the shallower axis', () => {
+    // A wide, short obstacle — the shallower escape is straight up/down, not left/right.
+    const { x, y } = resolveObstacleCollisions(200, 200, 5, [{ x: 200, y: 200, halfWidth: 100, halfHeight: 10 }]);
+    assert.equal(x, 200);
+    assert.equal(y, 215); // pushed to the bottom edge (200 + 10) plus the entity's own radius (5)
+  });
+
+  test('walks a list of multiple obstacles, resolving only against the one actually overlapped', () => {
+    const obstacles = [
+      { x: 100, y: 100, radius: 10 },
+      { x: 300, y: 100, radius: 10 }, // far away — must not affect the outcome
+    ];
+    const { x, y } = resolveObstacleCollisions(105, 100, 10, obstacles);
+    assert.equal(y, 100);
+    assert.equal(Math.hypot(x - 100, y - 100), 20);
   });
 });

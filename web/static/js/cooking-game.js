@@ -149,6 +149,7 @@ import {
   stationAtPoint,
   approachPoint,
   clampToCanvas,
+  resolveObstacleCollisions,
   PLAYER_START,
   PLAYER_STOP_MARGIN,
   ROOM_DINING,
@@ -391,6 +392,29 @@ const PAYING_CUSTOMER_TRANSACTION_SECONDS_MAX = 1.8;
 function randomBetween(min, max) {
   return min + Math.random() * (max - min);
 }
+
+/**
+ * v3.33: "treat all things as objects... [they] should never collide" —
+ * every moving entity in this game (the player, each `payingCustomers`
+ * entry) is a circle of one of these radii for
+ * `resolveObstacleCollisions` (floor-plan.js) purposes, roughly matching
+ * each sprite's own visual width so the collision footprint reads as
+ * "can't walk through them," not a mysteriously larger invisible bubble.
+ *
+ * TABLE_COLLISION_RADIUS is deliberately much smaller than a table's own
+ * visual radius (up to 50px at the densest Tier 3 size) rather than
+ * matching it exactly: `floor-plan.js`'s `TABLE_GRID_SHAPES[30]` already
+ * *intentionally* packs Tier 3's rows ~5px tighter than the tables are
+ * tall ("a deliberate, user-accepted tradeoff," kitchen leveling doc) —
+ * full-radius circular collision between adjacent rows would make some
+ * tables geometrically unreachable, walled in by their own neighbors. A
+ * smaller radius still stops a character from walking through a table's
+ * own center while leaving Tier 3's already-tight row gaps (as little as
+ * ~35px edge-to-edge between hitboxes) navigable.
+ */
+const PLAYER_COLLISION_RADIUS = 14;
+const CUSTOMER_COLLISION_RADIUS = 14;
+const TABLE_COLLISION_RADIUS = 30;
 
 const STATION_COLORS = {
   fridge: '#bcdcf2',
@@ -2050,6 +2074,40 @@ export function init(canvas, elements) {
     commitStationTarget(hoverStation, null);
   }
 
+  /**
+   * v3.33: every non-table station in `room` as a rectangular obstacle,
+   * every unlocked table as a (deliberately undersized — see
+   * TABLE_COLLISION_RADIUS) circular one, for `resolveObstacleCollisions`.
+   * A locked table renders nothing at all (drawStation) and isn't
+   * clickable, so it isn't an obstacle either — nothing to walk into.
+   * Shared by both the player and every `payingCustomers` entry, since
+   * both move through the same room the same way.
+   */
+  function stationObstaclesForRoom(room) {
+    const level = currentTableUnlockLevel();
+    return stationsInRoom(stations, room)
+      .filter((s) => s.kind !== 'table' || isTableUnlocked(s.tableId, level))
+      .map((s) => (s.kind === 'table'
+        ? { x: s.x, y: s.y, radius: TABLE_COLLISION_RADIUS }
+        : { x: s.x, y: s.y, halfWidth: s.size / 2, halfHeight: s.size / 2 }));
+  }
+
+  /**
+   * v3.33: deliberately *not* used here — `player.x/player.y` stay the
+   * pure, unobstructed simulation position (exactly the movement math
+   * this function had before collision existed), so every distance/
+   * arrival check anywhere else in this file (patience timers, the shift
+   * clock, `handleArrival`'s `dist <= step` trigger, etc.) keeps behaving
+   * exactly as before, with zero risk of a collision nudge subtly
+   * altering game timing. Collision avoidance is applied only where it's
+   * purely a rendering concern: `currentPlayerDrawPose` (used by both
+   * `drawPlayer` and this file's click hit-testing, so the two can never
+   * drift apart) and `drawPayingCustomers`. See those for why — a naive
+   * "collision nudges the real position" version of this deadlocked in
+   * testing: two customers converging on nearly the same Counter standoff
+   * point pushed each other back exactly as far as they'd just advanced,
+   * forever, since arrival detection also read the nudged position.
+   */
   function updatePlayer(deltaSeconds) {
     if (!moveTarget) return;
     carryBobPhase += deltaSeconds * CARRY_BOB_SPEED; // only read while heldDish is set (drawPlayerCarrying); harmless to advance otherwise
@@ -2161,11 +2219,18 @@ export function init(canvas, elements) {
     const tableStation = stations.find((s) => s.kind === 'table' && s.tableId === tableId);
     const counterStation = stations.find((s) => s.kind === 'counter');
     if (!tableStation || !counterStation) return; // shouldn't happen — both always exist in ROOM_DINING
+    // v3.33: a standoff point just outside the Counter's own collision
+    // box, not its exact center — otherwise `updatePayingCustomers`'
+    // collision resolution (added this same version) would immediately
+    // push a customer who just "arrived" back out of the Counter they're
+    // trying to stand at, same reasoning as the player's own
+    // approachPoint/PLAYER_STOP_MARGIN standoff.
+    const counterTarget = approachPoint(counterStation.x, counterStation.y, tableStation.x, tableStation.y, counterStation.size / 2 + 20);
     payingCustomers.push({
       x: tableStation.x,
       y: tableStation.y + tableStation.size / 2 + 8, // matches drawTableContents' seated position
-      targetX: counterStation.x,
-      targetY: counterStation.y,
+      targetX: counterTarget.x,
+      targetY: counterTarget.y,
       phase: 'eating',
       elapsed: 0,
       eatingDuration: randomBetween(CUSTOMER_EATING_SECONDS_MIN, CUSTOMER_EATING_SECONDS_MAX),
@@ -2175,6 +2240,11 @@ export function init(canvas, elements) {
     });
   }
 
+  // v3.33: same reasoning as updatePlayer's doc comment — c.x/c.y stay the
+  // pure simulation position (unaltered from before collision existed),
+  // so a customer's eat/walk/pay/leave timing can never deadlock or drift
+  // because of where anyone else happens to be standing. Collision
+  // avoidance is purely a `drawPayingCustomers` rendering concern.
   function updatePayingCustomers(deltaSeconds) {
     if (payingCustomers.length === 0) return;
     const step = PAYING_CUSTOMER_WALK_SPEED * deltaSeconds;
@@ -2240,15 +2310,32 @@ export function init(canvas, elements) {
     drawDishIcon(ctx, iconX, iconY, c.dishName, iconSize);
   }
 
+  /**
+   * v3.33: like `currentPlayerDrawPose`, `c.x/c.y` (the pure simulation
+   * position `updatePayingCustomers` moves) are left untouched — only
+   * where each customer is actually *drawn* gets nudged clear of
+   * stations/tables, the player, and every other paying customer, so
+   * their eat/walk/pay/leave timing can never be affected by collision.
+   */
   function drawPayingCustomers() {
+    const stationObstacles = stationObstaclesForRoom(ROOM_DINING);
     for (const c of payingCustomers) {
+      const obstacles = [
+        ...stationObstacles,
+        { x: player.x, y: player.y, radius: PLAYER_COLLISION_RADIUS },
+        ...payingCustomers.filter((other) => other !== c).map((other) => ({ x: other.x, y: other.y, radius: CUSTOMER_COLLISION_RADIUS })),
+      ];
+      const visual = resolveObstacleCollisions(c.x, c.y, CUSTOMER_COLLISION_RADIUS, obstacles);
+      const vx = visual.x;
+      const vy = visual.y;
+
       if (c.appearance === 'mel') {
-        drawMel(ctx, c.x, c.y, 1.05);
+        drawMel(ctx, vx, vy, 1.05);
       } else if (c.appearance === 'couple') {
-        drawPixelPerson(ctx, c.x - 12, c.y, { bodyColor: OLIVE_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#fdf1e4', hairColor: '#7a4a2e', bowColor: '#ffffff', scale: 0.85 });
-        drawPixelPerson(ctx, c.x + 12, c.y, { bodyColor: OLIVER_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#2c3140', hairColor: '#33261a', scale: 0.85 });
+        drawPixelPerson(ctx, vx - 12, vy, { bodyColor: OLIVE_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#fdf1e4', hairColor: '#7a4a2e', bowColor: '#ffffff', scale: 0.85 });
+        drawPixelPerson(ctx, vx + 12, vy, { bodyColor: OLIVER_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#2c3140', hairColor: '#33261a', scale: 0.85 });
       } else {
-        drawPixelPerson(ctx, c.x, c.y, {
+        drawPixelPerson(ctx, vx, vy, {
           bodyColor: c.appearance === 'karen' ? '#e88ba0' : '#f2c88a',
           headColor: '#f6dcc0',
           pantsColor: c.appearance === 'karen' ? '#2a2a2a' : '#5a3a22',
@@ -2258,7 +2345,7 @@ export function init(canvas, elements) {
           marker: c.appearance === 'karen' ? '#ffe066' : null,
         });
       }
-      if (c.phase === 'eating') drawEatingAnimation(c);
+      if (c.phase === 'eating') drawEatingAnimation({ ...c, x: vx, y: vy });
     }
   }
 
@@ -3185,10 +3272,21 @@ export function init(canvas, elements) {
   }
 
   /** The player's current draw-time position/bob — shared by drawPlayer (rendering) and onCanvasClick's tray-icon hit-testing, so a click is tested against exactly what's on screen this frame. */
+  /**
+   * v3.33: the single source both `drawPlayer` and this file's tray-icon
+   * click hit-testing (`heldDishIconHit`/`trayIngredientIconHits`, the
+   * established v3.24 "shared geometry" pattern) already read from — so
+   * routing the collision-avoidance nudge through here, rather than
+   * through `player.x/player.y` directly, keeps drawing and hit-testing
+   * exactly in sync for free, the same way that pattern already did for
+   * the carrying-pose bob offset.
+   */
   function currentPlayerDrawPose() {
+    const obstacles = stationObstaclesForRoom(currentRoom);
+    const visual = resolveObstacleCollisions(player.x, player.y, PLAYER_COLLISION_RADIUS, obstacles);
     return {
-      x: Math.round(player.x),
-      y: Math.round(player.y),
+      x: Math.round(visual.x),
+      y: Math.round(visual.y),
       bobOffset: moveTarget ? Math.sin(carryBobPhase) * CARRY_BOB_AMPLITUDE : 0,
     };
   }

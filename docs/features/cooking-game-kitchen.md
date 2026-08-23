@@ -155,6 +155,61 @@ silent branch exists for the Stove). Fixed by showing
 `"That order's gone — take a new one first"` in that branch, same
 `showToast` every other `handleCookArrival` precondition already used.
 
+## Collision avoidance (v3.33)
+
+The user asked to "treat all things as objects" (doors, the counter,
+tables, characters) and have the player, every customer, and every object
+never visually overlap. `floor-plan.js`'s `resolveObstacleCollisions(x, y,
+radius, obstacles)` is the shared primitive: given a moving entity's
+circle, it pushes it out of any obstacle circle/rectangle it overlaps,
+along the shortest way out — not pathfinding, just a per-frame "slide off
+the edge" nudge layered on top of the straight-line movement every entity
+already did. Every station except tables is a rectangular obstacle sized
+to its own box; tables are circular obstacles via `TABLE_COLLISION_RADIUS`
+(30) — deliberately smaller than a table's own visual radius (up to 50px
+at Tier 3's densest size), because `TABLE_GRID_SHAPES[30]`'s rows are
+*already* packed ~5px tighter than the tables are tall (a documented,
+user-accepted tradeoff — the leveling doc's "pack tightly" section). A
+full-size table hitbox there would wall some tables in behind their own
+neighbors, unreachable; 30px leaves Tier 3's already-tight row gaps (as
+little as ~35px edge-to-edge between hitboxes) navigable for a
+14px-radius character while still stopping anyone from walking through a
+table's own center.
+
+**Why collision is a rendering-only concern, not a simulation one.** The
+first version fed a collision-resolved position straight back into
+`player.x/y` and each `payingCustomers` entry's `x/y` — the same values
+every arrival/timing check in this file already read. It deadlocked in
+testing: two customers converging on nearly the same Counter standoff
+point pushed each other back exactly as far as they'd each just advanced,
+forever, because the `dist <= step` arrival check was reading the
+collision-nudged position too — collision avoidance was fighting
+goal-seeking with no way to break the tie, and neither customer could ever
+get "close enough" to complete their `walking → paying` transition. Since
+a stuck customer never pays, that isn't just a visual bug — it silently
+and permanently loses that customer's Gard. Fixed by a strict separation:
+`player.x/y` and each customer's `x/y` stay the plain, always-progressing
+straight-line position they were before collision existed (so every
+timing-sensitive check elsewhere in this file — patience, the shift clock,
+`handleArrival`'s own arrival trigger — is provably unaffected by this
+feature). Collision is applied *only* at the point each entity is actually
+drawn: `currentPlayerDrawPose` (already the single source both `drawPlayer`
+and this file's tray-icon click hit-testing read from, the established
+v3.24 "shared geometry" pattern — routing the nudge through here keeps
+drawing and hit-testing in sync for free) and `drawPayingCustomers`. The
+player only avoids stations/tables when drawn, never other characters —
+keeping the click-driven avatar's rendered position simple/predictable;
+each customer avoids stations/tables, the player, *and* every other
+customer, so they're the ones who visibly step aside.
+
+One consequence worth calling out: because the Counter target used to be
+its exact center, and a customer's *rendered* position now avoids the
+Counter's own collision box, `spawnPayingCustomer` was changed to target a
+standoff point just outside the Counter (`approachPoint`, the same helper
+`commitStationTarget` uses for the player) rather than dead center —
+otherwise a customer who'd "arrived" to pay would immediately render as
+pushed back out of the Counter they were meant to be standing at.
+
 ## The Dining/Kitchen room split (v3.1)
 
 Exactly one room is ever active; only its stations render, are clickable,

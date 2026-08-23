@@ -1420,6 +1420,22 @@ site's CSP):
   (the held dish, or a raw ingredient in the carried stack) — if so, that
   item is discarded instead of the click being treated as a station/floor
   target at all.
+* **Nobody visually overlaps a station, table, or another character**
+  (v3.33): `floor-plan.js`'s `resolveObstacleCollisions` nudges a moving
+  entity's circle out of any station/table box or other character's circle
+  it would otherwise overlap. Every station except tables is a rectangular
+  obstacle at its own box size; tables (circular obstacles) use a
+  deliberately *smaller* radius than their visual size, since Tier 3's
+  table grid already intentionally packs rows tighter than the tables are
+  tall (kitchen leveling doc) — full-size table collision would wall some
+  tables in, unreachable. This is purely a *rendering* concern: the
+  player's and each departing customer's own walk/arrival logic (`player.
+  x/y`, `payingCustomers` entries' `x/y`) stay the plain, uncollided
+  straight-line position they always were, and collision is applied only
+  at the point each is actually drawn (`currentPlayerDrawPose`,
+  `drawPayingCustomers`) — see the kitchen rules doc's Collision avoidance
+  section for why a first attempt that fed collision back into the real
+  position deadlocked two customers converging on the Counter.
 * **Popup menus close on an outside click** (v3.24): the station panel
   and Recipe Book are each a full-canvas backdrop with a centered card;
   clicking the backdrop itself (not the card) closes the panel, the same
@@ -1681,6 +1697,19 @@ bounds, etc.) is covered in Security Considerations below.
       Playwright run that this now shows the "order's gone" toast instead
       of the previous silent no-op (no automated test file for
       `cooking-game.js` — see the entry above).
+* [x] `resolveObstacleCollisions` (`floor-plan.js`): leaves an untouched
+      position alone (no obstacles, or none nearby); pushes a circle-vs-
+      circle overlap out to exactly the combined radius; pushes out of a
+      rectangular obstacle along the closest edge; pushes an entity
+      centered *inside* a rectangular obstacle out along the shallower
+      axis; walks a list of multiple obstacles, resolving only against the
+      one actually overlapped (`floor-plan.test.js`, 8 cases). The
+      integration this enables — the player deflecting around a station
+      it'd otherwise walk through, two customers converging on the Counter
+      staying visibly apart and *still both completing* (no deadlock) —
+      isn't unit-tested (no automated test file for `cooking-game.js`);
+      verified manually via a live Playwright run driving both scenarios
+      directly (kitchen rules doc's Collision avoidance section).
 * [x] Order queue: adding an order respects the current table-capacity cap
       (physical tables vs. Extra Table Service level, whichever is lower);
       a patience timer reaching zero auto-fails that order, marks the table

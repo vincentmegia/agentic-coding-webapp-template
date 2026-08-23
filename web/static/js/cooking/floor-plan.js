@@ -454,3 +454,75 @@ export function clampToCanvas(x, y, margin = 20) {
   const clampY = (value) => Math.min(CANVAS_HEIGHT - margin, Math.max(margin, value));
   return { x: clampX(x), y: clampY(y) };
 }
+
+/**
+ * v3.33: "treat all things as objects... should never collide" — pushes a
+ * moving entity (a circle of `radius`, centered at `x, y`) out of any
+ * `obstacles` entry it overlaps, along the shortest way out. Not
+ * pathfinding — cooking-game.js still moves every entity in a straight
+ * line toward its target every frame; this is a per-frame "slide off the
+ * edge" nudge applied on top of that step, cheap enough for this game's
+ * small, sparse obstacle counts (a handful of stations/characters per
+ * room). Obstacles are resolved one at a time, in list order, so two
+ * overlapping obstacles can fight over the same nudge — never an issue in
+ * practice here since real obstacles (stations, characters) don't overlap
+ * each other, only the moving entity passing near/between them.
+ *
+ * Each obstacle is either circular (`{x, y, radius}` — this game's tables,
+ * drawn as circles since v3.16, and every character, drawn as a person)
+ * or rectangular (`{x, y, halfWidth, halfHeight}` — every other station,
+ * drawn as a rounded box). Circular obstacles resolve as a direct
+ * circle-vs-circle push; rectangular ones as circle-vs-AABB via the
+ * closest point on the box to the entity's center.
+ *
+ * @param {number} x
+ * @param {number} y
+ * @param {number} radius
+ * @param {({x: number, y: number, radius: number}|{x: number, y: number, halfWidth: number, halfHeight: number})[]} obstacles
+ * @returns {{x: number, y: number}}
+ */
+export function resolveObstacleCollisions(x, y, radius, obstacles) {
+  let rx = x;
+  let ry = y;
+  for (const obs of obstacles) {
+    if (obs.radius !== undefined) {
+      const dx = rx - obs.x;
+      const dy = ry - obs.y;
+      const minDist = radius + obs.radius;
+      const dist = Math.hypot(dx, dy);
+      if (dist >= minDist) continue;
+      if (dist > 0) {
+        const push = minDist - dist;
+        rx += (dx / dist) * push;
+        ry += (dy / dist) * push;
+      } else {
+        // Exactly coincident centers — an arbitrary but stable escape
+        // direction; two same-position entities shouldn't occur in normal
+        // play (every spawn point is a distinct station/table).
+        rx = obs.x + minDist;
+        ry = obs.y;
+      }
+    } else {
+      const closestX = Math.max(obs.x - obs.halfWidth, Math.min(rx, obs.x + obs.halfWidth));
+      const closestY = Math.max(obs.y - obs.halfHeight, Math.min(ry, obs.y + obs.halfHeight));
+      const dx = rx - closestX;
+      const dy = ry - closestY;
+      const distSq = dx * dx + dy * dy;
+      if (distSq >= radius * radius) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist > 0) {
+        const push = radius - dist;
+        rx += (dx / dist) * push;
+        ry += (dy / dist) * push;
+      } else {
+        // Entity's center is inside the box — push out along whichever
+        // axis has the shallower penetration.
+        const overlapX = obs.halfWidth + radius - Math.abs(rx - obs.x);
+        const overlapY = obs.halfHeight + radius - Math.abs(ry - obs.y);
+        if (overlapX < overlapY) rx = obs.x + (rx >= obs.x ? 1 : -1) * (obs.halfWidth + radius);
+        else ry = obs.y + (ry >= obs.y ? 1 : -1) * (obs.halfHeight + radius);
+      }
+    }
+  }
+  return { x: rx, y: ry };
+}

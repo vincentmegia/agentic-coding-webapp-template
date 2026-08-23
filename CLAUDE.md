@@ -76,7 +76,12 @@ had a stray line drawn across their face — redesigned as a solid
 counter-front panel sized from the employee's own torso-bottom so the
 face is always fully clear. The floor's "Entrance / Exit" marker is now an
 actual door sprite (open doorway, star lanterns, a welcome mat) instead of
-plain text.
+plain text. The player and every departing customer now visually avoid
+overlapping stations, tables, and each other (`floor-plan.js`'s
+`resolveObstacleCollisions`) — applied only to what's actually drawn, not
+to the underlying walk/arrival logic, since an earlier version that fed
+it into the real position could deadlock two customers converging on the
+Counter.
 `/projects` now leads with two real cards
 — Fishing Game and Kitchen Shift, both linking straight into their games
 via "Play now" — but Kitchen Shift still isn't linked from the header nav
