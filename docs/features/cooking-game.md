@@ -62,11 +62,13 @@ pass:
   formatted as a time of day (`rules.js`'s `inGameTimeLabel`).
 * Three recurring/scripted customers, layered on top of the normal random
   arrival pool (the customer rules doc has the full rundown): **Mel**, sweet and
-  kind, always the first customer seated every shift, with her own usual
-  order and extra patience; **Olive & Oliver**, an engaged couple who
-  always arrive together right after Mel, sharing one table and one order;
-  and **Karen**, a one-time disruptive customer on shift 12, with a short
-  fuse whose failure ripples into upsetting one other table too.
+  kind, guaranteed to appear exactly once every shift (v3.35: at a
+  randomized point, no longer forced into the literal first slot), with
+  her own usual order and extra patience; **Olive & Oliver**, an engaged
+  couple sharing one table and one order, likewise guaranteed once a
+  shift at a randomized point rather than unconditionally right after
+  Mel; and **Karen**, a one-time disruptive customer on shift 12, with a
+  short fuse whose failure ripples into upsetting one other table too.
 
 **Real CSP bug found and fixed during manual verification**: an inline
 `style="image-rendering: pixelated"` on the canvas and an inline
@@ -1014,6 +1016,29 @@ second data point for that pattern rather than a reskin of the first game.
 * v3.32: the Entrance/Exit floor marker got a real door sprite in place of
   plain text (see the On-canvas signage bullet above) — the last
   remaining "just text, no graphic" spot in the Dining room.
+* v3.33: the player, every departing customer, and every station/table now
+  visually avoid overlapping each other — see the Client-side Behavior
+  section's "Nobody visually overlaps a station, table, or another
+  character" bullet below, and the kitchen rules doc's Collision avoidance
+  section for `resolveObstacleCollisions` and why it's a rendering-only
+  concern, never fed back into the underlying walk/arrival logic.
+* v3.34: customer arrival timing is jittered (±40%, multiplicative around
+  the existing shift-ramp average) instead of landing on an exact,
+  metronomic beat every time — see the customer rules doc's Shift ramp
+  section for `jitteredArrivalIntervalSeconds`.
+* v3.35: Mel and Olive & Oliver — previously the unconditional 1st and 2nd
+  customer of *every* shift — now land at a random point in the shift
+  instead (still guaranteed to appear exactly once each; only the timing
+  is random). Table selection and regular-dish selection were already
+  uniform-random before this and are unchanged; Karen's fixed shift-12
+  trigger is also unchanged (see the customer rules doc's Karen/Mel/Olive
+  & Oliver section for both changes).
+* v3.36: every newly spawned customer (the random pool, Mel, Olive &
+  Oliver, and Karen) now walks in from the Entrance/Exit door before
+  taking their seat, instead of appearing at their table instantly —
+  `arrivingCustomers`, the mirror image of `payingCustomers`' existing
+  walk-to-the-Counter-and-leave animation. See the customer rules doc's
+  "Customers walk in from the entrance" section.
 * A shift clock, displayed as an in-game restaurant time of day (8:30
   AM–11:30 PM): new customers/orders stop spawning at zero, any orders
   still queued are auto-failed, and the shift moves into its closing
@@ -1043,12 +1068,14 @@ second data point for that pattern rather than a reskin of the first game.
   Gard-per-shift is otherwise governed entirely by mistake count, not by
   how well any single dish was served (see the food-server rules doc).
 * Three recurring/scripted customers layered on the normal random-arrival
-  pool: **Mel** (always the first customer every shift, her own usual
-  order, extra patience, a thank-you line), **Olive & Oliver** (an engaged
-  couple, always the second arrival every shift, sharing one table and one
-  order), and **Karen** (a one-time disruptive customer on shift 12 only,
-  short patience, and a ripple effect that upsets one other table if she's
-  mishandled). See the customer rules doc for the full rundown of each.
+  pool: **Mel** (guaranteed once every shift — v3.35: at a randomized
+  point, not forced first — her own usual order, extra patience, a
+  thank-you line), **Olive & Oliver** (an engaged couple, likewise
+  guaranteed once a shift at a randomized point rather than
+  unconditionally second, sharing one table and one order), and **Karen**
+  (a one-time disruptive customer on shift 12 only, short patience, and a
+  ripple effect that upsets one other table if she's mishandled). See the
+  customer rules doc for the full rundown of each.
 * A stationary security guard figure near the entrance — cosmetic only, not
   an interactive station.
 * A Sanity stat (drawn on-canvas, top-left of the floor plan — not
@@ -1710,6 +1737,39 @@ bounds, etc.) is covered in Security Considerations below.
       isn't unit-tested (no automated test file for `cooking-game.js`);
       verified manually via a live Playwright run driving both scenarios
       directly (kitchen rules doc's Collision avoidance section).
+* [x] `jitteredArrivalIntervalSeconds` (`rules.js`): a roll of 0 returns
+      exactly the minimum jitter factor applied, a roll just under 1
+      returns just under the maximum, a mid-range roll lands strictly
+      between; scales down alongside a smaller base interval (jitter is
+      multiplicative, not a fixed offset); an out-of-range or non-finite
+      roll is clamped/defaulted rather than throwing or escaping the
+      jitter bounds; a non-positive base interval returns 0, never
+      negative (`rules.test.js`, 6 cases). `maybeSpawnCustomer`'s use of
+      it (re-rolling `nextCustomerArrivalSeconds` only when the previous
+      wait actually elapses, not every frame) isn't unit-tested — no
+      automated test file for `cooking-game.js`; verified manually via a
+      live Playwright run sampling several consecutive rolls within one
+      shift and confirming they visibly vary rather than repeating the
+      same exact interval (customer rules doc's Shift ramp section).
+* [x] v3.35's randomized Mel/Olive & Oliver spawn-slot timing: no
+      automated test file for `cooking-game.js`; verified manually via a
+      live Playwright run resetting the spawn-tracking state and
+      re-triggering `maybeSpawnCustomer` 200 times in one session, then
+      confirming the resulting kind (Mel, the couple, or a regular dish)
+      wasn't always the same value — observed roughly a 1-in-4 share each
+      for Mel and the couple at shift 1 (2 unlocked regular dishes, so 4
+      equally-weighted candidates total), matching the intended "one
+      candidate, same weight as a single regular dish" design rather than
+      Mel/the couple dominating or never appearing.
+* [x] v3.36's `arrivingCustomers` walk-in: no automated test file for
+      `cooking-game.js`; verified manually via a live Playwright run —
+      spawning an arriving customer and sampling their position each
+      frame confirmed they visibly progress from the Entrance/Exit door
+      toward their table (not an instant teleport), `pendingCustomers`
+      stays empty for that table until they arrive, and it's populated
+      with the right dish the instant they do; a separate run confirmed a
+      real, un-forced natural spawn (real timer, real walk, no debug
+      hooks) still reaches the order queue correctly end to end.
 * [x] Order queue: adding an order respects the current table-capacity cap
       (physical tables vs. Extra Table Service level, whichever is lower);
       a patience timer reaching zero auto-fails that order, marks the table
@@ -1812,8 +1872,11 @@ bounds, etc.) is covered in Security Considerations below.
       correct action fires on arrival (station panel opens for fridge/
       cabinet/cookware closet, order taken/served at a table); clicking
       empty floor just walks there with no side effect.
-* [ ] `e2e/`: Mel is the first customer of a fresh shift and Olive & Oliver
-      the second, every time — not just probabilistically.
+* [ ] `e2e/`: over many fresh shifts, Mel and Olive & Oliver each appear
+      exactly once per shift (v3.35: at a randomized point, no longer
+      guaranteed to be the literal first/second customer — this now
+      *should* be probabilistic, the opposite of what an earlier version
+      of this checklist item asked for).
 * [ ] `e2e/`: the Recipe Book opens (before and during a shift), lists every
       dish including Mel's and Olive & Oliver's, and its Close button is
       always reachable regardless of viewport/canvas height (regression

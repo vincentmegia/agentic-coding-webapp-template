@@ -100,6 +100,7 @@ import {
   isCookSuccess,
   cookSweepSpeed,
   customerArrivalIntervalSeconds,
+  jitteredArrivalIntervalSeconds,
   customerPatienceSeconds,
   tableCapacity,
   shiftPaycheck,
@@ -1411,9 +1412,9 @@ export function init(canvas, elements) {
   let recipeBookOpen = false;
   let karen = null; // { tableId } while her order is live and unresolved this shift
   let mel = null; // { tableId } while her order is live and unresolved this shift
-  let melSpawnedThisShift = false; // she's always the first customer seated every shift
+  let melSpawnedThisShift = false; // guaranteed once per shift, but v3.35 randomizes *when* — see maybeSpawnCustomer
   let couple = null; // { tableId } while Olive & Oliver's order is live and unresolved this shift
-  let coupleSpawnedThisShift = false; // they always arrive right after Mel every shift
+  let coupleSpawnedThisShift = false; // guaranteed once per shift, but v3.35 randomizes *when* — see maybeSpawnCustomer
   let orderBubble = null; // { tableId, dishName, remaining } — a brief speech bubble shown the moment an order is taken (v3.12)
   // v3.28: independent of shiftState.orders/tables — a served customer is
   // already cleared from the table (serveDish) the instant they're spawned
@@ -1421,7 +1422,27 @@ export function init(canvas, elements) {
   // layered on top, never blocking gameplay at the table itself. Each entry:
   // { x, y, targetX, targetY, phase: 'walking'|'paying'|'leaving', elapsed, appearance }.
   let payingCustomers = [];
+  // v3.36: "put animation when customer come from entrance/exit" — the
+  // mirror image of payingCustomers' walk-out: before this, a newly
+  // spawned customer (maybeSpawnCustomer/spawnKarenIfDue) appeared seated
+  // at their table the instant they were picked, with no travel of their
+  // own. Now they walk in from the same entrance/exit spot paying
+  // customers walk out to (INTRO_ENTRANCE_POSITION) first, and only
+  // "materialize" as a real pendingCustomers entry (visible/interactable,
+  // patience/mel/couple/karen tracking all start) on arrival — see
+  // spawnArrivingCustomer/updateArrivingCustomers. Each entry:
+  // { x, y, targetX, targetY, tableId, appearance, dishName }.
+  let arrivingCustomers = [];
   let timeSinceCustomerSpawn = 0;
+  // v3.34: the actual jittered wait `maybeSpawnCustomer` is counting down
+  // to right now — re-rolled (jitteredArrivalIntervalSeconds) every time
+  // timeSinceCustomerSpawn resets (beginShift, and each spawn attempt),
+  // not recomputed fresh every single frame — that would just converge on
+  // the jitter's lower bound instead of varying per customer, since the
+  // very next frame after the wait elapsed would always see the smallest
+  // possible re-roll. This placeholder value is only ever visible for the
+  // instant before the first real "Start Shift" click.
+  let nextCustomerArrivalSeconds = customerArrivalIntervalSeconds(1);
   let running = false;
   let rafHandle = null;
   let lastTimestamp = null;
@@ -1727,9 +1748,12 @@ export function init(canvas, elements) {
     const tableId = availableTableIds[Math.floor(random() * availableTableIds.length)];
     const dishes = availableDishes(currentShiftNumber);
     const dish = dishes[Math.floor(random() * dishes.length)];
-    pendingCustomers[tableId] = dish.name;
-    karen = { tableId };
-    showToast(KAREN_LINE, 5);
+    // v3.36: she now walks in from the entrance like everyone else —
+    // `karen = { tableId }` and her line firing are deferred to
+    // updateArrivingCustomers' arrival branch, genuinely "the moment
+    // she's seated" (customer rules doc) rather than the moment she was
+    // picked, before she'd have walked in at all.
+    spawnArrivingCustomer(tableId, 'karen', dish.name);
   }
 
   // "Start Shift"/"Start Next Shift"/"Start New Month" all funnel through
@@ -1760,6 +1784,7 @@ export function init(canvas, elements) {
     shiftState = createInitialState(TABLE_IDS, { clockSeconds: shiftClockSecondsForShift(currentShiftNumber) });
     pendingCustomers = {};
     payingCustomers = [];
+    arrivingCustomers = [];
     karen = null;
     mel = null;
     couple = null;
@@ -1826,6 +1851,7 @@ export function init(canvas, elements) {
     moveTarget = null;
     pendingCustomers = {};
     payingCustomers = [];
+    arrivingCustomers = [];
     inventory = [];
     cookware = new Set();
     heldDish = null;
@@ -1838,6 +1864,7 @@ export function init(canvas, elements) {
     couple = null;
     coupleSpawnedThisShift = false;
     timeSinceCustomerSpawn = 0;
+    nextCustomerArrivalSeconds = jitteredArrivalIntervalSeconds(customerArrivalIntervalSeconds(currentShiftNumber), random());
     lastTimestamp = null;
     running = true;
     paused = false;
@@ -2311,6 +2338,31 @@ export function init(canvas, elements) {
   }
 
   /**
+   * v3.36: shared by `drawPayingCustomers` and `drawArrivingCustomers` —
+   * the same appearance vocabulary ('mel'/'couple'/'karen'/'regular')
+   * drawn identically regardless of which direction they're walking, so a
+   * customer looks the same arriving as they do leaving.
+   */
+  function drawCustomerFigure(x, y, appearance) {
+    if (appearance === 'mel') {
+      drawMel(ctx, x, y, 1.05);
+    } else if (appearance === 'couple') {
+      drawPixelPerson(ctx, x - 12, y, { bodyColor: OLIVE_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#fdf1e4', hairColor: '#7a4a2e', bowColor: '#ffffff', scale: 0.85 });
+      drawPixelPerson(ctx, x + 12, y, { bodyColor: OLIVER_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#2c3140', hairColor: '#33261a', scale: 0.85 });
+    } else {
+      drawPixelPerson(ctx, x, y, {
+        bodyColor: appearance === 'karen' ? '#e88ba0' : '#f2c88a',
+        headColor: '#f6dcc0',
+        pantsColor: appearance === 'karen' ? '#2a2a2a' : '#5a3a22',
+        hairColor: appearance === 'karen' ? '#3a2a2a' : '#6b4a30',
+        bowColor: appearance === 'karen' ? '#2a2a2a' : null,
+        scale: 1.05,
+        marker: appearance === 'karen' ? '#ffe066' : null,
+      });
+    }
+  }
+
+  /**
    * v3.33: like `currentPlayerDrawPose`, `c.x/c.y` (the pure simulation
    * position `updatePayingCustomers` moves) are left untouched — only
    * where each customer is actually *drawn* gets nudged clear of
@@ -2324,28 +2376,78 @@ export function init(canvas, elements) {
         ...stationObstacles,
         { x: player.x, y: player.y, radius: PLAYER_COLLISION_RADIUS },
         ...payingCustomers.filter((other) => other !== c).map((other) => ({ x: other.x, y: other.y, radius: CUSTOMER_COLLISION_RADIUS })),
+        ...arrivingCustomers.map((other) => ({ x: other.x, y: other.y, radius: CUSTOMER_COLLISION_RADIUS })),
       ];
       const visual = resolveObstacleCollisions(c.x, c.y, CUSTOMER_COLLISION_RADIUS, obstacles);
-      const vx = visual.x;
-      const vy = visual.y;
+      drawCustomerFigure(visual.x, visual.y, c.appearance);
+      if (c.phase === 'eating') drawEatingAnimation({ ...c, x: visual.x, y: visual.y });
+    }
+  }
 
-      if (c.appearance === 'mel') {
-        drawMel(ctx, vx, vy, 1.05);
-      } else if (c.appearance === 'couple') {
-        drawPixelPerson(ctx, vx - 12, vy, { bodyColor: OLIVE_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#fdf1e4', hairColor: '#7a4a2e', bowColor: '#ffffff', scale: 0.85 });
-        drawPixelPerson(ctx, vx + 12, vy, { bodyColor: OLIVER_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#2c3140', hairColor: '#33261a', scale: 0.85 });
-      } else {
-        drawPixelPerson(ctx, vx, vy, {
-          bodyColor: c.appearance === 'karen' ? '#e88ba0' : '#f2c88a',
-          headColor: '#f6dcc0',
-          pantsColor: c.appearance === 'karen' ? '#2a2a2a' : '#5a3a22',
-          hairColor: c.appearance === 'karen' ? '#3a2a2a' : '#6b4a30',
-          bowColor: c.appearance === 'karen' ? '#2a2a2a' : null,
-          scale: 1.05,
-          marker: c.appearance === 'karen' ? '#ffe066' : null,
-        });
+  /**
+   * v3.36: spawns a walk-in-from-the-entrance animation for a customer
+   * who was just picked to seat at `tableId` (maybeSpawnCustomer/
+   * spawnKarenIfDue) — the mirror image of spawnPayingCustomer's walk-out.
+   * They don't become a real, interactable `pendingCustomers` entry (or
+   * start counting toward capacity, patience, mel/couple/karen tracking)
+   * until `updateArrivingCustomers` sees them arrive — see that function.
+   */
+  function spawnArrivingCustomer(tableId, appearance, dishName) {
+    const tableStation = stations.find((s) => s.kind === 'table' && s.tableId === tableId);
+    if (!tableStation) return; // shouldn't happen — caller already validated tableId is a real, open table
+    arrivingCustomers.push({
+      x: INTRO_ENTRANCE_POSITION.x,
+      y: INTRO_ENTRANCE_POSITION.y,
+      targetX: tableStation.x,
+      targetY: tableStation.y + tableStation.size / 2 + 8, // matches drawTableContents' seated position
+      tableId,
+      appearance,
+      dishName,
+    });
+  }
+
+  // v3.36: pure simulation position, same reasoning as updatePayingCustomers
+  // — never nudged by collision, so arrival timing can't drift or deadlock.
+  function updateArrivingCustomers(deltaSeconds) {
+    if (arrivingCustomers.length === 0) return;
+    const step = PAYING_CUSTOMER_WALK_SPEED * deltaSeconds;
+    arrivingCustomers = arrivingCustomers.filter((c) => {
+      const dx = c.targetX - c.x;
+      const dy = c.targetY - c.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist <= step || dist === 0) {
+        // Arrived — this is the moment they actually "become" a seated,
+        // interactable customer (drawTableContents starts drawing them
+        // there once pendingCustomers[tableId] is set), same moment
+        // mel/couple/karen tracking and (for Karen) her line used to fire
+        // at spawn time instead — now genuinely "the moment she's seated"
+        // per the customer rules doc, not just the moment she was picked.
+        pendingCustomers[c.tableId] = c.dishName;
+        if (c.appearance === 'mel') mel = { tableId: c.tableId };
+        else if (c.appearance === 'couple') couple = { tableId: c.tableId };
+        else if (c.appearance === 'karen') {
+          karen = { tableId: c.tableId };
+          showToast(KAREN_LINE, 5);
+        }
+        return false;
       }
-      if (c.phase === 'eating') drawEatingAnimation({ ...c, x: vx, y: vy });
+      c.x += (dx / dist) * step;
+      c.y += (dy / dist) * step;
+      return true;
+    });
+  }
+
+  function drawArrivingCustomers() {
+    const stationObstacles = stationObstaclesForRoom(ROOM_DINING);
+    for (const c of arrivingCustomers) {
+      const obstacles = [
+        ...stationObstacles,
+        { x: player.x, y: player.y, radius: PLAYER_COLLISION_RADIUS },
+        ...payingCustomers.map((other) => ({ x: other.x, y: other.y, radius: CUSTOMER_COLLISION_RADIUS })),
+        ...arrivingCustomers.filter((other) => other !== c).map((other) => ({ x: other.x, y: other.y, radius: CUSTOMER_COLLISION_RADIUS })),
+      ];
+      const visual = resolveObstacleCollisions(c.x, c.y, CUSTOMER_COLLISION_RADIUS, obstacles);
+      drawCustomerFigure(visual.x, visual.y, c.appearance);
     }
   }
 
@@ -2460,37 +2562,60 @@ export function init(canvas, elements) {
   }
 
   function maybeSpawnCustomer() {
-    const interval = customerArrivalIntervalSeconds(currentShiftNumber);
-    if (timeSinceCustomerSpawn < interval) return;
+    if (timeSinceCustomerSpawn < nextCustomerArrivalSeconds) return;
     timeSinceCustomerSpawn = 0;
+    // v3.34: re-rolled every time the wait elapses (whether or not a
+    // customer actually ends up spawning below — capacity/no-table
+    // rejections already restarted the full wait before this existed,
+    // same behavior preserved, just with a freshly jittered length now).
+    nextCustomerArrivalSeconds = jitteredArrivalIntervalSeconds(customerArrivalIntervalSeconds(currentShiftNumber), random());
 
     const maxOrders = tableCapacity(currentShiftNumber, save.gear.extraTableService);
-    const activeCount = shiftState.orders.length + Object.keys(pendingCustomers).length;
+    // v3.36: an arrivingCustomers entry doesn't have a pendingCustomers
+    // entry yet (that's the whole point — see spawnArrivingCustomer) but
+    // is still headed for a table, so it counts toward capacity too;
+    // otherwise several customers could pile up walking in at once and
+    // all land past the real cap the instant they arrive.
+    const activeCount = shiftState.orders.length + Object.keys(pendingCustomers).length + arrivingCustomers.length;
     if (activeCount >= maxOrders) return;
 
     const level = currentTableUnlockLevel();
-    const availableTableIds = TABLE_IDS.filter((id) => isTableUnlocked(id, level) && !shiftState.tables[id].occupied && !pendingCustomers[id]);
+    const availableTableIds = TABLE_IDS.filter((id) => isTableUnlocked(id, level)
+      && !shiftState.tables[id].occupied
+      && !pendingCustomers[id]
+      && !arrivingCustomers.some((c) => c.tableId === id));
     if (availableTableIds.length === 0) return;
 
     const tableId = availableTableIds[Math.floor(random() * availableTableIds.length)];
 
-    if (!melSpawnedThisShift) {
-      melSpawnedThisShift = true;
-      pendingCustomers[tableId] = MEL_DISH.name;
-      mel = { tableId };
-      return;
-    }
+    // v3.35: "first customer is still the same, randomize the customers
+    // and the food they order" — Mel and Olive & Oliver used to be forced
+    // into the literal 1st/2nd spawn slot of every shift, unconditionally,
+    // before the random dish pool ever got a turn. One flat candidate
+    // list instead: each not-yet-spawned-this-shift special customer gets
+    // exactly one entry (same weight as any single regular dish), so
+    // which customer/dish a given spawn slot produces is one random draw
+    // — sometimes Mel or the couple land first, sometimes third, sometimes
+    // a regular customer opens the shift instead. They're still guaranteed
+    // to show up exactly once per shift (still candidates on every later
+    // attempt until picked) — only the *timing* is now random, not *who*
+    // eventually appears, same principle v3.34 applied to arrival timing
+    // itself (customer rules doc's Karen/Mel/Olive & Oliver section).
+    const candidates = [];
+    if (!melSpawnedThisShift) candidates.push({ kind: 'mel', dishName: MEL_DISH.name });
+    if (!coupleSpawnedThisShift) candidates.push({ kind: 'couple', dishName: COUPLE_DISH.name });
+    for (const dish of availableDishes(currentShiftNumber)) candidates.push({ kind: 'regular', dishName: dish.name });
 
-    if (!coupleSpawnedThisShift) {
-      coupleSpawnedThisShift = true;
-      pendingCustomers[tableId] = COUPLE_DISH.name;
-      couple = { tableId };
-      return;
-    }
-
-    const dishes = availableDishes(currentShiftNumber);
-    const dish = dishes[Math.floor(random() * dishes.length)];
-    pendingCustomers[tableId] = dish.name;
+    const chosen = candidates[Math.floor(random() * candidates.length)];
+    // v3.36: "who" is decided now (the flags below gate which candidates
+    // future spawn attempts even offer, so they must latch immediately —
+    // otherwise Mel could get drawn twice while her first pick is still
+    // mid-walk) but they don't actually become a real pendingCustomers
+    // entry, or set mel/couple's "currently active" tracking, until they
+    // arrive — see spawnArrivingCustomer/updateArrivingCustomers.
+    if (chosen.kind === 'mel') melSpawnedThisShift = true;
+    else if (chosen.kind === 'couple') coupleSpawnedThisShift = true;
+    spawnArrivingCustomer(tableId, chosen.kind, chosen.dishName);
   }
 
   function updateCookMiniGame(deltaSeconds) {
@@ -3490,6 +3615,7 @@ export function init(canvas, elements) {
     stationsInRoom(stations, currentRoom).forEach((station) => drawStation(station));
     // Guard stands watch by the Dining entrance — not a Kitchen fixture.
     if (currentRoom === ROOM_DINING) drawSecurityGuard();
+    if (currentRoom === ROOM_DINING) drawArrivingCustomers();
     if (currentRoom === ROOM_DINING) drawPayingCustomers();
     drawPlayer();
     drawOrderBubble();
@@ -3532,10 +3658,12 @@ export function init(canvas, elements) {
       if (shiftState.phase === 'playing') {
         timeSinceCustomerSpawn += deltaSeconds;
         maybeSpawnCustomer();
+        updateArrivingCustomers(deltaSeconds);
         updateCookMiniGame(deltaSeconds);
       } else {
         cancelCookMiniGame();
         pendingCustomers = {};
+        arrivingCustomers = [];
         karen = null;
         mel = null;
         couple = null;
@@ -3702,6 +3830,7 @@ export function init(canvas, elements) {
         if (!running || !shiftState || shiftState.phase !== 'playing') return;
         shiftState = tick(shiftState, shiftClockSecondsForShift(currentShiftNumber) + 1);
         pendingCustomers = {};
+        arrivingCustomers = [];
         cancelCookMiniGame();
         for (const id of TABLE_IDS) shiftState = cleanTable(shiftState, id);
         shiftState = washDishes(shiftState);

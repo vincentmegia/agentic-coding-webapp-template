@@ -27,6 +27,33 @@ number increases, and simultaneous active tables/orders is capped by
 both the physical table count (30) and the Extra Table Service gear
 level (food-server doc's Gear upgrades), whichever is lower.
 
+**Arrival timing is jittered, not metronomic (v3.34)** — the user asked to
+"enhance randomization of the customers... make it random so it makes the
+game mechanics better." `rules.js`'s `customerArrivalIntervalSeconds`
+(the ramp above) was always a single exact value, consumed as an
+unvarying wait every time — a given shift sat customers on a perfectly
+regular beat, identical on every replay. `jitteredArrivalIntervalSeconds`
+widens that into a multiplicative `[0.6, 1.4]` range around it
+(`ARRIVAL_INTERVAL_JITTER_MIN`/`_MAX`), so consecutive arrivals land in
+bursts and lulls instead — sometimes two customers close together,
+sometimes a longer gap — without changing the *average* pace a shift
+ramps toward (the pre-existing doc comment already called the base value
+an "average"; this makes that literally true). `cooking-game.js`'s
+`maybeSpawnCustomer` re-rolls a fresh jittered wait
+(`nextCustomerArrivalSeconds`) every time the previous one elapses —
+whether or not a customer actually ends up spawning that cycle (a full
+table/no-room rejection already restarted the whole wait before this
+existed; that's preserved, just with a freshly jittered length now) —
+never mid-countdown, so the wait an in-progress countdown is aiming for
+never changes out from under it. Table selection among open tables and
+dish selection among unlocked dishes were already uniformly random before
+this and are unchanged. At the time this shipped, Mel/Olive & Oliver's
+guaranteed first-two-customers-of-the-shift slot was still deliberately
+untouched — but the user reported that gap immediately ("first customer
+is still the same"), and v3.35 (below, Karen/Mel/Olive & Oliver section)
+randomized *when* they appear too, right after this. Karen's fixed
+shift-12 trigger remains unchanged by either version.
+
 ## Restaurant reputation (v3.11)
 
 The user asked for a wrong-dish serve to make customers "irritated" and
@@ -101,26 +128,42 @@ Three named customers layered on top of the normal random-arrival pool
 (`availableDishes`), none of whom ever come from that pool themselves:
 
 * **Mel** (`MEL_DISH`, `"Mel's Usual"` — Lemonade, Star Cake, and Egg,
-  station `none`) is always the very first customer seated, every single
-  shift — not a random chance. Sweet, kind, and caring; favorite color
-  yellow, favorite flower a dandelion (both cosmetic, Visual Direction).
-  She gets `MEL_PATIENCE_BONUS_SECONDS` (15s) on top of the normal
-  patience for that shift (itself already scaled by reputation above),
-  and serving her correctly shows `MEL_THANK_YOU_LINE`. If she's
-  mishandled (missed or served wrong), that's a normal `shiftUpset`
-  latch/mistake like anyone else — no extra penalty; she's understanding,
-  not vindictive.
+  station `none`). Sweet, kind, and caring; favorite color yellow,
+  favorite flower a dandelion (both cosmetic, Visual Direction). She gets
+  `MEL_PATIENCE_BONUS_SECONDS` (15s) on top of the normal patience for
+  that shift (itself already scaled by reputation above), and serving her
+  correctly shows `MEL_THANK_YOU_LINE`. If she's mishandled (missed or
+  served wrong), that's a normal `shiftUpset` latch/mistake like anyone
+  else — no extra penalty; she's understanding, not vindictive.
 * **Olive & Oliver** (`COUPLE_DISH`, `"Olive & Oliver's Order"` — Matcha
-  and Cake, station `none`) always arrive together right after Mel, every
-  shift — the second guaranteed spawn, before the random pool resumes.
-  An engaged couple sharing one table and one order, not two separate
-  orders. Olive: brave, smart, neat, favorite color green
-  (`OLIVE_FAVORITE_COLOR`), favorite flower tulips. Oliver: intelligent,
-  brave, favorite color blue (`OLIVER_FAVORITE_COLOR`), favorite flower
-  rose — his usual order is the same as his fiancée's, which is why they
-  share `COUPLE_DISH` rather than each getting their own. No special
-  patience/ripple mechanic; purely a recurring-cast/rendering distinction
-  (Visual Direction: rendered as two people at one table).
+  and Cake, station `none`). An engaged couple sharing one table and one
+  order, not two separate orders. Olive: brave, smart, neat, favorite
+  color green (`OLIVE_FAVORITE_COLOR`), favorite flower tulips. Oliver:
+  intelligent, brave, favorite color blue (`OLIVER_FAVORITE_COLOR`),
+  favorite flower rose — his usual order is the same as his fiancée's,
+  which is why they share `COUPLE_DISH` rather than each getting their
+  own. No special patience/ripple mechanic; purely a recurring-cast/
+  rendering distinction (Visual Direction: rendered as two people at one
+  table).
+
+  **v3.35: appearance timing is randomized, not fixed slots.** Before
+  this, Mel was unconditionally the literal first customer seated every
+  single shift, and the couple unconditionally the second, before the
+  random pool ever got a turn — the user reported this directly ("first
+  customer is still the same") after v3.34's arrival-*timing* jitter
+  didn't touch *who* arrived first. `maybeSpawnCustomer` now builds one
+  flat candidate list per spawn attempt — Mel (if not yet spawned this
+  shift) and the couple (ditto) each get exactly one entry, the same
+  weight as any single currently-unlocked regular dish — and draws one
+  random pick from it. They're still guaranteed to appear exactly once
+  per shift (still a candidate on every later attempt until picked,
+  same as before), only *when* within the shift is now random rather
+  than forced into the first two slots — mirroring how v3.34 randomized
+  the *timing between* arrivals without changing the average pace. Their
+  own dish stays fixed to their signature order (`MEL_DISH`/
+  `COUPLE_DISH`) — "usual" stays usual; only which slot they land in,
+  and (unchanged, already random before this) which table and which
+  *regular* dish gets picked, are randomized.
 * **Karen** (`KAREN_SHIFT_NUMBER` = 12, one of the "12 or 18" the user
   offered — picked to keep this a single well-defined trigger) appears
   once, immediately at shift start, on that one shift only — not part of
@@ -135,6 +178,34 @@ Three named customers layered on top of the normal random-arrival pool
   reputation/Gard both take the hit twice) — she's rude enough to sour
   the mood for someone else, literally. Served correctly, no ripple,
   business as usual.
+
+## Customers walk in from the entrance (v3.36)
+
+Before this, a newly spawned customer (`maybeSpawnCustomer`, and Karen's
+`spawnKarenIfDue`) appeared seated at their table the instant they were
+picked — no travel of their own, in contrast to a *paid* customer's
+walk-to-the-Counter-then-leave animation (food-server doc's Counter
+payment animation section). `cooking-game.js`'s `arrivingCustomers` is
+the mirror image of that existing `payingCustomers` system: a newly
+picked customer now walks in from the same entrance/exit spot paying
+customers walk *out* to (`INTRO_ENTRANCE_POSITION`, the Dining room's
+door sprite), and only "materializes" as a real, interactable
+`pendingCustomers` entry — the table starts drawing them seated
+(`drawTableContents`), and `mel`/`couple`/`karen`'s "currently active"
+tracking, patience, and (for Karen) her line all start — on arrival
+(`updateArrivingCustomers`). `melSpawnedThisShift`/`coupleSpawnedThisShift`
+still latch the moment they're *picked*, not on arrival — otherwise a
+second spawn attempt could draw Mel again while her first pick is still
+mid-walk. Counts toward the shift's capacity cap and reserves its table
+the same way a `pendingCustomers` entry does, so a customer already
+walking in can't be double-booked or push the shift over its concurrent-
+order limit before they've technically "arrived." Drawn with the same
+`resolveObstacleCollisions` visual-avoidance treatment `payingCustomers`
+gets (kitchen rules doc's Collision avoidance section) — an arriving
+customer won't visually walk through the player, a station, or another
+character either, sharing the exact same `drawCustomerFigure` appearance
+logic (mel/couple/karen/regular) so they look identical whichever
+direction they're walking.
 
 ## Security guard
 

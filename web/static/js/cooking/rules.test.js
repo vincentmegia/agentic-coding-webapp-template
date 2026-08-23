@@ -8,6 +8,9 @@ import {
   isCookSuccess,
   cookSweepSpeed,
   customerArrivalIntervalSeconds,
+  jitteredArrivalIntervalSeconds,
+  ARRIVAL_INTERVAL_JITTER_MIN,
+  ARRIVAL_INTERVAL_JITTER_MAX,
   customerPatienceSeconds,
   tableCapacity,
   shiftPaycheck,
@@ -175,6 +178,40 @@ describe('customerArrivalIntervalSeconds', () => {
 
   test('never goes below the documented floor', () => {
     assert.ok(customerArrivalIntervalSeconds(20) >= 5);
+  });
+});
+
+describe('jitteredArrivalIntervalSeconds', () => {
+  test('a roll of 0 returns exactly the minimum jitter factor applied', () => {
+    assert.equal(jitteredArrivalIntervalSeconds(10, 0), 10 * ARRIVAL_INTERVAL_JITTER_MIN);
+  });
+
+  test('a roll just under 1 returns just under the maximum jitter factor applied', () => {
+    const result = jitteredArrivalIntervalSeconds(10, 0.999999);
+    assert.ok(result < 10 * ARRIVAL_INTERVAL_JITTER_MAX);
+    assert.ok(result > 10 * ARRIVAL_INTERVAL_JITTER_MAX - 0.01);
+  });
+
+  test('a mid-range roll lands between the min and max factors', () => {
+    const result = jitteredArrivalIntervalSeconds(10, 0.5);
+    assert.ok(result > 10 * ARRIVAL_INTERVAL_JITTER_MIN);
+    assert.ok(result < 10 * ARRIVAL_INTERVAL_JITTER_MAX);
+  });
+
+  test('scales down alongside a smaller base interval — jitter is multiplicative, not a fixed offset', () => {
+    const wide = jitteredArrivalIntervalSeconds(14, 1);
+    const narrow = jitteredArrivalIntervalSeconds(5, 1);
+    assert.ok(wide - 14 * ARRIVAL_INTERVAL_JITTER_MIN > narrow - 5 * ARRIVAL_INTERVAL_JITTER_MIN);
+  });
+
+  test('an out-of-range or non-finite roll is clamped/defaulted rather than throwing or escaping the jitter bounds', () => {
+    assert.ok(jitteredArrivalIntervalSeconds(10, -5) >= 10 * ARRIVAL_INTERVAL_JITTER_MIN);
+    assert.ok(jitteredArrivalIntervalSeconds(10, 5) <= 10 * ARRIVAL_INTERVAL_JITTER_MAX);
+    assert.equal(jitteredArrivalIntervalSeconds(10, NaN), 10 * (ARRIVAL_INTERVAL_JITTER_MIN + ARRIVAL_INTERVAL_JITTER_MAX) / 2);
+  });
+
+  test('a non-positive base interval returns 0, never negative', () => {
+    assert.equal(jitteredArrivalIntervalSeconds(-5, 0.5), 0);
   });
 });
 

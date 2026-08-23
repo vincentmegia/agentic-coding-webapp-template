@@ -81,7 +81,19 @@ overlapping stations, tables, and each other (`floor-plan.js`'s
 `resolveObstacleCollisions`) — applied only to what's actually drawn, not
 to the underlying walk/arrival logic, since an earlier version that fed
 it into the real position could deadlock two customers converging on the
-Counter.
+Counter. Customer arrival timing is now jittered (±40% around the
+existing shift-ramp average, `jitteredArrivalIntervalSeconds`) instead of
+landing on an exact, identical beat every time; which tables/dishes get
+picked was already random and unchanged. Mel and Olive & Oliver no longer
+land in the unconditional 1st/2nd customer slot of every shift either —
+they're still guaranteed to appear exactly once per shift, but now at a
+random point rather than always first, drawn from one flat candidate list
+that weights them the same as a single regular dish; their own signature
+order stays fixed, and Karen's fixed shift-12 trigger is unchanged. Every
+newly spawned customer now visibly walks in from the Entrance/Exit door
+before taking their seat, instead of appearing at their table instantly —
+the mirror image of a paid customer's existing walk-to-the-Counter-and-
+leave animation.
 `/projects` now leads with two real cards
 — Fishing Game and Kitchen Shift, both linking straight into their games
 via "Play now" — but Kitchen Shift still isn't linked from the header nav

@@ -237,6 +237,42 @@ export function customerArrivalIntervalSeconds(shiftNumber) {
   );
 }
 
+/**
+ * v3.34: "enhance randomization of the customers... make it random so it
+ * makes the game mechanics better" — before this, `customerArrivalIntervalSeconds`'s
+ * output was consumed as an exact, unvarying wait every single time
+ * (`cooking-game.js`'s `maybeSpawnCustomer`), so a given shift always sat
+ * customers on a perfectly metronomic beat — the same rhythm every replay
+ * of that shift. This widens that single average value into a
+ * multiplicative range around it, so consecutive arrivals land in bursts
+ * and lulls instead, the way real seating actually happens — without
+ * changing the *average* pace a shift ramps toward (this doc comment
+ * already called the base value an "average," which this finally makes
+ * literally true).
+ */
+export const ARRIVAL_INTERVAL_JITTER_MIN = 0.6;
+export const ARRIVAL_INTERVAL_JITTER_MAX = 1.4;
+
+/**
+ * Applies that jitter to one `customerArrivalIntervalSeconds` output.
+ * Multiplicative, not additive, so the jitter's absolute size shrinks
+ * alongside the shrinking base interval at later, busier shifts, rather
+ * than staying a fixed number of seconds that would swamp an already-
+ * short late-shift interval. This file has no RNG of its own (every other
+ * formula here is a pure function of its inputs, same convention) — the
+ * caller draws `randomRoll` from `[0, 1)` itself (cooking-game.js's
+ * `random()` alias) and passes it in.
+ *
+ * @param {number} baseIntervalSeconds - customerArrivalIntervalSeconds's output.
+ * @param {number} randomRoll - in [0, 1); out-of-range or non-finite is clamped/defaulted to the midpoint.
+ * @returns {number}
+ */
+export function jitteredArrivalIntervalSeconds(baseIntervalSeconds, randomRoll) {
+  const roll = Number.isFinite(randomRoll) ? Math.min(1, Math.max(0, randomRoll)) : 0.5;
+  const factor = ARRIVAL_INTERVAL_JITTER_MIN + roll * (ARRIVAL_INTERVAL_JITTER_MAX - ARRIVAL_INTERVAL_JITTER_MIN);
+  return Math.max(0, baseIntervalSeconds) * factor;
+}
+
 const PATIENCE_BASE_SECONDS = 45;
 const PATIENCE_MIN_SECONDS = 20;
 const PATIENCE_SHIFT_SATURATION = 10;
