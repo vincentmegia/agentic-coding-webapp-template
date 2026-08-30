@@ -122,7 +122,10 @@ func newMux(conn *sql.DB) (*http.ServeMux, error) {
 		return nil, fmt.Errorf("load templates: %w", err)
 	}
 	renderer := handler.NewRenderer(tmpl)
-	pages := handler.NewPagesHandler(renderer, Version)
+
+	landingContentService := service.NewLandingContentService(repository.NewLandingContentRepository(conn))
+	pages := handler.NewPagesHandler(renderer, landingContentService, Version)
+	landingContent := handler.NewLandingContentHandler(renderer, landingContentService, Version)
 
 	resumeService := service.NewResumeService(repository.NewResumeRepository(conn))
 	resume := handler.NewResumeHandler(renderer, resumeService, Version)
@@ -153,6 +156,17 @@ func newMux(conn *sql.DB) (*http.ServeMux, error) {
 	mux.HandleFunc("GET /about", pages.About)
 	mux.HandleFunc("GET /settings/profile", pages.Profile)
 	mux.HandleFunc("GET /settings/security", pages.Security)
+	// See docs/features/landing-content-authoring.md's Routes/Handlers table.
+	mux.HandleFunc("GET /settings/content", landingContent.Index)
+	mux.HandleFunc("POST /settings/content/hero", landingContent.SaveHero)
+	mux.HandleFunc("POST /settings/content/carousel", landingContent.CreateSlide)
+	mux.HandleFunc("PUT /settings/content/carousel/{id}", landingContent.UpdateSlide)
+	mux.HandleFunc("DELETE /settings/content/carousel/{id}", landingContent.DeleteSlide)
+	mux.HandleFunc("POST /settings/content/carousel/{id}/move", landingContent.MoveSlide)
+	mux.HandleFunc("POST /settings/content/selected-work", landingContent.CreateWorkItem)
+	mux.HandleFunc("PUT /settings/content/selected-work/{id}", landingContent.UpdateWorkItem)
+	mux.HandleFunc("DELETE /settings/content/selected-work/{id}", landingContent.DeleteWorkItem)
+	mux.HandleFunc("POST /settings/content/selected-work/{id}/move", landingContent.MoveWorkItem)
 	// TEMPORARY: real logout (session invalidation) is a separate,
 	// not-yet-built auth feature; see handler.PagesHandler.Logout.
 	mux.HandleFunc("POST /logout", pages.Logout)

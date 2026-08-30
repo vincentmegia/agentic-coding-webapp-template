@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"github.com/vincentmegia/vincentmegia/internal/model"
 	"github.com/vincentmegia/vincentmegia/internal/service"
 )
 
@@ -100,24 +101,41 @@ type PageData struct {
 	// Boundaries.
 	Resume *service.ResumeView
 
+	// HeroEyebrow is the landing page's small uppercase line above the
+	// headline (e.g. "Software Engineer"), set only by PagesHandler.Home.
+	// Postgres-backed (landing_hero), editable via /settings/content — see
+	// docs/features/landing-content-authoring.md.
+	HeroEyebrow string
+
 	// CarouselSlides backs the landing-page image carousel
 	// (components/carousel.html), set only by PagesHandler.Home. Up to 5
-	// entries, hand-authored in Go — no DB, no admin editing yet, per
-	// docs/features/landing-carousel.md's Data Model. Nil/empty for every
-	// other route.
-	CarouselSlides []CarouselSlide
+	// entries, Postgres-backed (landing_carousel_slides) and editable via
+	// /settings/content — see docs/features/landing-content-authoring.md.
+	// Nil/empty for every other route.
+	CarouselSlides []model.CarouselSlide
 
 	// SelectedWork backs the landing page's "Selected work" section
 	// (components/selected-work.html), set only by PagesHandler.Home.
-	// Hand-authored Go data, same pattern as CarouselSlides/Projects — no
-	// DB, no admin editing yet. Nil/empty for every other route.
-	SelectedWork []SelectedWorkItem
+	// Postgres-backed (landing_selected_work_items) and editable via
+	// /settings/content, same as CarouselSlides — see
+	// docs/features/landing-content-authoring.md. Nil/empty for every
+	// other route.
+	SelectedWork []model.SelectedWorkItem
 
 	// Projects backs the /projects page (pages/projects.html), set only by
-	// PagesHandler.Projects. Hand-authored Go data, same pattern as
-	// CarouselSlides/SelectedWork — no DB, no admin editing yet. Nil/empty
-	// for every other route.
+	// PagesHandler.Projects. Hand-authored Go data, kept separate from
+	// SelectedWork for now (docs/features/landing-content-authoring.md's
+	// Open Questions) — no DB, no admin editing yet. Nil/empty for every
+	// other route.
 	Projects []Project
+
+	// ContentHero/ContentCarousel/ContentWork back
+	// web/templates/pages/settings-content.html
+	// (GET /settings/content) and its three editor components. Set only
+	// by LandingContentHandler.Index. Zero-value for every other route.
+	ContentHero     service.HeroFormView
+	ContentCarousel service.CarouselEditorView
+	ContentWork     service.WorkEditorView
 }
 
 // Project is one card in the /projects grid. Card markup/styling (image
@@ -150,39 +168,18 @@ type Project struct {
 	ImagePath   string // optional, "" renders a placeholder tile
 }
 
-// SelectedWorkItem is one card in the landing page's "Selected work"
-// section — card markup/styling pulled from a claude.ai/design "Personal
-// website and portfolio" project's Home.dc.html (see DesignSync), whose
-// three fictional sample entries (Fieldnotes/Tidewatch/Loom UI) were
-// removed once real work existed to feature here instead, for the same
-// reason and at the same time as /projects' own placeholder cards (see
-// docs/features/projects.md's Open Questions) — also so this teaser never
-// promises projects that aren't on the /projects page it links to.
+// model.SelectedWorkItem (Postgres-backed, docs/features/
+// landing-content-authoring.md) is what components/selected-work.html
+// renders from — its Kicker/Title/Description/LiveURL/External fields
+// mirror Project's own fields above (same names, same internal-route/
+// off-site-URL meaning for LiveURL/External).
 //
-// LiveURL/External are optional and mirror Project's own fields (same
-// names, same internal-route/off-site-URL meaning) — "" omits the card's
-// link entirely, matching a plain teaser card with nothing to click
-// through to yet.
-type SelectedWorkItem struct {
-	Kicker      string // small uppercase label, e.g. "Game"
-	Title       string
-	Description string
-	LiveURL     string // optional, "" if none
-	External    bool   // true if LiveURL is off-site; false means an internal route
-}
-
-// CarouselSlide is one slide of the landing-page carousel. This shape is a
-// fixed contract shared with web/static/js/carousel.js (see
+// model.CarouselSlide (also Postgres-backed) is what components/
+// carousel.html renders from. Its ImagePath/Alt/Caption/LinkURL/External
+// shape is a fixed contract shared with web/static/js/carousel.js (see
 // docs/features/landing-carousel.md's "Implementation Contract (DOM /
-// Data)"), written independently against the same spec — do not rename or
-// restructure these fields without updating that doc.
-type CarouselSlide struct {
-	ImagePath string // e.g. "/static/images/carousel/1.jpg"
-	Alt       string // required
-	Caption   string // optional, "" if none
-	LinkURL   string // optional, "" if none
-	External  bool   // true if LinkURL is off-site; drives target/rel
-}
+// Data)") — do not rename or restructure those fields without updating
+// that doc.
 
 // LoadTemplates parses the shared shell (layouts/base.html), its
 // components, and every page's content template into one *template.Template,
@@ -234,6 +231,10 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "selected-work.html"),
 		filepath.Join(templatesDir, "pages", "landing.html"),
 		filepath.Join(templatesDir, "pages", "projects.html"),
+		filepath.Join(templatesDir, "components", "content-hero-form.html"),
+		filepath.Join(templatesDir, "components", "content-carousel-editor.html"),
+		filepath.Join(templatesDir, "components", "content-work-editor.html"),
+		filepath.Join(templatesDir, "pages", "settings-content.html"),
 		filepath.Join(templatesDir, "components", "fishing-leaderboard.html"),
 		filepath.Join(templatesDir, "components", "fishing-shop.html"),
 		filepath.Join(templatesDir, "pages", "fishing-game.html"),

@@ -1,0 +1,84 @@
+{{/* /settings/content's Selected work section (docs/features/
+     landing-content-authoring.md). Dot is a service.WorkEditorView
+     (Items []model.SelectedWorkItem, Error) — same fragment/hx-target
+     pattern as content-carousel-editor.html (#work-editor), but with no
+     item cap (unlike the carousel's 5-slide limit). */}}
+{{define "content-work-editor"}}
+<div id="work-editor" class="space-y-4 rounded-card border border-line bg-surface p-5">
+	<h2 class="text-base font-semibold text-ink">Selected work</h2>
+	{{if .Error}}
+	<p class="rounded-card border border-danger bg-danger/10 px-3 py-2 text-sm text-danger">{{.Error}}</p>
+	{{end}}
+
+	{{range .Items}}
+	<form
+		id="work-item-{{.ID}}"
+		hx-put="/settings/content/selected-work/{{.ID}}"
+		hx-target="#work-editor"
+		hx-swap="outerHTML"
+		class="space-y-2 border-t border-line pt-4"
+	>
+		<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Kicker</span>
+				<input type="text" name="kicker" required value="{{.Kicker}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Title</span>
+				<input type="text" name="title" required value="{{.Title}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1 sm:col-span-2">
+				<span class="block text-xs font-medium text-muted">Description</span>
+				<textarea name="description" required rows="2" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{{.Description}}</textarea>
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Live URL</span>
+				<input type="text" name="live_url" required value="{{.LiveURL}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+		</div>
+		<label class="flex items-center gap-2 text-xs text-muted">
+			<input type="checkbox" name="external" {{if .External}}checked{{end}}>
+			Opens in a new tab (external link)
+		</label>
+		<div class="flex flex-wrap items-center gap-2 pt-1">
+			<button type="submit" class="rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Save</button>
+			<button type="button" hx-post="/settings/content/selected-work/{{.ID}}/move" hx-vals='{"direction":"up"}' hx-target="#work-editor" hx-swap="outerHTML" class="rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Move up</button>
+			<button type="button" hx-post="/settings/content/selected-work/{{.ID}}/move" hx-vals='{"direction":"down"}' hx-target="#work-editor" hx-swap="outerHTML" class="rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Move down</button>
+			<button type="button" hx-delete="/settings/content/selected-work/{{.ID}}" hx-confirm="Delete this card?" hx-target="#work-editor" hx-swap="outerHTML" class="rounded-card border border-danger px-3 py-1.5 text-sm font-medium text-danger transition-colors duration-150 hover:bg-danger/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-danger">Delete</button>
+		</div>
+	</form>
+	{{end}}
+
+	<form
+		hx-post="/settings/content/selected-work"
+		hx-target="#work-editor"
+		hx-swap="outerHTML"
+		class="space-y-2 border-t border-line pt-4"
+	>
+		<h3 class="text-sm font-semibold text-ink">Add card</h3>
+		<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Kicker</span>
+				<input type="text" name="kicker" required class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Title</span>
+				<input type="text" name="title" required class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1 sm:col-span-2">
+				<span class="block text-xs font-medium text-muted">Description</span>
+				<textarea name="description" required rows="2" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"></textarea>
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Live URL</span>
+				<input type="text" name="live_url" required class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+		</div>
+		<label class="flex items-center gap-2 text-xs text-muted">
+			<input type="checkbox" name="external">
+			Opens in a new tab (external link)
+		</label>
+		<button type="submit" class="rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Add card</button>
+	</form>
+</div>
+{{end}}

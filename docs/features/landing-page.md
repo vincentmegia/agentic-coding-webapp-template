@@ -189,10 +189,10 @@ the hero is designed.
 
 ## Data Model
 
-None yet — depends entirely on what the hero/sections end up needing once
-designed (see Open Questions). If content becomes editable rather than
-hand-written in the template, that's a schema decision to make at that point,
-following `docs/skills/postgres`.
+Owned by `docs/features/landing-content-authoring.md`: `landing_hero`
+(hero copy singleton), `landing_carousel_slides`, and
+`landing_selected_work_items` — see that doc for the schema. Nothing else
+on this page has its own data model.
 
 ---
 
@@ -251,8 +251,9 @@ database-driven and needs escaping consideration).
   more real work gets added here as it's written up, mirroring
   `docs/features/projects.md`'s Open Questions taking the same stance for
   `/projects` itself.
-* Does any of this content need to be database-driven/editable (revisit Data
-  Model), or is it static in the template for now?
+* **Resolved**: hero copy, carousel slides, and Selected work cards are
+  all now Postgres-backed and editable via `/settings/content` — see
+  `docs/features/landing-content-authoring.md`.
 
 ---
 

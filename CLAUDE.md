@@ -125,6 +125,22 @@ three real cards linking into the Fishing Game, Kitchen Shift, and Puzzle
 Solver — the design mockup's four fictional placeholder projects were
 removed rather than left sitting next to them. Blogs and About are still
 placeholders.
+A fourth feature, Content Authoring
+(`docs/features/landing-content-authoring.md`), moved the landing page's
+hero copy (eyebrow/title/message), carousel slides, and Selected work
+cards out of hand-authored Go `var`s and into Postgres
+(`landing_hero`/`landing_carousel_slides`/`landing_selected_work_items`,
+`migrations/005_create_landing_content.sql`, seeded verbatim from the old
+hand-authored copy so the migration is a visual no-op), with an editor at
+`/settings/content` (`LandingContentHandler`, linked from the auth-gated
+Settings menu) to add/edit/delete/reorder each section's entries — the
+carousel keeps its existing 5-slide cap, enforced server-side. Like
+`/settings/profile` and `/settings/security`, this route is gated by the
+same `IsAuthenticated` stub (`internal/handler/auth_stub.go`), which still
+always returns `false` — so it's implemented and code-complete but
+unreachable until the real authentication feature lands. `/projects`'
+`projectItems` stays separately hand-authored for now rather than sharing
+a table with Selected work (see that feature doc's Open Questions).
 Update this file as decisions are made or change.
 
 ## What this is

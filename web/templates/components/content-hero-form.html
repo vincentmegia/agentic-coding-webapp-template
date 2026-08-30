@@ -1,0 +1,61 @@
+{{/* /settings/content's Hero section (docs/features/landing-content-authoring.md).
+     Dot is a service.HeroFormView (Eyebrow/Title/Message/Error) — never the
+     full PageData, since this is also the fragment SaveHero swaps back in
+     directly (Renderer.RenderFragment). #hero-editor-form is both the
+     <form> element and the hx-target/hx-swap="outerHTML" root, so a
+     successful save or a validation error re-renders in place with no
+     page reload. */}}
+{{define "content-hero-form"}}
+<form
+	id="hero-editor-form"
+	hx-post="/settings/content/hero"
+	hx-target="#hero-editor-form"
+	hx-swap="outerHTML"
+	hx-indicator="#hero-editor-loading"
+	class="space-y-3 rounded-card border border-line bg-surface p-5"
+>
+	<h2 class="text-base font-semibold text-ink">Hero</h2>
+	{{if .Error}}
+	<p class="rounded-card border border-danger bg-danger/10 px-3 py-2 text-sm text-danger">{{.Error}}</p>
+	{{end}}
+	<div class="space-y-1">
+		<label for="hero-eyebrow-input" class="block text-xs font-medium text-muted">Eyebrow</label>
+		<input
+			type="text"
+			id="hero-eyebrow-input"
+			name="eyebrow"
+			required
+			value="{{.Eyebrow}}"
+			class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+		>
+	</div>
+	<div class="space-y-1">
+		<label for="hero-title-input" class="block text-xs font-medium text-muted">Title</label>
+		<input
+			type="text"
+			id="hero-title-input"
+			name="title"
+			required
+			value="{{.Title}}"
+			class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+		>
+	</div>
+	<div class="space-y-1">
+		<label for="hero-message-input" class="block text-xs font-medium text-muted">Message</label>
+		<textarea
+			id="hero-message-input"
+			name="message"
+			required
+			rows="3"
+			class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+		>{{.Message}}</textarea>
+	</div>
+	<div class="flex items-center gap-3">
+		<button
+			type="submit"
+			class="rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+		>Save</button>
+		<span id="hero-editor-loading" class="htmx-indicator text-sm text-muted">Saving…</span>
+	</div>
+</form>
+{{end}}

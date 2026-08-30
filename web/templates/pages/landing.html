@@ -49,8 +49,12 @@
 		aria-hidden="true"
 		class="absolute inset-y-0 left-1/2 -z-10 w-screen -translate-x-1/2 bg-[url('/static/images/landing-page-bg-light.svg')] bg-cover bg-center bg-no-repeat dark:bg-[url('/static/images/landing-page-bg-dark.svg')]"
 	></div>
-	{{/* Hero: left-aligned per Organic's "Direction" (flush-left headings,
-	     content hugging the left edge), with a soft sage decoration circle
+	{{/* Hero: .HeroEyebrow/.ContentTitle/.ContentMessage, plus
+	     .CarouselSlides/.SelectedWork below, are all Postgres-backed and
+	     editable via /settings/content — see
+	     docs/features/landing-content-authoring.md. Left-aligned per
+	     Organic's "Direction" (flush-left headings, content hugging the
+	     left edge), with a soft sage decoration circle
 	     rising past the section's edge — Organic's own "soft shapes as
 	     decoration" move (readme.md's "Do"), scaled down from the source
 	     design's landing template. pointer-events-none + aria-hidden since
@@ -59,7 +63,7 @@
 	     background layer above). */}}
 	<section class="relative space-y-5 py-6 sm:py-10">
 		<div aria-hidden="true" class="pointer-events-none absolute -right-12 -top-16 -z-10 h-48 w-48 rounded-full bg-accent/15 sm:-right-16 sm:-top-20 sm:h-64 sm:w-64"></div>
-		<p class="text-sm font-semibold uppercase tracking-wide text-muted">Software Engineer</p>
+		<p class="text-sm font-semibold uppercase tracking-wide text-muted">{{.HeroEyebrow}}</p>
 		<h1 class="max-w-2xl text-4xl text-ink sm:text-5xl">{{.ContentTitle}}</h1>
 		<p class="max-w-xl text-lg text-muted">{{.ContentMessage}}</p>
 		<div class="flex flex-wrap gap-3 pt-2">

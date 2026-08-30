@@ -1,0 +1,104 @@
+{{/* /settings/content's Carousel section (docs/features/
+     landing-content-authoring.md). Dot is a service.CarouselEditorView
+     (Slides []model.CarouselSlide, Full, Error) — never the full PageData,
+     since this is also the fragment every CRUD/move endpoint below swaps
+     back in directly (Renderer.RenderFragment). #carousel-editor is both
+     this wrapping <div> and the hx-target/hx-swap="outerHTML" root every
+     action inside it targets, so any add/edit/delete/reorder re-renders
+     the whole section in place.
+
+     Each slide is its own <form> (Save = PUT) plus two plain buttons
+     (Move up/down = POST .../move, Delete = DELETE) — hx-vals carries the
+     "up"/"down" direction for the move buttons, per
+     docs/features/landing-content-authoring.md's HTMX Interactions table.
+     Row fields use a wrapping <label> instead of a for/id pair (htmx-ui's
+     usual label-for pattern would collide across N repeated rows sharing
+     one id). The 5-slide cap (landing-carousel.md) is enforced server-side
+     (service.CreateSlide) — .Full only hides the add-form once already at
+     the cap, a UX nicety, not the actual enforcement. */}}
+{{define "content-carousel-editor"}}
+<div id="carousel-editor" class="space-y-4 rounded-card border border-line bg-surface p-5">
+	<div class="flex items-baseline justify-between">
+		<h2 class="text-base font-semibold text-ink">Carousel</h2>
+		<span class="text-xs text-muted">{{len .Slides}} of 5 slides</span>
+	</div>
+	{{if .Error}}
+	<p class="rounded-card border border-danger bg-danger/10 px-3 py-2 text-sm text-danger">{{.Error}}</p>
+	{{end}}
+
+	{{range .Slides}}
+	<form
+		id="carousel-slide-{{.ID}}"
+		hx-put="/settings/content/carousel/{{.ID}}"
+		hx-target="#carousel-editor"
+		hx-swap="outerHTML"
+		class="space-y-2 border-t border-line pt-4"
+	>
+		<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Image path/URL</span>
+				<input type="text" name="image_path" required value="{{.ImagePath}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Alt text</span>
+				<input type="text" name="alt" required value="{{.Alt}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Caption (optional)</span>
+				<input type="text" name="caption" value="{{.Caption}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Link URL (optional)</span>
+				<input type="text" name="link_url" value="{{.LinkURL}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+		</div>
+		<label class="flex items-center gap-2 text-xs text-muted">
+			<input type="checkbox" name="external" {{if .External}}checked{{end}}>
+			Opens in a new tab (external link)
+		</label>
+		<div class="flex flex-wrap items-center gap-2 pt-1">
+			<button type="submit" class="rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Save</button>
+			<button type="button" hx-post="/settings/content/carousel/{{.ID}}/move" hx-vals='{"direction":"up"}' hx-target="#carousel-editor" hx-swap="outerHTML" class="rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Move up</button>
+			<button type="button" hx-post="/settings/content/carousel/{{.ID}}/move" hx-vals='{"direction":"down"}' hx-target="#carousel-editor" hx-swap="outerHTML" class="rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Move down</button>
+			<button type="button" hx-delete="/settings/content/carousel/{{.ID}}" hx-confirm="Delete this slide?" hx-target="#carousel-editor" hx-swap="outerHTML" class="rounded-card border border-danger px-3 py-1.5 text-sm font-medium text-danger transition-colors duration-150 hover:bg-danger/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-danger">Delete</button>
+		</div>
+	</form>
+	{{end}}
+
+	{{if .Full}}
+	<p class="border-t border-line pt-4 text-sm text-muted">The carousel is limited to 5 slides. Delete one to add another.</p>
+	{{else}}
+	<form
+		hx-post="/settings/content/carousel"
+		hx-target="#carousel-editor"
+		hx-swap="outerHTML"
+		class="space-y-2 border-t border-line pt-4"
+	>
+		<h3 class="text-sm font-semibold text-ink">Add slide</h3>
+		<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Image path/URL</span>
+				<input type="text" name="image_path" required class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Alt text</span>
+				<input type="text" name="alt" required class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Caption (optional)</span>
+				<input type="text" name="caption" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Link URL (optional)</span>
+				<input type="text" name="link_url" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+		</div>
+		<label class="flex items-center gap-2 text-xs text-muted">
+			<input type="checkbox" name="external">
+			Opens in a new tab (external link)
+		</label>
+		<button type="submit" class="rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Add slide</button>
+	</form>
+	{{end}}
+</div>
+{{end}}

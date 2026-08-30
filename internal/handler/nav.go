@@ -85,6 +85,14 @@ var settingsMenu = NavMenu{
 			Icon:  icon("h-4 w-4", `<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>`),
 		},
 		{
+			// Content authoring (docs/features/landing-content-authoring.md):
+			// edit the landing page's hero copy, carousel slides, and
+			// Selected work cards without a redeploy.
+			Label: "Content",
+			Href:  "/settings/content",
+			Icon:  icon("h-4 w-4", `<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5"/>`),
+		},
+		{
 			Label: "Security",
 			Href:  "/settings/security",
 			Icon:  icon("h-4 w-4", `<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>`),

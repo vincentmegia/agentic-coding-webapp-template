@@ -101,7 +101,16 @@ func TestEndToEnd(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d, want 200", resp.StatusCode)
 		}
-		for _, want := range []string{"<!doctype html>", "Vincent Megia", `id="primary-nav"`} {
+		// "Software Engineer"/"Selected work"/carousel alt text only
+		// appear here if the landing_hero/landing_carousel_slides/
+		// landing_selected_work_items seed migration genuinely round-
+		// tripped through LandingContentService -> PagesHandler.Home ->
+		// templates (docs/features/landing-content-authoring.md), not a
+		// hardcoded Go fixture.
+		for _, want := range []string{
+			"<!doctype html>", "Vincent Megia", `id="primary-nav"`,
+			"Software Engineer", "Selected work", "Illustration of a keyboard",
+		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("home page missing %q", want)
 			}
@@ -349,6 +358,20 @@ func TestEndToEnd(t *testing.T) {
 		// rendering directly to an unauthenticated request.
 		if resp.Request.URL.Path == "/settings/profile" {
 			t.Error("unauthenticated request to /settings/profile did not redirect")
+		}
+	})
+
+	t.Run("content authoring routes require auth", func(t *testing.T) {
+		// Same contract as /settings/profile above — see
+		// docs/features/landing-content-authoring.md's Security
+		// Considerations.
+		resp, err := client.Get(srv.URL + "/settings/content")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.Request.URL.Path == "/settings/content" {
+			t.Error("unauthenticated request to /settings/content did not redirect")
 		}
 	})
 

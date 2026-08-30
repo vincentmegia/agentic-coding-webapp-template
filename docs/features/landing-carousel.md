@@ -395,18 +395,20 @@ predates the actual implementation).
 
 ## Data Model
 
-None. Slide images are static files (`web/static/images/carousel/`); alt text,
-captions, and links are hand-authored in Go (`PagesHandler.Home`'s
-`landingCarouselSlides`, `internal/handler/pages.go`) for now — see Open Questions
-for when/if this needs to move to Postgres.
+Slide *images themselves* are still static files (`web/static/images/carousel/`,
+referenced by path/URL) — no upload pipeline. Slide records (image path, alt
+text, caption, link) moved to Postgres (`landing_carousel_slides`) once
+`docs/features/landing-content-authoring.md` shipped; they're editable via
+that feature's `/settings/content` editor rather than hand-authored in Go.
 
 ---
 
 ## Business Rules / Validation
 
-* Maximum 5 slides — enforced by what's hand-placed in `landingCarouselSlides`
-  (`internal/handler/pages.go`), not runtime validation (there's no user input
-  path that could exceed it).
+* Maximum 5 slides — enforced server-side by
+  `landing-content-authoring.md`'s `LandingContentService.CreateSlide`
+  (a 6th `POST /settings/content/carousel` is rejected), since slides are
+  now added through that feature's editor rather than hand-placed in Go.
 * With exactly 1 slide configured, no navigation controls (arrows, dots,
   pause/play) render — the section degrades to a single static image with no
   carousel affordances, rather than showing chrome with nothing to do.
@@ -514,10 +516,9 @@ for when/if this needs to move to Postgres.
 
 ## Open Questions
 
-* Should slide content (images, captions, links) move to Postgres once a
-  Settings/Profile admin area exists (per `home.md`'s Scope), so the site owner
-  can update the carousel without a redeploy? Out of scope for this doc's first
-  version — revisit once that admin area is actually built.
+* **Resolved**: slide content (images, captions, links) moved to Postgres,
+  editable via `/settings/content` — see `docs/features/
+  landing-content-authoring.md`.
 * Does the carousel belong on `/` specifically, or could it become a reusable
   component other pages (e.g. Projects) also mount? Scoped to the landing page
   only for now.

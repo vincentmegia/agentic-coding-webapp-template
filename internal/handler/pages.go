@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/vincentmegia/vincentmegia/internal/service"
 )
 
 // PagesHandler renders the shared shell (docs/features/home.md) for every
@@ -12,6 +15,9 @@ import (
 // the routing/auth contract those features will build on.
 type PagesHandler struct {
 	Renderer *Renderer
+	// LandingContent backs Home's hero/carousel/Selected work content —
+	// see docs/features/landing-content-authoring.md.
+	LandingContent *service.LandingContentService
 	// Version is injected from cmd/server/main.go's build-time Version
 	// var (see docs/features/home.md's Business Rules: the footer version
 	// is build metadata, not hand-maintained in a template).
@@ -19,8 +25,8 @@ type PagesHandler struct {
 }
 
 // NewPagesHandler constructs a PagesHandler.
-func NewPagesHandler(renderer *Renderer, version string) *PagesHandler {
-	return &PagesHandler{Renderer: renderer, Version: version}
+func NewPagesHandler(renderer *Renderer, landingContent *service.LandingContentService, version string) *PagesHandler {
+	return &PagesHandler{Renderer: renderer, LandingContent: landingContent, Version: version}
 }
 
 // page builds the PageData shared by every route: shell fields
@@ -72,84 +78,32 @@ func versionLabel(version string) string {
 // docs/features/resume.md's Template Rendering section for why this dispatch
 // happens via ContentTemplate rather than landing.html redefining "content"
 // (which would silently take over every other placeholder-backed route).
+//
+// Hero copy/carousel slides/Selected work cards are Postgres-backed and
+// editable via /settings/content (docs/features/landing-content-authoring.md)
+// — a fetch failure here renders the shell's generic content-error state,
+// same as ResumeHandler.Index, never a raw error or a blank hero.
 func (h *PagesHandler) Home(w http.ResponseWriter, r *http.Request) {
+	view, err := h.LandingContent.GetPublicView(r.Context())
+	if err != nil {
+		slog.Error("get landing public view", "error", err)
+		data := shellPageData(r, h.Version, "", true)
+		data.NavActive = "/"
+		data.ContentTitle = "Vincent Megia"
+		data.ContentMessage = "Couldn't load this page. Please try again shortly."
+		h.Renderer.Render(w, r, data)
+		return
+	}
+
 	data := shellPageData(r, h.Version, "", true)
 	data.NavActive = "/"
 	data.ContentTemplate = "landing-content"
-	data.ContentTitle = "Hi, I'm Vincent Megia."
-	data.ContentMessage = "I build things with Go, Postgres, and HTMX — practical software with sound engineering behind it. Below is a running log of what I've shipped, plus a full résumé if you want the formal version."
-	data.CarouselSlides = landingCarouselSlides
-	data.SelectedWork = selectedWorkItems
+	data.HeroEyebrow = view.Eyebrow
+	data.ContentTitle = view.Title
+	data.ContentMessage = view.Message
+	data.CarouselSlides = view.CarouselSlides
+	data.SelectedWork = view.SelectedWork
 	h.Renderer.Render(w, r, data)
-}
-
-// selectedWorkItems is the hand-authored card list for the landing page's
-// "Selected work" section (docs/features/landing-page.md), same as
-// /projects' own projectItems (docs/features/projects.md) — this teaser and
-// the page its "See all projects" link leads to always show the same real
-// work, never a different set (see SelectedWorkItem's doc comment for why
-// the design mockup's three fictional sample entries were removed).
-// Kitchen Shift joined Fishing Game here once it had shipped and been
-// verified the same way Fishing Game was — each entry's Description is
-// copied verbatim from its projectItems counterpart below, same convention
-// Fishing Game's entry already used. Puzzle Solver joined the same way once
-// it shipped (docs/features/puzzle-solver.md) — its Kicker is "Tool" rather
-// than "Game" since it's a pathfinding visualizer, not a playable game like
-// the other two.
-var selectedWorkItems = []SelectedWorkItem{
-	{
-		Kicker:      "Game",
-		Title:       "Fishing Game",
-		Description: "A canvas arcade mini-game — cast a line, dive for fish, and dodge hazards on the way down, with a public leaderboard for the best runs.",
-		LiveURL:     "/fishing-game",
-	},
-	{
-		Kicker:      "Game",
-		Title:       "Kitchen Shift",
-		Description: "A top-down restaurant-shift sim — take orders, cook, and close up clean across a 30-shift month, with a public leaderboard for the best months.",
-		LiveURL:     "/kitchen-shift",
-	},
-	{
-		Kicker:      "Tool",
-		Title:       "Puzzle Solver",
-		Description: "A 30×30 pathfinding visualizer — mark a start and end, draw walls, then watch a depth-first search explore the grid and trace the path it finds.",
-		LiveURL:     "/puzzle-solver",
-	},
-}
-
-// landingCarouselSlides is the hand-authored slide list for the landing-page
-// carousel (docs/features/landing-carousel.md's Data Model: "static,
-// hand-authored in Go — no DB, no admin editing yet"). Up to 5 entries;
-// placeholder images/copy until real photography/links are chosen.
-var landingCarouselSlides = []CarouselSlide{
-	{
-		ImagePath: "/static/images/carousel/1.svg",
-		Alt:       "Illustration of a keyboard",
-		Caption:   "Engineering, hands-on — placeholder caption",
-	},
-	{
-		ImagePath: "/static/images/carousel/2.svg",
-		Alt:       "Illustration of a client/server/database system architecture diagram",
-		Caption:   "System design & architecture — placeholder caption",
-		LinkURL:   "/projects",
-	},
-	{
-		ImagePath: "/static/images/carousel/3.svg",
-		Alt:       "Illustration of a desktop computer workstation",
-		Caption:   "Where the work happens — placeholder caption",
-	},
-	{
-		ImagePath: "/static/images/carousel/4.svg",
-		Alt:       "Illustration of a server rack",
-		Caption:   "Infrastructure & backend systems — placeholder caption",
-		LinkURL:   "https://github.com/vincentmegia",
-		External:  true,
-	},
-	{
-		ImagePath: "/static/images/carousel/5.svg",
-		Alt:       "Illustration of a code editor window",
-		Caption:   "Code — placeholder caption",
-	},
 }
 
 // Projects renders GET /projects. See docs/features/projects.md.
