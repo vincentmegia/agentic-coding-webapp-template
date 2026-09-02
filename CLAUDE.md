@@ -4,143 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Active development. The site shell (header/nav/footer, mobile nav, dark
-mode) and the Resume feature (Postgres-backed `/resume` page) are
-implemented and covered by tests — see `docs/features/home.md` and
-`docs/features/resume.md`. The header nav is a flat Home/Projects/About
-link row plus a Résumé button (not a dropdown) — see `internal/handler/
-nav.go`'s `primaryNavItems` doc comment; Settings is still a dropdown,
-auth-gated. Blogs is reachable only at its URL (`/blogs`), not linked from
-anywhere; Fishing Game is no longer linked from the header but is linked
-from the `/projects` grid (see below), the landing page's "Selected work"
-section, and its own URL (`/fishing-game`). The
-landing page (`/`) renders an image carousel below its hero (hand-authored
-placeholder illustrations — see `docs/features/landing-carousel.md`;
-automated test coverage for it is still pending), then a "Selected work"
-card grid — now both Fishing Game and Kitchen Shift, each clickable
-straight into its game (`docs/features/landing-page.md`). A
-Fishing Game mini-game (canvas-based, Postgres-backed public leaderboard,
-gear upgrades via `localStorage`-persisted fishing tokens) is implemented
-and covered by tests at `/fishing-game` — see `docs/features/fishing-game.md`.
-A second mini-game, Kitchen Shift (a top-down, click-controlled restaurant-
-shift sim at `/kitchen-shift` — click a table/fridge/cabinet/stove/etc. and
-the player walks over and uses it automatically; take orders, gather
-ingredients and cookware, cook, manage a draining Sanity bar via the Coffee
-Machine, then close up and collect that shift's Gard paycheck from Duke
-across a 30-shift, 30-table month, with recurring characters Mel, Olive &
-Oliver, and a one-off Karen on shift 12), is implemented and covered by
-tests the same way — Postgres-backed public leaderboard, `localStorage`-
-persisted Gard/shop progress — see `docs/features/cooking-game.md` (plus
-its `cooking-game-food-server.md`/`cooking-game-customer.md`/
-`cooking-game-kitchen.md` rule-domain sibling docs, and
-`cooking-game-food-server-leveling.md` for the round-tier system below).
-The paycheck starts
-at 4,000 Gard and loses 500 per mistake (a missed or wrong-served order),
-floored at 500 — replacing an earlier flat 4,000-or-2,000 split — and
-every mistake also drains a shift-long Reputation stat (drawn as a second
-on-canvas bar under Sanity) that shortens every later customer's patience
-that shift. The month is
-split into three progressively harder 10-shift "round tiers" (1–10/
-11–20/21–30): Tier 1 opens just 6 of the 30 tables with a 5-minute
-shift clock and a 1-order capacity, Tier 2 opens 18 tables with a
-3-minute clock and 3-order capacity, and Tier 3 opens all 30 tables with
-a 2-minute clock and 5-order capacity — driven live off the current
-shift number, so a fresh "Start New Month" always begins back at Tier 1
-rather than a persisted lifetime stat carrying progress across months.
-Its
-visual style is "coquette" (soft pastel palette, rounded shapes, bow/star
-accents) rather than v2's pixel-art look, the floor plan is split into a
-Dining room and a separate Kitchen room (fridge/cabinet/cookware-closet/
-stove/oven/cleaning-closet) connected by a door and an "Enter Kitchen"
-button, and a one-time walk-in intro with scripted dialogue plays before a
-player's very first shift. Every finished dish and raw ingredient has a
-flat, canvas-drawn icon (no image assets/generation tooling exist in this
-project, so these are procedural, not real sprite art) rather than a plain
-text name; holding one puts the player in a carrying pose — arms bent
-around a tray, food icon(s) stacking directly onto it as ingredients are
-gathered — instead of the old floating text label. A correctly served
-customer now visibly eats at their table (a bobbing dish icon beside their
-head), then walks to the Counter, pauses to "pay," and leaves, crediting a
-small immediate Gard bonus (50, `COUNTER_PAYMENT_GARD`) on top of — not
-instead of — the unchanged end-of-shift paycheck; the eating and paying
-pauses are each randomized per customer so several served together don't
-move in lockstep. All six Kitchen-room stations (Fridge, Cabinet, Cookware
-Closet, Cleaning Closet, Stove, Oven) now have dedicated canvas-drawn
-sprites instead of a plain flat-colored box; fixed alongside that was a bug
-where arriving at the Stove/Oven after a customer's patience had already
-timed out mid-gather silently did nothing (now shows a toast). The
-Restroom, Duke's Office, and both room doors now have dedicated sprites
-too, and the Restroom moved from the Dining room's top-left corner to its
-bottom-right; also fixed was a bug where the Counter employee's own sprite
-had a stray line drawn across their face — redesigned as a solid
-counter-front panel sized from the employee's own torso-bottom so the
-face is always fully clear. The floor's "Entrance / Exit" marker is now an
-actual door sprite (open doorway, star lanterns, a welcome mat) instead of
-plain text. The player and every departing customer now visually avoid
-overlapping stations, tables, and each other (`floor-plan.js`'s
-`resolveObstacleCollisions`) — applied only to what's actually drawn, not
-to the underlying walk/arrival logic, since an earlier version that fed
-it into the real position could deadlock two customers converging on the
-Counter. Customer arrival timing is now jittered (±40% around the
-existing shift-ramp average, `jitteredArrivalIntervalSeconds`) instead of
-landing on an exact, identical beat every time; which tables/dishes get
-picked was already random and unchanged. Mel and Olive & Oliver no longer
-land in the unconditional 1st/2nd customer slot of every shift either —
-they're still guaranteed to appear exactly once per shift, but now at a
-random point rather than always first, drawn from one flat candidate list
-that weights them the same as a single regular dish; their own signature
-order stays fixed, and Karen's fixed shift-12 trigger is unchanged. Every
-newly spawned customer now visibly walks in from the Entrance/Exit door
-before taking their seat, instead of appearing at their table instantly —
-the mirror image of a paid customer's existing walk-to-the-Counter-and-
-leave animation.
-A third feature, Puzzle Solver (a 30×30 canvas grid at `/puzzle-solver` —
-click a tool to mark a Start cell, an End cell, or click-and-drag to draw
-walls, then click Solve to watch an animated, orthogonal-only depth-first
-search explore the grid and, if reachable, trace the Start→End path it
-found), is implemented and covered by tests — see
-`docs/features/puzzle-solver.md`. Unlike the two games, it's entirely
-client-side: no Postgres table, no leaderboard, no `localStorage`
-persistence — a fresh page load always starts from an empty grid. The DFS
-itself and the grid's wall/Start/End state each live in a small, pure,
-DOM-free JS module (`web/static/js/puzzle/dfs.js`,
-`web/static/js/puzzle/grid-state.js`) unit-tested the same way
-`fishing/rules.js`/`cooking/rules.js` are.
-`/projects` now leads with three real cards
-— Fishing Game, Kitchen Shift, and Puzzle Solver, each linking straight
-into its game/demo via "Play now" — and the landing page's "Selected work"
-section now features all three too, same cards/copy as `/projects`. Puzzle
-Solver still isn't linked from the header nav itself, same gradual nav
-rollout the other two started with.
-The site's visual design system is "Organic" (warm cream ground,
-terracotta/sage accents, Caprasimo + Figtree), pulled in from a
-claude.ai/design project and adapted into Tailwind tokens — see
-`docs/skills/tailwind-ui/SKILL.md`'s Visual Style. The landing hero, header,
-and nav are pulled from that same claude.ai/design workspace's "Personal
-website and portfolio" project; a from-scratch restyle of page-specific
-components (resume, fishing game, carousel) to the new tokens is still
-open. The `/projects` page now renders a card grid too (same "Personal
-website and portfolio" pull — see `docs/features/projects.md`), currently
-three real cards linking into the Fishing Game, Kitchen Shift, and Puzzle
-Solver — the design mockup's four fictional placeholder projects were
-removed rather than left sitting next to them. Blogs and About are still
-placeholders.
-A fourth feature, Content Authoring
-(`docs/features/landing-content-authoring.md`), moved the landing page's
-hero copy (eyebrow/title/message), carousel slides, and Selected work
-cards out of hand-authored Go `var`s and into Postgres
-(`landing_hero`/`landing_carousel_slides`/`landing_selected_work_items`,
-`migrations/005_create_landing_content.sql`, seeded verbatim from the old
-hand-authored copy so the migration is a visual no-op), with an editor at
-`/settings/content` (`LandingContentHandler`, linked from the auth-gated
-Settings menu) to add/edit/delete/reorder each section's entries — the
-carousel keeps its existing 5-slide cap, enforced server-side. Like
-`/settings/profile` and `/settings/security`, this route is gated by the
-same `IsAuthenticated` stub (`internal/handler/auth_stub.go`), which still
-always returns `false` — so it's implemented and code-complete but
-unreachable until the real authentication feature lands. `/projects`'
-`projectItems` stays separately hand-authored for now rather than sharing
-a table with Selected work (see that feature doc's Open Questions).
+Active development. Implemented and covered by tests, each with its own
+`docs/features/*.md` for the full detail — read the relevant doc before
+touching that area rather than expecting this section to carry it:
+
+- **Site shell** (header/nav/footer, mobile nav, dark mode) —
+  `docs/features/home.md`. Header nav is a flat Home/Projects/About link
+  row plus a Résumé button, not a dropdown (`internal/handler/nav.go`'s
+  `primaryNavItems`); Settings is a separate auth-gated dropdown
+  (Profile/Content/Security/Logout).
+- **Resume** (Postgres-backed `/resume`) — `docs/features/resume.md`.
+- **Landing page** (`/`: hero, image carousel, "Selected work" card grid) —
+  `docs/features/landing-page.md`, `docs/features/landing-carousel.md`.
+- **Fishing Game** (`/fishing-game`, canvas mini-game, Postgres
+  leaderboard, `localStorage` gear/tokens) —
+  `docs/features/fishing-game.md`.
+- **Kitchen Shift** (`/kitchen-shift`, canvas restaurant-shift sim,
+  Postgres leaderboard, `localStorage` progress) —
+  `docs/features/cooking-game.md` (plus `cooking-game-food-server.md`/
+  `cooking-game-customer.md`/`cooking-game-kitchen.md`/
+  `cooking-game-food-server-leveling.md`).
+- **Puzzle Solver** (`/puzzle-solver`, client-side DFS pathfinding
+  visualizer, no DB/leaderboard) — `docs/features/puzzle-solver.md`.
+- **Projects** (`/projects` card grid: Fishing Game, Kitchen Shift, Puzzle
+  Solver) — `docs/features/projects.md`.
+- **Content Authoring** (`/settings/content`: edit the landing page's
+  hero/carousel/Selected work without a redeploy, Postgres-backed) —
+  `docs/features/landing-content-authoring.md`. Code-complete but
+  unreachable — see the auth note below.
+
+Cross-cutting notes worth knowing before touching any of the above:
+
+- **Auth is a stub**: `IsAuthenticated` (`internal/handler/auth_stub.go`)
+  always returns `false`, so every `/settings/*` route redirects to a
+  `/login` that doesn't exist yet. Any new auth-gated feature is
+  code-complete but unreachable until the real authentication feature
+  lands.
+- **Nav rollout is gradual and intentional, not a bug**: Blogs and Fishing
+  Game are reachable only by direct URL (`/blogs`, `/fishing-game`), not
+  linked from the header; Puzzle Solver isn't in the header nav either.
+- **Visual design system** is "Organic" (warm cream ground, terracotta/
+  sage accents, Caprasimo + Figtree), pulled from a claude.ai/design
+  project and adapted into Tailwind tokens — see
+  `docs/skills/tailwind-ui/SKILL.md`'s Visual Style. A from-scratch
+  restyle of page-specific components (resume, fishing game, carousel) to
+  the new tokens is still open.
+- Blogs and About are still placeholders.
+
 Update this file as decisions are made or change.
 
 ## What this is
