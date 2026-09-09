@@ -31,6 +31,17 @@ type Config struct {
 	// DBMaxOpenConns bounds the connection pool per
 	// docs/skills/postgres/SKILL.md "Connection Management".
 	DBMaxOpenConns int
+	// TrustProxyHeaders controls whether the in-process rate limiters
+	// (internal/middleware.ClientIP) identify a caller by the last entry
+	// of X-Forwarded-For instead of r.RemoteAddr. See that function's doc
+	// comment for the full security reasoning. Defaults to false, which is
+	// safe under any deployment (including none) but means every caller
+	// behind a reverse proxy is indistinguishable to the rate limiters —
+	// set true only for a deployment (this app's Render instance) known to
+	// sit behind exactly one trusted proxy that appends the real client
+	// address as that header's last hop. Not a secret — may be set via
+	// config.yaml or a real environment variable/.env.
+	TrustProxyHeaders bool
 	// LandingAPIToken is the shared bearer token the internal landing
 	// content API authenticates callers with
 	// (docs/features/landing-content-api.md). Like DatabaseURL it is a
@@ -68,6 +79,7 @@ type fileConfig struct {
 	DB       struct {
 		MaxOpenConns int `yaml:"max_open_conns"`
 	} `yaml:"db"`
+	TrustProxyHeaders bool `yaml:"trust_proxy_headers"`
 }
 
 // env is a small read-only merge of the real process environment and an
@@ -169,6 +181,12 @@ func Load() (Config, error) {
 		if fc.DB.MaxOpenConns != 0 {
 			cfg.DBMaxOpenConns = fc.DB.MaxOpenConns
 		}
+		// Unconditional, unlike the fields above: the hardcoded default is
+		// already false, so re-assigning fc's zero-value (false) when the
+		// key is absent from the file is a no-op, and there's no "unset"
+		// state distinct from false to detect for a bool the way the other
+		// fields use "" or 0.
+		cfg.TrustProxyHeaders = fc.TrustProxyHeaders
 	}
 
 	if raw, ok := e.lookup("PORT"); ok && raw != "" {
@@ -187,6 +205,13 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("parse DB_MAX_OPEN_CONNS %q: must be a positive integer", raw)
 		}
 		cfg.DBMaxOpenConns = n
+	}
+	if raw, ok := e.lookup("TRUST_PROXY_HEADERS"); ok {
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse TRUST_PROXY_HEADERS %q: must be a boolean", raw)
+		}
+		cfg.TrustProxyHeaders = b
 	}
 
 	// DatabaseURL and LandingAPIToken are real-env-or-.env-only — see

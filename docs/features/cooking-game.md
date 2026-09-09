@@ -1704,6 +1704,9 @@ bounds, etc.) is covered in Security Considerations below.
   exact per-shift 500–4,000 paycheck formula server-side either —
   accepted limitation for a stakes-free arcade leaderboard.
 * **Abuse / spam**: `POST /kitchen-shift/score` rate-limited (e.g. per-IP).
+  See `docs/features/fishing-game.md`'s Security Considerations for why
+  "per-IP" means `internal/middleware.ClientKey`, not a raw `r.RemoteAddr`
+  read — same reasoning applies here unchanged.
 * **Test cleanup discipline**: any e2e test that submits a real score must
   delete its own row after asserting against it — the Fishing Game's e2e
   suite shipped without this once and left junk rows on the real

@@ -306,3 +306,71 @@ func TestLoad_LandingAPITokenHasNoFileEquivalent(t *testing.T) {
 		t.Error("Load() accepted landing_api_token in config.yaml; it must be env-only")
 	}
 }
+
+// TestLoad_TrustProxyHeadersDefaultsFalse guards the safe-by-default
+// posture: a deployment that forgets to set this never accidentally
+// starts trusting X-Forwarded-For.
+func TestLoad_TrustProxyHeadersDefaultsFalse(t *testing.T) {
+	withEnv(t, map[string]string{
+		"ENV_FILE":     filepath.Join(t.TempDir(), "does-not-exist.env"),
+		"CONFIG_FILE":  filepath.Join(t.TempDir(), "does-not-exist.yaml"),
+		"DATABASE_URL": "postgres://localhost/test",
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	if cfg.TrustProxyHeaders {
+		t.Error("TrustProxyHeaders = true, want false by default")
+	}
+}
+
+func TestLoad_TrustProxyHeadersFromFile(t *testing.T) {
+	path := writeConfigFile(t, "trust_proxy_headers: true\n")
+	withEnv(t, map[string]string{
+		"CONFIG_FILE":  path,
+		"DATABASE_URL": "postgres://localhost/test",
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	if !cfg.TrustProxyHeaders {
+		t.Error("TrustProxyHeaders = false, want true from file")
+	}
+}
+
+// TestLoad_TrustProxyHeadersEnvOverridesFile mirrors
+// TestLoad_EnvOverridesFile's layering guarantee for this field
+// specifically.
+func TestLoad_TrustProxyHeadersEnvOverridesFile(t *testing.T) {
+	path := writeConfigFile(t, "trust_proxy_headers: true\n")
+	withEnv(t, map[string]string{
+		"CONFIG_FILE":         path,
+		"TRUST_PROXY_HEADERS": "false",
+		"DATABASE_URL":        "postgres://localhost/test",
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	if cfg.TrustProxyHeaders {
+		t.Error("TrustProxyHeaders = true, want false from env (overriding file's true)")
+	}
+}
+
+func TestLoad_TrustProxyHeadersInvalidValueFailsFast(t *testing.T) {
+	withEnv(t, map[string]string{
+		"ENV_FILE":            filepath.Join(t.TempDir(), "does-not-exist.env"),
+		"CONFIG_FILE":         filepath.Join(t.TempDir(), "does-not-exist.yaml"),
+		"DATABASE_URL":        "postgres://localhost/test",
+		"TRUST_PROXY_HEADERS": "yes-please",
+	})
+
+	if _, err := Load(); err == nil {
+		t.Error("Load() accepted TRUST_PROXY_HEADERS=yes-please; want an error for a non-boolean value")
+	}
+}

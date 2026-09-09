@@ -69,6 +69,7 @@ func run() error {
 	handlerChain := middleware.Chain(mux,
 		middleware.Recover,
 		middleware.RequestID,
+		middleware.ClientIP(cfg.TrustProxyHeaders),
 		middleware.Logging,
 		middleware.SecurityHeaders,
 	)

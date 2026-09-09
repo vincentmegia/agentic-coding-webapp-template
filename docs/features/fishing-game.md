@@ -752,6 +752,12 @@ holds only voluntarily-submitted, already-finished round results.
 * **Abuse / spam**: `POST /fishing-game/score` should be rate-limited (e.g.
   per-IP) to prevent a script from flooding the leaderboard with junk
   entries — the concern here is nuisance/pollution, not high-value fraud.
+  "Per-IP" is resolved via `internal/middleware.ClientKey`
+  (`config.Config.TrustProxyHeaders`), not a raw `r.RemoteAddr` read —
+  behind this app's Render deployment, `r.RemoteAddr` is the platform's
+  own reverse proxy for every request, so reading it directly would
+  collapse every player into one shared rate-limit bucket instead of
+  limiting each player independently.
 * **The project's own e2e suite is a pollution source too**: this repo has
   no separate test database (`docs/skills/postgres/SKILL.md`) — `e2e/`
   runs against the same `DATABASE_URL` real local development uses (see

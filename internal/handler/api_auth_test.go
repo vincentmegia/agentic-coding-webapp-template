@@ -236,20 +236,7 @@ func TestBearerToken(t *testing.T) {
 	}
 }
 
-func TestClientKey(t *testing.T) {
-	// Ports must be stripped, or every retry from one attacker would land
-	// in a fresh bucket and the limiter would never engage.
-	tests := []struct{ remoteAddr, want string }{
-		{"192.0.2.1:54321", "192.0.2.1"},
-		{"192.0.2.1:12345", "192.0.2.1"},
-		{"[2001:db8::1]:443", "[2001:db8::1]"},
-		{"192.0.2.1", "192.0.2.1"},
-	}
-	for _, tt := range tests {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.RemoteAddr = tt.remoteAddr
-		if got := clientKey(req); got != tt.want {
-			t.Errorf("clientKey(%q) = %q, want %q", tt.remoteAddr, got, tt.want)
-		}
-	}
-}
+// Caller-key resolution itself (port stripping, X-Forwarded-For trust)
+// moved to internal/middleware.ClientKey/ClientIP — see
+// middleware_test.go's TestClientKey/TestClientIP. This package now only
+// calls it.

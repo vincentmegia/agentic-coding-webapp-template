@@ -165,6 +165,16 @@ honored.
 * Rate-limit failed auth attempts per source IP to blunt brute force. The
   existing `scoreSubmitLimiter` in `internal/handler/fishing_game.go` is
   the pattern to follow (in-memory, fixed window, single-process).
+  "Source IP" is resolved via `internal/middleware.ClientKey`, not a raw
+  `r.RemoteAddr` read — see that function's doc comment and
+  `config.Config.TrustProxyHeaders`. On Render (where this API actually
+  runs), `r.RemoteAddr` is the platform's own reverse proxy, not the
+  caller, for every request — so without that resolution every anonymous
+  caller shares one failure budget, and ten bad tokens from anyone 429s
+  HQ's own legitimate calls for the rest of the window. This was caught
+  and fixed before the API's first real deployment (its Render
+  reconfiguration, `TRUST_PROXY_HEADERS=true` there specifically, was
+  still outstanding at the time).
 * Never log the token, in full or in part. Log auth failures with the
   request ID and source only.
 
@@ -196,12 +206,12 @@ All routes require the bearer token. All requests and responses are
 | PUT    | `/carousel/{id}`              | `LandingAPIHandler.UpdateSlide` | 200 | Content fields only — see Decision 2. |
 | DELETE | `/carousel/{id}`              | `LandingAPIHandler.DeleteSlide` | 204 | 404 if unknown. |
 | PUT    | `/carousel/order`             | `LandingAPIHandler.ReorderSlides` | 200 | Full ordered ID list — see Decision 2. |
-| GET    | `/selected-work`              | `LandingAPIHandler.ListWork`    | 200 | Ordered by `sort_order`. |
+| GET    | `/selected-work`              | `LandingAPIHandler.ListWorkItems` | 200 | Ordered by `sort_order`. |
 | GET    | `/selected-work/{id}`         | `LandingAPIHandler.GetWorkItem` | 200 | |
 | POST   | `/selected-work`              | `LandingAPIHandler.CreateWorkItem` | 201 | No cap. |
 | PUT    | `/selected-work/{id}`         | `LandingAPIHandler.UpdateWorkItem` | 200 | |
 | DELETE | `/selected-work/{id}`         | `LandingAPIHandler.DeleteWorkItem` | 204 | |
-| PUT    | `/selected-work/order`        | `LandingAPIHandler.ReorderWork` | 200 | |
+| PUT    | `/selected-work/order`        | `LandingAPIHandler.ReorderWorkItems` | 200 | |
 
 Route-registration note: `/carousel/order` and `/carousel/{id}` both match
 a two-segment pattern. Go 1.22+ `ServeMux` prefers the more specific literal
@@ -359,7 +369,9 @@ so the choice is deliberate.
 
 * **Authz**: single bearer token, one trusted caller; see Auth above for
   constant-time comparison, length validation, fail-closed behavior, and
-  the rate-limiting requirement.
+  the rate-limiting requirement — including why "source IP" must be
+  resolved via `internal/middleware.ClientKey`/`TrustProxyHeaders` rather
+  than `r.RemoteAddr` directly on this app's Render deployment.
 * **Transport**: Render terminates TLS on the public URL. The API must
   refuse to operate over plaintext in production — HSTS is already set by
   `middleware.SecurityHeaders`.

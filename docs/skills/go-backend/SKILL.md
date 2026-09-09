@@ -297,6 +297,19 @@ Do not expose internal errors directly to users.
 
 Map internal errors to appropriate HTTP responses.
 
+`%w`-wrapping is the default, but check what the wrapped error's own
+`Error()` string contains before doing it to an error built from
+secret-bearing input — the resulting message ends up in `slog` output via
+whatever eventually logs the chain, not just in the immediate return
+value. `net/url`'s parse error is a concrete example that bit this
+project: it embeds its *entire* input string verbatim, so wrapping it
+around a malformed `DATABASE_URL` would log the database password
+(`internal/db/db.go`'s `withStatementTimeouts`, deliberately *not*
+`%w`-wrapping for this reason). When a value passed to `fmt.Errorf`/
+`errors.New` might itself be a secret or contain one, build a fixed,
+secret-free message instead of trusting a library error's `Error()` text
+to have redacted it.
+
 ---
 
 ## Validation
@@ -396,6 +409,7 @@ port: "8080"
 log_level: INFO
 db:
   max_open_conns: 10
+trust_proxy_headers: false
 ```
 
 ```dotenv
@@ -432,6 +446,7 @@ What belongs in the YAML file (non-secret, structural):
 port
 log_level
 db.max_open_conns
+trust_proxy_headers
 ```
 
 What belongs in `.env` or a real environment variable (secrets,

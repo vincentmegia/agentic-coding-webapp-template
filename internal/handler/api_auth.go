@@ -36,7 +36,7 @@ const (
 // everything".
 func RequireAPIToken(token string, limiter *authFailureLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !limiter.Allow(clientKey(r)) {
+		if !limiter.Allow(middleware.ClientKey(r)) {
 			writeAPIError(w, http.StatusTooManyRequests, "rate_limited",
 				"Too many failed authentication attempts. Try again shortly.")
 			return
@@ -50,13 +50,13 @@ func RequireAPIToken(token string, limiter *authFailureLimiter, next http.Handle
 		// token was well-formed but wrong.
 		valid := subtle.ConstantTimeCompare([]byte(presented), []byte(token)) == 1
 		if !ok || !valid {
-			limiter.RecordFailure(clientKey(r))
+			limiter.RecordFailure(middleware.ClientKey(r))
 			// Never log the presented token, in full or in part — only
 			// that a failure happened, and from where.
 			slog.Warn("landing api auth failed",
 				"request_id", middleware.RequestIDFromContext(r.Context()),
 				"path", r.URL.Path,
-				"remote", clientKey(r),
+				"remote", middleware.ClientKey(r),
 			)
 			writeAPIError(w, http.StatusUnauthorized, "unauthorized",
 				"Missing or invalid API token.")
@@ -84,18 +84,6 @@ func bearerToken(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return credential, true
-}
-
-// clientKey identifies the caller for rate-limiting purposes. RemoteAddr
-// is host:port, and the port differs per connection, so it's trimmed to
-// the host — otherwise every retry would land in its own bucket and the
-// limit would never bite.
-func clientKey(r *http.Request) string {
-	addr := r.RemoteAddr
-	if idx := strings.LastIndex(addr, ":"); idx != -1 {
-		return addr[:idx]
-	}
-	return addr
 }
 
 // authFailureLimiter is a small in-memory, fixed-window, per-key limiter

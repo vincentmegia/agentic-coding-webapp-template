@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/vincentmegia/vincentmegia/internal/middleware"
 	"github.com/vincentmegia/vincentmegia/internal/service"
 )
 
@@ -81,7 +82,7 @@ func (h *CookingGameHandler) Leaderboard(w http.ResponseWriter, r *http.Request)
 // (see PagesHandler.Logout's doc comment) — this route's exposure is
 // identical to, not worse than, that already-accepted gap.
 func (h *CookingGameHandler) SubmitScore(w http.ResponseWriter, r *http.Request) {
-	if !h.limiter.Allow(r.RemoteAddr) {
+	if !h.limiter.Allow(middleware.ClientKey(r)) {
 		http.Error(w, "Too many submissions — please slow down and try again shortly.", http.StatusTooManyRequests)
 		return
 	}

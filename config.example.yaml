@@ -10,4 +10,20 @@ log_level: INFO # DEBUG | INFO | WARN | ERROR
 
 db:
   max_open_conns: 10
-  
+
+# See docs/skills/go-backend/SKILL.md's Configuration section and
+# internal/middleware.ClientIP's doc comment before touching this.
+# Controls whether the in-process rate limiters (landing content API auth
+# failures, fishing/kitchen-shift score submissions) trust
+# X-Forwarded-For's last entry to identify a caller, instead of only
+# r.RemoteAddr (which is a reverse proxy's own address, not the real
+# caller's, for every request once one sits in front of this app).
+# Leave false (the default — this key can be omitted entirely) for local
+# dev and any deployment with no reverse proxy in front. Set true ONLY for
+# a deployment (this app's Render instance) sitting behind exactly one
+# trusted proxy known to append the real client address as that header's
+# last hop — X-Forwarded-For is otherwise attacker-controlled, and
+# trusting it without such a proxy would let a client spoof or evade the
+# rate limiters outright.
+trust_proxy_headers: false
+

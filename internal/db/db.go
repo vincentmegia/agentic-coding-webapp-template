@@ -6,6 +6,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"time"
@@ -24,7 +25,7 @@ import (
 func Open(ctx context.Context, databaseURL string, maxOpenConns int) (*sql.DB, error) {
 	dsn, err := withStatementTimeouts(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse database url: %w", err)
+		return nil, err
 	}
 
 	conn, err := sql.Open("pgx", dsn)
@@ -55,7 +56,15 @@ func Open(ctx context.Context, databaseURL string, maxOpenConns int) (*sql.DB, e
 func withStatementTimeouts(databaseURL string) (string, error) {
 	u, err := url.Parse(databaseURL)
 	if err != nil {
-		return "", err
+		// Deliberately not %w-wrapping err: a net/url parse error embeds
+		// the full offending input — including the DATABASE_URL password —
+		// verbatim in its Error() string, and that string reaches
+		// cmd/server's slog.Error("server exited with error", ...) on the
+		// way out of Open. A malformed URL is exactly the case (an
+		// unencoded special character in the password) most likely to
+		// trigger this path, so the one detail worth logging here is that
+		// parsing failed at all, never the string that failed to parse.
+		return "", errors.New("parse database url: malformed URL")
 	}
 	q := u.Query()
 	q.Set("options", "-c statement_timeout=5000 -c lock_timeout=2000")

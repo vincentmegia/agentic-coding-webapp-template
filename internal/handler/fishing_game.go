@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vincentmegia/vincentmegia/internal/middleware"
 	"github.com/vincentmegia/vincentmegia/internal/service"
 )
 
@@ -103,7 +104,7 @@ func (h *FishingGameHandler) Leaderboard(w http.ResponseWriter, r *http.Request)
 // this route's exposure is therefore identical to, not worse than, an
 // already-accepted gap elsewhere in the app.)
 func (h *FishingGameHandler) SubmitScore(w http.ResponseWriter, r *http.Request) {
-	if !h.limiter.Allow(r.RemoteAddr) {
+	if !h.limiter.Allow(middleware.ClientKey(r)) {
 		http.Error(w, "Too many submissions — please slow down and try again shortly.", http.StatusTooManyRequests)
 		return
 	}
@@ -233,8 +234,8 @@ func newScoreSubmitLimiter(limit int, window time.Duration) *scoreSubmitLimiter 
 	}
 }
 
-// Allow reports whether a request from key (e.g. r.RemoteAddr) may
-// proceed, consuming one slot in its current window if so.
+// Allow reports whether a request from key (e.g. middleware.ClientKey(r))
+// may proceed, consuming one slot in its current window if so.
 func (l *scoreSubmitLimiter) Allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
