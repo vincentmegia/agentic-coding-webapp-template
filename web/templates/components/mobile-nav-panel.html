@@ -114,13 +114,13 @@
 				{{end}}
 			</nav>
 
-			{{/* Reserved for docs/features/dark-mode.md — left genuinely
-			     empty. Note: this shares the same "theme-toggle" defined
-			     template as header.html's slot, so once dark-mode.md
-			     fills it in, both mount points render identical markup;
-			     if that markup needs a unique `id`, dark-mode.md will
-			     need to avoid colliding IDs across the two mount points
-			     (e.g. no id attribute, or two distinctly named blocks). */}}
+			{{/* docs/features/dark-mode.md's slot — see header.html's
+			     matching comment for how the empty {{block}} default here
+			     gets overridden by nav-theme-toggle.html's real
+			     {{define "theme-toggle"}}. Both mount points render the
+			     identical markup from that one definition, which is why
+			     it carries no `id` attribute — only the data-theme-toggle
+			     hook — avoiding colliding IDs across the two mounts. */}}
 			{{block "theme-toggle" .}}{{end}}
 		</div>
 	</div>

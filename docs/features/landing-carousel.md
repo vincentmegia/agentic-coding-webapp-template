@@ -2,7 +2,25 @@
 
 ## Status
 
-`Proposed`
+`Shipped`. The Implementation Contract below is implemented exactly as
+specified — `model.CarouselSlide`, `migrations/005_create_landing_content.sql`,
+`components/carousel.html`, and `carousel.js` all match it — and slide
+content is Postgres-backed and editable via `/settings/content`, per Open
+Questions' "Resolved" note below. This doc's Status previously read
+`Proposed` well after the feature actually shipped; a documentation-drift
+audit caught it.
+
+Test coverage: `carousel.js`'s two pieces of non-trivial decision logic —
+1-based wraparound index arithmetic and the "three independent pause
+sources" autoplay rule (both cited in the Testing Plan below) — are
+extracted into `carousel-nav.js` and unit-tested by
+`carousel-nav.test.js` (`npm run test:unit`), the same pure-logic-module
+pattern `puzzle/dfs.js` and `fishing/rules.js` already use. Everything
+else in the Testing Plan below — rendering, DOM structure/ARIA, keyboard
+and touch interaction, visual/contrast states, theme-toggle backdrop
+swaps — remains unaudited by any automated test; there is no Playwright
+spec for this page's carousel behavior specifically. Treat an unchecked
+box below as "not yet verified," not as "not implemented."
 
 ## Summary
 

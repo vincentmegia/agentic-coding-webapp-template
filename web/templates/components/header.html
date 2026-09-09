@@ -77,8 +77,13 @@
 			</nav>
 			{{end}}
 
-			{{/* Reserved for docs/features/dark-mode.md. Left genuinely
-			     empty — see nav-theme-toggle.html (not yet built). */}}
+			{{/* docs/features/dark-mode.md's slot — filled by
+			     nav-theme-toggle.html's real {{define "theme-toggle"}},
+			     parsed after this file so it overrides this empty
+			     {{block}} default (see template.go's LoadTemplates doc
+			     comment). Kept as a {{block}} rather than a direct
+			     {{template}} call so this file still parses standalone
+			     before nav-theme-toggle.html is loaded. */}}
 			{{block "theme-toggle" .}}{{end}}
 
 			<a

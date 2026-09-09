@@ -2,7 +2,33 @@
 
 ## Status
 
-`Proposed`
+`Shipped`. Every item in Scope is implemented: `internal/handler/theme.go`'s
+`themeFromRequest` validates the cookie server-side against the exact
+`light`/`dark` allow-list this doc's Business Rules require; `base.html`
+reads it into the initial HTML; `nav-theme-toggle.html` defines the real
+toggle markup (sun/moon icons, `data-theme-toggle` hook, no `id` — exactly
+the collision-avoidance this doc's UI section calls for), mounted in both
+`header.html` and `mobile-nav-panel.html` via a shared `{{block
+"theme-toggle"}}` slot each reserves; `theme-toggle.js` handles the click,
+sets the cookie (`SameSite=Lax`, `Secure` in production), and is an
+external file with no inline `<script>`. `e2e/resume.spec.js` has a
+passing end-to-end test ("dark mode toggle changes the resume page theme")
+covering the toggle-and-persist path. This doc's Status previously read
+`Proposed` well after the feature actually shipped — a documentation-drift
+audit caught it, traced to `base.html`/`header.html`/`mobile-nav-panel.html`
+all still carrying stale "not yet built" comments alongside the real
+implementation, which is presumably why this field was never updated.
+
+The Testing Plan and Definition of Done checklists below predate this
+correction and have not been re-audited item by item — treat an unchecked
+box there as "not yet re-verified against current code," not as "not
+implemented." One gap the audit found has since been closed:
+`internal/handler/theme_test.go`'s `TestThemeFromRequest` now covers the
+allow-list validation directly (valid `light`/`dark` values, a missing
+cookie, and several malformed/unexpected values including a
+suspicious-but-cookie-legal string, all asserted against `themeFromRequest`
+itself). The toggle-and-persist path remains covered only by
+`e2e/resume.spec.js`'s one Playwright test, as before.
 
 ## Summary
 
@@ -194,7 +220,9 @@ None. Preference lives entirely in a client cookie, not the database.
 
 * [ ] User flow works end-to-end, including first-visit default and persistence.
 * [ ] All states in the UI table are implemented.
-* [ ] `theme` cookie value is validated server-side against an exact allow-list before use.
+* [x] `theme` cookie value is validated server-side against an exact
+      allow-list before use — `internal/handler/theme.go`'s
+      `themeFromRequest`, covered by `TestThemeFromRequest`.
 * [ ] Cookie set with `SameSite=Lax` and `Secure` in production.
 * [ ] No inline `<script>` tags exist.
 * [ ] No flash of the wrong theme on reload.

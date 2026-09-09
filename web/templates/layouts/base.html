@@ -75,17 +75,27 @@
 	<script src="/static/js/nav-menu.js"></script>
 	<script src="/static/js/mobile-nav-panel.js"></script>
 	{{/* header-scroll.js and theme-toggle.js are loaded on every page so
-	     the not-yet-built landing-page.md and dark-mode.md features don't
-	     need to touch base.html — both files are intentionally empty
-	     placeholders for now. */}}
+	     their features don't need to touch base.html individually.
+	     theme-toggle.js (docs/features/dark-mode.md) is fully implemented —
+	     see nav-theme-toggle.html's "theme-toggle" template and this file's
+	     cookie read above for the server-rendered half. header-scroll.js
+	     (docs/features/landing-page.md's TransparentOverHero scroll
+	     behavior) remains an intentionally empty placeholder — that part of
+	     landing-page.md is still unimplemented, per that doc's own Status. */}}
 	<script src="/static/js/header-scroll.js"></script>
 	<script src="/static/js/theme-toggle.js"></script>
 	{{/* carousel.js only does anything on "/" (the only route rendering
 	     #carousel — docs/features/landing-carousel.md), but is loaded here
 	     unconditionally, same as header-scroll.js/theme-toggle.js above,
 	     rather than from landing.html itself — it no-ops harmlessly on
-	     every other page when it finds no #carousel element. */}}
-	<script src="/static/js/carousel.js"></script>
+	     every other page when it finds no #carousel element. type="module"
+	     (not a plain <script>, unlike its neighbors above) because it
+	     imports its pure navigation logic from carousel-nav.js — same
+	     module-script convention as puzzle-solver.html/fishing-game.html/
+	     cooking-game.html's own bootstrap scripts. Module scripts defer by
+	     default, which is still the same effective timing this already had
+	     at the end of body. */}}
+	<script type="module" src="/static/js/carousel.js"></script>
 </body>
 </html>
 {{end}}

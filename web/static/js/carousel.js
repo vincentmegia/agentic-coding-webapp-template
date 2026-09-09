@@ -9,6 +9,15 @@
 //
 // External file, no inline <script> — see landing-carousel.md's Security
 // Considerations.
+//
+// ES module (not a plain IIFE) solely so it can `import` its pure
+// navigation logic from carousel-nav.js — see that file's header comment.
+// Loaded via <script type="module"> (layouts/base.html), which is
+// deferred by default, same effective timing as the plain <script> this
+// replaced (it already ran at the end of body, after the DOM it queries
+// existed).
+import { nextIndexOf, prevIndexOf, computeShouldRun } from './carousel-nav.js';
+
 (function () {
 	'use strict';
 
@@ -79,14 +88,6 @@
 		return 1;
 	}
 
-	function nextIndexOf(i) {
-		return i >= total ? 1 : i + 1;
-	}
-
-	function prevIndexOf(i) {
-		return i <= 1 ? total : i - 1;
-	}
-
 	function setSlideActive(slide, active) {
 		if (active) {
 			slide.classList.remove('opacity-0', 'z-0', 'pointer-events-none');
@@ -151,17 +152,19 @@
 		toggle.setAttribute('aria-label', playing ? 'Pause autoplay' : 'Resume autoplay');
 	}
 
-	function computeShouldRun() {
-		return total > 1 && !reducedMotion && !hoverPaused && !userPaused && !offscreenPaused;
-	}
-
 	// Single source of truth for the actual timer + aria-live + toggle
 	// state, called whenever any pause flag changes and after manual
 	// navigation. `forceRestart` clears an already-running timer first, so
 	// manual navigation resets the interval "from that point" rather than
 	// advancing again almost immediately.
 	function applyPlayState(forceRestart) {
-		var shouldRun = computeShouldRun();
+		var shouldRun = computeShouldRun({
+			total: total,
+			reducedMotion: reducedMotion,
+			hoverPaused: hoverPaused,
+			userPaused: userPaused,
+			offscreenPaused: offscreenPaused,
+		});
 		if (shouldRun) {
 			if (timer !== null && forceRestart) {
 				window.clearInterval(timer);
@@ -183,7 +186,7 @@
 	}
 
 	function advance() {
-		goToSlide(nextIndexOf(currentIndex));
+		goToSlide(nextIndexOf(currentIndex, total));
 	}
 
 	// Manual navigation (arrow click, dot click, swipe, or keyboard arrows)
@@ -198,13 +201,13 @@
 
 	if (prevBtn) {
 		prevBtn.addEventListener('click', function () {
-			manualNavigate(prevIndexOf(currentIndex));
+			manualNavigate(prevIndexOf(currentIndex, total));
 		});
 	}
 
 	if (nextBtn) {
 		nextBtn.addEventListener('click', function () {
-			manualNavigate(nextIndexOf(currentIndex));
+			manualNavigate(nextIndexOf(currentIndex, total));
 		});
 	}
 
@@ -222,7 +225,7 @@
 	root.addEventListener('keydown', function (e) {
 		if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
 		e.preventDefault();
-		var next = e.key === 'ArrowLeft' ? prevIndexOf(currentIndex) : nextIndexOf(currentIndex);
+		var next = e.key === 'ArrowLeft' ? prevIndexOf(currentIndex, total) : nextIndexOf(currentIndex, total);
 		var onDot = document.activeElement && document.activeElement.classList &&
 			document.activeElement.classList.contains('carousel-dot');
 		manualNavigate(next, onDot ? next : undefined);
@@ -253,7 +256,7 @@
 		if (Math.abs(dx) < SWIPE_THRESHOLD_PX) return;
 		if (Math.abs(dx) <= Math.abs(dy)) return; // vertical-dominant gesture — leave scroll alone
 
-		manualNavigate(dx < 0 ? nextIndexOf(currentIndex) : prevIndexOf(currentIndex));
+		manualNavigate(dx < 0 ? nextIndexOf(currentIndex, total) : prevIndexOf(currentIndex, total));
 	}, { passive: true });
 
 	if (reducedMotion) {
