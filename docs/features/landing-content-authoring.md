@@ -192,8 +192,8 @@ CREATE TABLE landing_carousel_slides (
     id         BIGSERIAL PRIMARY KEY,
     image_path TEXT NOT NULL,
     alt        TEXT NOT NULL,
-    caption    TEXT,
-    link_url   TEXT,
+    caption    TEXT NOT NULL DEFAULT '',
+    link_url   TEXT NOT NULL DEFAULT '',
     external   BOOLEAN NOT NULL DEFAULT false,
     sort_order INT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -204,7 +204,7 @@ CREATE TABLE landing_selected_work_items (
     kicker      TEXT NOT NULL,
     title       TEXT NOT NULL,
     description TEXT NOT NULL,
-    live_url    TEXT NOT NULL,
+    live_url    TEXT NOT NULL DEFAULT '',
     external    BOOLEAN NOT NULL DEFAULT false,
     sort_order  INT NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()

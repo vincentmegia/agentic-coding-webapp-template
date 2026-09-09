@@ -114,7 +114,7 @@ which is why it's worth the added implementation complexity documented below.
 
 ```text
 web/templates/pages/
-└── home.html                # sets TransparentOverHero: true; hero markup TBD
+└── landing.html              # sets TransparentOverHero: true; hero markup TBD
 
 web/static/js/
 └── header-scroll.js          # shared with home.md's shell (loaded on every page); full spec below
