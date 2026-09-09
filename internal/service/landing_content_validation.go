@@ -10,6 +10,21 @@ import (
 // exceed it.
 const maxCarouselSlides = 5
 
+// ErrSlideNotFound/ErrWorkItemNotFound are what the API-shaped service
+// methods return for an unknown ID, so the JSON handler can answer 404
+// without importing database/sql or knowing the repository's
+// sql.ErrNoRows convention (docs/features/landing-content-api.md).
+var (
+	ErrSlideNotFound    = errors.New("carousel slide not found")
+	ErrWorkItemNotFound = errors.New("selected work item not found")
+)
+
+// ErrReorderInvalid is returned when a reorder request's ID list is not
+// exactly the set of IDs currently stored — the service's own wrapper
+// around repository.ErrReorderIDMismatch, kept in this package so handlers
+// depend only on service (docs/skills/go-backend/SKILL.md's layering).
+var ErrReorderInvalid = errors.New("reorder list must contain every existing id exactly once")
+
 var (
 	ErrHeroEyebrowRequired = errors.New("eyebrow is required")
 	ErrHeroTitleRequired   = errors.New("title is required")

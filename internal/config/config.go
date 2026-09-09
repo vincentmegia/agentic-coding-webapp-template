@@ -31,7 +31,28 @@ type Config struct {
 	// DBMaxOpenConns bounds the connection pool per
 	// docs/skills/postgres/SKILL.md "Connection Management".
 	DBMaxOpenConns int
+	// LandingAPIToken is the shared bearer token the internal landing
+	// content API authenticates callers with
+	// (docs/features/landing-content-api.md). Like DatabaseURL it is a
+	// secret, so it comes from a real environment variable or .env only —
+	// never config.yaml; see fileConfig's doc comment.
+	//
+	// Optional, unlike DatabaseURL: when empty the API routes are not
+	// registered at all (see cmd/server/main.go's newMux), so a deployment
+	// that forgets to set it fails closed with 404s rather than serving an
+	// unauthenticated write API. That also keeps local dev and the
+	// DB-gated end-to-end test runnable with no extra configuration, per
+	// this package's "environment variables alone must remain sufficient"
+	// rule. A value that IS set but too short fails startup — see
+	// landingAPITokenMinLen.
+	LandingAPIToken string
 }
+
+// landingAPITokenMinLen is the shortest LANDING_API_TOKEN accepted at
+// startup. This is the only credential guarding the content write API, so
+// a short or human-chosen value is rejected outright rather than warned
+// about — generate it from a CSPRNG (e.g. `openssl rand -hex 32`).
+const landingAPITokenMinLen = 32
 
 // fileConfig is the shape of the optional YAML config file
 // (docs/skills/go-backend/SKILL.md "Configuration"). It deliberately has
@@ -117,7 +138,7 @@ func (e env) get(key, fallback string) string {
 // has been applied.
 func Load() (Config, error) {
 	cfg := Config{
-		Port:           "8080",
+		Port:           "8081",
 		LogLevel:       slog.LevelInfo,
 		DBMaxOpenConns: 10,
 	}
@@ -168,9 +189,10 @@ func Load() (Config, error) {
 		cfg.DBMaxOpenConns = n
 	}
 
-	// DatabaseURL is real-env-or-.env-only — see fileConfig's doc
-	// comment. There is no config.yaml path for it.
+	// DatabaseURL and LandingAPIToken are real-env-or-.env-only — see
+	// fileConfig's doc comment. There is no config.yaml path for either.
 	cfg.DatabaseURL, _ = e.lookup("DATABASE_URL")
+	cfg.LandingAPIToken, _ = e.lookup("LANDING_API_TOKEN")
 
 	if _, err := strconv.Atoi(cfg.Port); err != nil {
 		return Config{}, fmt.Errorf("parse port %q: %w", cfg.Port, err)
@@ -180,6 +202,11 @@ func Load() (Config, error) {
 	}
 	if cfg.DBMaxOpenConns <= 0 {
 		return Config{}, fmt.Errorf("db.max_open_conns must be a positive integer, got %d", cfg.DBMaxOpenConns)
+	}
+	// Absent is fine (the API is simply disabled); present-but-weak is
+	// not — see the LandingAPIToken field comment.
+	if cfg.LandingAPIToken != "" && len(cfg.LandingAPIToken) < landingAPITokenMinLen {
+		return Config{}, fmt.Errorf("LANDING_API_TOKEN must be at least %d characters", landingAPITokenMinLen)
 	}
 
 	return cfg, nil

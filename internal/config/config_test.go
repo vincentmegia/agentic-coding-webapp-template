@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -235,5 +236,73 @@ func TestLoad_MalformedDotenvFailsFast(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() with a malformed .env file = nil error, want a parse failure")
+	}
+}
+
+// TestLoad_LandingAPITokenAbsentDisablesAPI documents the deliberate
+// asymmetry with DATABASE_URL: an absent token is valid (the API routes
+// simply aren't registered — see cmd/server/main.go's registerLandingAPI),
+// whereas an absent DATABASE_URL is a startup error.
+func TestLoad_LandingAPITokenAbsentDisablesAPI(t *testing.T) {
+	withEnv(t, map[string]string{
+		"ENV_FILE":     filepath.Join(t.TempDir(), "does-not-exist.env"),
+		"CONFIG_FILE":  filepath.Join(t.TempDir(), "does-not-exist.yaml"),
+		"DATABASE_URL": "postgres://localhost/test",
+	})
+	os.Unsetenv("LANDING_API_TOKEN")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with no LANDING_API_TOKEN: %v", err)
+	}
+	if cfg.LandingAPIToken != "" {
+		t.Errorf("LandingAPIToken = %q, want empty", cfg.LandingAPIToken)
+	}
+}
+
+func TestLoad_LandingAPITokenTooShortFailsFast(t *testing.T) {
+	withEnv(t, map[string]string{
+		"ENV_FILE":          filepath.Join(t.TempDir(), "does-not-exist.env"),
+		"CONFIG_FILE":       filepath.Join(t.TempDir(), "does-not-exist.yaml"),
+		"DATABASE_URL":      "postgres://localhost/test",
+		"LANDING_API_TOKEN": "too-short",
+	})
+
+	if _, err := Load(); err == nil {
+		t.Error("Load() accepted a LANDING_API_TOKEN below the minimum length")
+	}
+}
+
+func TestLoad_LandingAPITokenAtMinimumLengthIsAccepted(t *testing.T) {
+	token := strings.Repeat("a", landingAPITokenMinLen)
+	withEnv(t, map[string]string{
+		"ENV_FILE":          filepath.Join(t.TempDir(), "does-not-exist.env"),
+		"CONFIG_FILE":       filepath.Join(t.TempDir(), "does-not-exist.yaml"),
+		"DATABASE_URL":      "postgres://localhost/test",
+		"LANDING_API_TOKEN": token,
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() at the minimum token length: %v", err)
+	}
+	if cfg.LandingAPIToken != token {
+		t.Errorf("LandingAPIToken = %q, want the configured token", cfg.LandingAPIToken)
+	}
+}
+
+// TestLoad_LandingAPITokenHasNoFileEquivalent guards the secrets rule: the
+// token must never be settable from config.yaml, and the strict decoder
+// must reject the key outright rather than ignore it.
+func TestLoad_LandingAPITokenHasNoFileEquivalent(t *testing.T) {
+	path := writeConfigFile(t, "landing_api_token: \"from-file\"\n")
+	withEnv(t, map[string]string{
+		"ENV_FILE":     filepath.Join(t.TempDir(), "does-not-exist.env"),
+		"CONFIG_FILE":  path,
+		"DATABASE_URL": "postgres://localhost/test",
+	})
+
+	if _, err := Load(); err == nil {
+		t.Error("Load() accepted landing_api_token in config.yaml; it must be env-only")
 	}
 }

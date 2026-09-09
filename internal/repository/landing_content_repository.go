@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/vincentmegia/vincentmegia/internal/model"
@@ -84,40 +85,95 @@ func (repo *LandingContentRepository) CountCarouselSlides(ctx context.Context) (
 	return count, nil
 }
 
-// CreateCarouselSlide inserts a new slide at the end of the display order.
-func (repo *LandingContentRepository) CreateCarouselSlide(ctx context.Context, s model.CarouselSlide) error {
+// GetCarouselSlide fetches one slide by ID. Returns a wrapped
+// sql.ErrNoRows when the slide doesn't exist — see this file's
+// "not-found convention" note on DeleteCarouselSlide.
+func (repo *LandingContentRepository) GetCarouselSlide(ctx context.Context, id int64) (model.CarouselSlide, error) {
 	const query = `
-		INSERT INTO landing_carousel_slides (image_path, alt, caption, link_url, external, sort_order)
-		VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(sort_order) FROM landing_carousel_slides), 0) + 1)`
+		SELECT id, image_path, alt, caption, link_url, external, sort_order
+		FROM landing_carousel_slides
+		WHERE id = $1`
 
-	if _, err := repo.DB.ExecContext(ctx, query, s.ImagePath, s.Alt, s.Caption, s.LinkURL, s.External); err != nil {
-		return fmt.Errorf("insert landing_carousel_slides: %w", err)
+	var s model.CarouselSlide
+	err := repo.DB.QueryRowContext(ctx, query, id).
+		Scan(&s.ID, &s.ImagePath, &s.Alt, &s.Caption, &s.LinkURL, &s.External, &s.SortOrder)
+	if err != nil {
+		return model.CarouselSlide{}, fmt.Errorf("query landing_carousel_slides id %d: %w", id, err)
 	}
-	return nil
+	return s, nil
 }
 
-// UpdateCarouselSlide updates a slide's content fields by ID. SortOrder is
-// left untouched — it only changes via MoveCarouselSlide.
-func (repo *LandingContentRepository) UpdateCarouselSlide(ctx context.Context, s model.CarouselSlide) error {
+// CreateCarouselSlide inserts a new slide at the end of the display order
+// and returns it, including the assigned ID and sort_order — the JSON API
+// needs both for its 201 response and Location header
+// (docs/features/landing-content-api.md).
+func (repo *LandingContentRepository) CreateCarouselSlide(ctx context.Context, s model.CarouselSlide) (model.CarouselSlide, error) {
+	const query = `
+		INSERT INTO landing_carousel_slides (image_path, alt, caption, link_url, external, sort_order)
+		VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(sort_order) FROM landing_carousel_slides), 0) + 1)
+		RETURNING id, image_path, alt, caption, link_url, external, sort_order`
+
+	var out model.CarouselSlide
+	err := repo.DB.QueryRowContext(ctx, query, s.ImagePath, s.Alt, s.Caption, s.LinkURL, s.External).
+		Scan(&out.ID, &out.ImagePath, &out.Alt, &out.Caption, &out.LinkURL, &out.External, &out.SortOrder)
+	if err != nil {
+		return model.CarouselSlide{}, fmt.Errorf("insert landing_carousel_slides: %w", err)
+	}
+	return out, nil
+}
+
+// UpdateCarouselSlide updates a slide's content fields by ID and returns
+// the stored row. SortOrder is left untouched — it changes only via
+// MoveCarouselSlide or ReorderCarouselSlides. Returns a wrapped
+// sql.ErrNoRows when the slide doesn't exist (RETURNING yields no row).
+func (repo *LandingContentRepository) UpdateCarouselSlide(ctx context.Context, s model.CarouselSlide) (model.CarouselSlide, error) {
 	const query = `
 		UPDATE landing_carousel_slides
 		SET image_path = $1, alt = $2, caption = $3, link_url = $4, external = $5
-		WHERE id = $6`
+		WHERE id = $6
+		RETURNING id, image_path, alt, caption, link_url, external, sort_order`
 
-	if _, err := repo.DB.ExecContext(ctx, query, s.ImagePath, s.Alt, s.Caption, s.LinkURL, s.External, s.ID); err != nil {
-		return fmt.Errorf("update landing_carousel_slides: %w", err)
+	var out model.CarouselSlide
+	err := repo.DB.QueryRowContext(ctx, query, s.ImagePath, s.Alt, s.Caption, s.LinkURL, s.External, s.ID).
+		Scan(&out.ID, &out.ImagePath, &out.Alt, &out.Caption, &out.LinkURL, &out.External, &out.SortOrder)
+	if err != nil {
+		return model.CarouselSlide{}, fmt.Errorf("update landing_carousel_slides id %d: %w", s.ID, err)
+	}
+	return out, nil
+}
+
+// DeleteCarouselSlide removes a slide by ID.
+//
+// Not-found convention (shared by every by-ID method in this file):
+// deleting a row that isn't there returns a wrapped sql.ErrNoRows rather
+// than succeeding silently, so the JSON API can answer 404
+// (docs/features/landing-content-api.md's Error Handling). Callers that
+// genuinely want idempotent deletes — the site's own HTML editor, where a
+// double-clicked delete should not surface an error banner — swallow that
+// specific error themselves; see LandingContentService.DeleteSlide.
+func (repo *LandingContentRepository) DeleteCarouselSlide(ctx context.Context, id int64) error {
+	const query = `DELETE FROM landing_carousel_slides WHERE id = $1`
+
+	res, err := repo.DB.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("delete landing_carousel_slides: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete landing_carousel_slides rows affected: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("delete landing_carousel_slides id %d: %w", id, sql.ErrNoRows)
 	}
 	return nil
 }
 
-// DeleteCarouselSlide removes a slide by ID.
-func (repo *LandingContentRepository) DeleteCarouselSlide(ctx context.Context, id int64) error {
-	const query = `DELETE FROM landing_carousel_slides WHERE id = $1`
-
-	if _, err := repo.DB.ExecContext(ctx, query, id); err != nil {
-		return fmt.Errorf("delete landing_carousel_slides: %w", err)
-	}
-	return nil
+// ReorderCarouselSlides renumbers every slide's sort_order to 1..n in the
+// order given. ids must list every existing slide exactly once — see
+// reorderRows, which enforces that and does the whole renumber in one
+// transaction.
+func (repo *LandingContentRepository) ReorderCarouselSlides(ctx context.Context, ids []int64) error {
+	return reorderRows(ctx, repo.DB, "landing_carousel_slides", ids)
 }
 
 // MoveCarouselSlide swaps a slide's sort_order with its immediate
@@ -157,46 +213,155 @@ func (repo *LandingContentRepository) ListSelectedWorkItems(ctx context.Context)
 	return items, nil
 }
 
-// CreateSelectedWorkItem inserts a new card at the end of the display order.
-func (repo *LandingContentRepository) CreateSelectedWorkItem(ctx context.Context, it model.SelectedWorkItem) error {
+// GetSelectedWorkItem fetches one card by ID. See GetCarouselSlide — same
+// not-found convention.
+func (repo *LandingContentRepository) GetSelectedWorkItem(ctx context.Context, id int64) (model.SelectedWorkItem, error) {
 	const query = `
-		INSERT INTO landing_selected_work_items (kicker, title, description, live_url, external, sort_order)
-		VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(sort_order) FROM landing_selected_work_items), 0) + 1)`
+		SELECT id, kicker, title, description, live_url, external, sort_order
+		FROM landing_selected_work_items
+		WHERE id = $1`
 
-	if _, err := repo.DB.ExecContext(ctx, query, it.Kicker, it.Title, it.Description, it.LiveURL, it.External); err != nil {
-		return fmt.Errorf("insert landing_selected_work_items: %w", err)
+	var it model.SelectedWorkItem
+	err := repo.DB.QueryRowContext(ctx, query, id).
+		Scan(&it.ID, &it.Kicker, &it.Title, &it.Description, &it.LiveURL, &it.External, &it.SortOrder)
+	if err != nil {
+		return model.SelectedWorkItem{}, fmt.Errorf("query landing_selected_work_items id %d: %w", id, err)
 	}
-	return nil
+	return it, nil
 }
 
-// UpdateSelectedWorkItem updates a card's content fields by ID. SortOrder
-// is left untouched — it only changes via MoveSelectedWorkItem.
-func (repo *LandingContentRepository) UpdateSelectedWorkItem(ctx context.Context, it model.SelectedWorkItem) error {
+// CreateSelectedWorkItem inserts a new card at the end of the display
+// order and returns it. See CreateCarouselSlide for why it returns the row.
+func (repo *LandingContentRepository) CreateSelectedWorkItem(ctx context.Context, it model.SelectedWorkItem) (model.SelectedWorkItem, error) {
+	const query = `
+		INSERT INTO landing_selected_work_items (kicker, title, description, live_url, external, sort_order)
+		VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(sort_order) FROM landing_selected_work_items), 0) + 1)
+		RETURNING id, kicker, title, description, live_url, external, sort_order`
+
+	var out model.SelectedWorkItem
+	err := repo.DB.QueryRowContext(ctx, query, it.Kicker, it.Title, it.Description, it.LiveURL, it.External).
+		Scan(&out.ID, &out.Kicker, &out.Title, &out.Description, &out.LiveURL, &out.External, &out.SortOrder)
+	if err != nil {
+		return model.SelectedWorkItem{}, fmt.Errorf("insert landing_selected_work_items: %w", err)
+	}
+	return out, nil
+}
+
+// UpdateSelectedWorkItem updates a card's content fields by ID and returns
+// the stored row. SortOrder is left untouched — it changes only via
+// MoveSelectedWorkItem or ReorderSelectedWorkItems.
+func (repo *LandingContentRepository) UpdateSelectedWorkItem(ctx context.Context, it model.SelectedWorkItem) (model.SelectedWorkItem, error) {
 	const query = `
 		UPDATE landing_selected_work_items
 		SET kicker = $1, title = $2, description = $3, live_url = $4, external = $5
-		WHERE id = $6`
+		WHERE id = $6
+		RETURNING id, kicker, title, description, live_url, external, sort_order`
 
-	if _, err := repo.DB.ExecContext(ctx, query, it.Kicker, it.Title, it.Description, it.LiveURL, it.External, it.ID); err != nil {
-		return fmt.Errorf("update landing_selected_work_items: %w", err)
+	var out model.SelectedWorkItem
+	err := repo.DB.QueryRowContext(ctx, query, it.Kicker, it.Title, it.Description, it.LiveURL, it.External, it.ID).
+		Scan(&out.ID, &out.Kicker, &out.Title, &out.Description, &out.LiveURL, &out.External, &out.SortOrder)
+	if err != nil {
+		return model.SelectedWorkItem{}, fmt.Errorf("update landing_selected_work_items id %d: %w", it.ID, err)
+	}
+	return out, nil
+}
+
+// DeleteSelectedWorkItem removes a card by ID. See DeleteCarouselSlide's
+// not-found convention note.
+func (repo *LandingContentRepository) DeleteSelectedWorkItem(ctx context.Context, id int64) error {
+	const query = `DELETE FROM landing_selected_work_items WHERE id = $1`
+
+	res, err := repo.DB.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("delete landing_selected_work_items: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete landing_selected_work_items rows affected: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("delete landing_selected_work_items id %d: %w", id, sql.ErrNoRows)
 	}
 	return nil
 }
 
-// DeleteSelectedWorkItem removes a card by ID.
-func (repo *LandingContentRepository) DeleteSelectedWorkItem(ctx context.Context, id int64) error {
-	const query = `DELETE FROM landing_selected_work_items WHERE id = $1`
-
-	if _, err := repo.DB.ExecContext(ctx, query, id); err != nil {
-		return fmt.Errorf("delete landing_selected_work_items: %w", err)
-	}
-	return nil
+// ReorderSelectedWorkItems renumbers every card's sort_order to 1..n in
+// the order given. See ReorderCarouselSlides.
+func (repo *LandingContentRepository) ReorderSelectedWorkItems(ctx context.Context, ids []int64) error {
+	return reorderRows(ctx, repo.DB, "landing_selected_work_items", ids)
 }
 
 // MoveSelectedWorkItem swaps a card's sort_order with its immediate
 // neighbor. See MoveCarouselSlide's doc comment.
 func (repo *LandingContentRepository) MoveSelectedWorkItem(ctx context.Context, id int64, direction string) error {
 	return moveSortOrder(ctx, repo.DB, "landing_selected_work_items", id, direction)
+}
+
+// ErrReorderIDMismatch is returned by reorderRows when the supplied ID
+// list is not exactly the set of IDs currently in the table — a partial
+// list, a duplicate, or an unknown ID. Reordering a subset is rejected
+// outright rather than applied, since a partial renumber would silently
+// collide with the sort_order values it left alone
+// (docs/features/landing-content-api.md's Reorder section).
+var ErrReorderIDMismatch = errors.New("reorder id list must contain every existing id exactly once")
+
+// reorderRows renumbers table's sort_order to 1..n following ids, in one
+// transaction. table is always a Go source constant passed by
+// ReorderCarouselSlides/ReorderSelectedWorkItems above, never caller- or
+// DB-sourced input, so building the query by string concatenation here is
+// safe (same reasoning as moveSortOrder below).
+//
+// The whole point of taking a full ordered list rather than a per-row
+// sort_order write is that this can validate the set before touching
+// anything: an ID list that doesn't exactly match what's in the table is
+// ErrReorderIDMismatch and nothing is written.
+func reorderRows(ctx context.Context, db *sql.DB, table string, ids []int64) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Lock the rows for the duration so a concurrent insert/delete can't
+	// invalidate the set check between here and the updates below.
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`SELECT id FROM %s FOR UPDATE`, table))
+	if err != nil {
+		return fmt.Errorf("query %s ids: %w", table, err)
+	}
+	existing := make(map[int64]bool)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan %s id: %w", table, err)
+		}
+		existing[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate %s ids: %w", table, err)
+	}
+	rows.Close()
+
+	if len(ids) != len(existing) {
+		return ErrReorderIDMismatch
+	}
+	seen := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if !existing[id] || seen[id] {
+			return ErrReorderIDMismatch
+		}
+		seen[id] = true
+	}
+
+	stmt := fmt.Sprintf(`UPDATE %s SET sort_order = $1 WHERE id = $2`, table)
+	for i, id := range ids {
+		if _, err := tx.ExecContext(ctx, stmt, i+1, id); err != nil {
+			return fmt.Errorf("update %s sort_order for id %d: %w", table, id, err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // moveSortOrder swaps a row's sort_order with its immediate neighbor

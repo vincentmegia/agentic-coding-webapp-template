@@ -32,6 +32,12 @@ touching that area rather than expecting this section to carry it:
   hero/carousel/Selected work without a redeploy, Postgres-backed) —
   `docs/features/landing-content-authoring.md`. Code-complete but
   unreachable — see the auth note below.
+- **Landing Content API** (`/api/internal/v1/landing/*`: bearer-token JSON
+  API over the same three tables, so the separate `home-admin` dashboard
+  can edit content without holding database credentials) —
+  `docs/features/landing-content-api.md`. Site side implemented; not yet
+  verified against a real database, and the Render reconfiguration it
+  exists to enable is still outstanding.
 
 Cross-cutting notes worth knowing before touching any of the above:
 
@@ -39,7 +45,9 @@ Cross-cutting notes worth knowing before touching any of the above:
   always returns `false`, so every `/settings/*` route redirects to a
   `/login` that doesn't exist yet. Any new auth-gated feature is
   code-complete but unreachable until the real authentication feature
-  lands.
+  lands. The JSON API under `/api/internal/v1/` is the one exception — it
+  authenticates machine callers by bearer token instead and must never
+  use `requireOwnerAuth`, which redirects rather than returning 401.
 - **Nav rollout is gradual and intentional, not a bug**: Blogs and Fishing
   Game are reachable only by direct URL (`/blogs`, `/fishing-game`), not
   linked from the header; Puzzle Solver isn't in the header nav either.

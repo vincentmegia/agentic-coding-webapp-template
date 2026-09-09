@@ -61,7 +61,7 @@ func run() error {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	mux, err := newMux(conn)
+	mux, err := newMux(conn, cfg.LandingAPIToken)
 	if err != nil {
 		return err
 	}
@@ -111,7 +111,12 @@ func runMigrations(conn *sql.DB) error {
 // Templates are parsed once at startup (fail fast if a template is
 // missing/malformed, per go-backend's Configuration guidance) rather than
 // per-request.
-func newMux(conn *sql.DB) (*http.ServeMux, error) {
+// landingAPIToken, when non-empty, enables the internal landing-content
+// JSON API (docs/features/landing-content-api.md). Empty disables it
+// entirely — the routes are never registered, so an unconfigured
+// deployment 404s rather than exposing an unauthenticated write API. See
+// config.Config.LandingAPIToken.
+func newMux(conn *sql.DB, landingAPIToken string) (*http.ServeMux, error) {
 	mux := http.NewServeMux()
 
 	health := handler.NewHealthHandler(conn)
@@ -171,10 +176,85 @@ func newMux(conn *sql.DB) (*http.ServeMux, error) {
 	// not-yet-built auth feature; see handler.PagesHandler.Logout.
 	mux.HandleFunc("POST /logout", pages.Logout)
 
+	if err := registerLandingAPI(mux, landingContentService, landingAPIToken); err != nil {
+		return nil, err
+	}
+
 	fileServer := http.FileServer(http.Dir("web/static"))
 	mux.Handle("GET /static/", http.StripPrefix("/static/", noCacheStatic(fileServer)))
 
 	return mux, nil
+}
+
+// landingAPIPrefix is the base path for the internal content API HQ calls.
+// "internal" names the intended audience — one trusted service, not the
+// public web — even though the route is reachable on this service's public
+// URL; the bearer token, not network topology, is what restricts it. "v1"
+// leaves room to change response shapes without breaking a deployed HQ.
+const landingAPIPrefix = "/api/internal/v1/landing"
+
+// registerLandingAPI mounts the internal content API when a token is
+// configured, and mounts nothing at all when it isn't.
+//
+// Every route is wrapped individually in handler.RequireAPIToken rather
+// than relying on a prefix-wide middleware, so a route added later cannot
+// accidentally end up unauthenticated: an unwrapped handler here would be
+// visibly missing the wrapper, not silently inheriting protection from
+// somewhere else in the file.
+func registerLandingAPI(mux *http.ServeMux, svc *service.LandingContentService, token string) error {
+	if token == "" {
+		slog.Warn("landing content API disabled: LANDING_API_TOKEN is not set")
+		return nil
+	}
+
+	api := handler.NewLandingAPIHandler(svc)
+	limiter := handler.NewAuthFailureLimiter()
+
+	protect := func(h http.HandlerFunc) http.Handler {
+		return handler.RequireAPIToken(token, limiter, h)
+	}
+
+	// Route precedence note: "PUT /carousel/order" and
+	// "PUT /carousel/{id}" both match a two-segment path. Go 1.22+
+	// ServeMux resolves this by specificity — the literal "order" segment
+	// beats the "{id}" wildcard — so the reorder route wins and numeric
+	// ids still reach UpdateSlide. This is covered by a test
+	// (TestLandingAPIRoutePrecedence) rather than left to a comment,
+	// since getting it wrong would silently make one route unreachable.
+	routes := []struct {
+		pattern string
+		handler http.HandlerFunc
+	}{
+		{"GET " + landingAPIPrefix + "/hero", api.GetHero},
+		{"PUT " + landingAPIPrefix + "/hero", api.PutHero},
+
+		{"GET " + landingAPIPrefix + "/carousel", api.ListSlides},
+		{"POST " + landingAPIPrefix + "/carousel", api.CreateSlide},
+		{"PUT " + landingAPIPrefix + "/carousel/order", api.ReorderSlides},
+		{"GET " + landingAPIPrefix + "/carousel/{id}", api.GetSlide},
+		{"PUT " + landingAPIPrefix + "/carousel/{id}", api.UpdateSlide},
+		{"DELETE " + landingAPIPrefix + "/carousel/{id}", api.DeleteSlide},
+
+		{"GET " + landingAPIPrefix + "/selected-work", api.ListWorkItems},
+		{"POST " + landingAPIPrefix + "/selected-work", api.CreateWorkItem},
+		{"PUT " + landingAPIPrefix + "/selected-work/order", api.ReorderWorkItems},
+		{"GET " + landingAPIPrefix + "/selected-work/{id}", api.GetWorkItem},
+		{"PUT " + landingAPIPrefix + "/selected-work/{id}", api.UpdateWorkItem},
+		{"DELETE " + landingAPIPrefix + "/selected-work/{id}", api.DeleteWorkItem},
+	}
+	for _, route := range routes {
+		mux.Handle(route.pattern, protect(route.handler))
+	}
+
+	// Anything else under the prefix gets the JSON error envelope rather
+	// than ServeMux's plain-text 404. Unauthenticated on purpose: it
+	// reveals only that a path doesn't exist, and requiring a token to
+	// learn that would make a typo'd path indistinguishable from a bad
+	// credential when HQ is debugging.
+	mux.HandleFunc(landingAPIPrefix+"/", handler.APINotFound)
+
+	slog.Info("landing content API enabled", "prefix", landingAPIPrefix)
+	return nil
 }
 
 // noCacheStatic forces every /static/ response to revalidate with the

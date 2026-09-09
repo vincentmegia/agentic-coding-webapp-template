@@ -62,7 +62,7 @@ func (h *LandingContentHandler) SaveHero(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	view, err := h.Service.SaveHero(r.Context(), r.FormValue("eyebrow"), r.FormValue("title"), r.FormValue("message"))
+	view, err := h.Service.SaveHeroForm(r.Context(), r.FormValue("eyebrow"), r.FormValue("title"), r.FormValue("message"))
 	if err != nil {
 		slog.Error("save hero", "error", err)
 		h.Renderer.RenderFragment(w, "content-hero-form", service.HeroFormView{
@@ -85,7 +85,7 @@ func (h *LandingContentHandler) CreateSlide(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	view, err := h.Service.CreateSlide(r.Context(), r.FormValue("image_path"), r.FormValue("alt"), r.FormValue("caption"), r.FormValue("link_url"), r.FormValue("external") == "on")
+	view, err := h.Service.CreateSlideForm(r.Context(), r.FormValue("image_path"), r.FormValue("alt"), r.FormValue("caption"), r.FormValue("link_url"), r.FormValue("external") == "on")
 	if err != nil {
 		slog.Error("create carousel slide", "error", err)
 		h.writeCarouselError(w)
@@ -109,7 +109,7 @@ func (h *LandingContentHandler) UpdateSlide(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	view, err := h.Service.UpdateSlide(r.Context(), id, r.FormValue("image_path"), r.FormValue("alt"), r.FormValue("caption"), r.FormValue("link_url"), r.FormValue("external") == "on")
+	view, err := h.Service.UpdateSlideForm(r.Context(), id, r.FormValue("image_path"), r.FormValue("alt"), r.FormValue("caption"), r.FormValue("link_url"), r.FormValue("external") == "on")
 	if err != nil {
 		slog.Error("update carousel slide", "error", err, "id", id)
 		h.writeCarouselError(w)
@@ -129,7 +129,7 @@ func (h *LandingContentHandler) DeleteSlide(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	view, err := h.Service.DeleteSlide(r.Context(), id)
+	view, err := h.Service.DeleteSlideForm(r.Context(), id)
 	if err != nil {
 		slog.Error("delete carousel slide", "error", err, "id", id)
 		h.writeCarouselError(w)
@@ -153,7 +153,7 @@ func (h *LandingContentHandler) MoveSlide(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	view, err := h.Service.MoveSlide(r.Context(), id, r.FormValue("direction"))
+	view, err := h.Service.MoveSlideForm(r.Context(), id, r.FormValue("direction"))
 	if err != nil {
 		slog.Error("move carousel slide", "error", err, "id", id)
 		h.writeCarouselError(w)
@@ -173,7 +173,7 @@ func (h *LandingContentHandler) CreateWorkItem(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	view, err := h.Service.CreateWorkItem(r.Context(), r.FormValue("kicker"), r.FormValue("title"), r.FormValue("description"), r.FormValue("live_url"), r.FormValue("external") == "on")
+	view, err := h.Service.CreateWorkItemForm(r.Context(), r.FormValue("kicker"), r.FormValue("title"), r.FormValue("description"), r.FormValue("live_url"), r.FormValue("external") == "on")
 	if err != nil {
 		slog.Error("create selected work item", "error", err)
 		h.writeWorkError(w)
@@ -197,7 +197,7 @@ func (h *LandingContentHandler) UpdateWorkItem(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	view, err := h.Service.UpdateWorkItem(r.Context(), id, r.FormValue("kicker"), r.FormValue("title"), r.FormValue("description"), r.FormValue("live_url"), r.FormValue("external") == "on")
+	view, err := h.Service.UpdateWorkItemForm(r.Context(), id, r.FormValue("kicker"), r.FormValue("title"), r.FormValue("description"), r.FormValue("live_url"), r.FormValue("external") == "on")
 	if err != nil {
 		slog.Error("update selected work item", "error", err, "id", id)
 		h.writeWorkError(w)
@@ -217,7 +217,7 @@ func (h *LandingContentHandler) DeleteWorkItem(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	view, err := h.Service.DeleteWorkItem(r.Context(), id)
+	view, err := h.Service.DeleteWorkItemForm(r.Context(), id)
 	if err != nil {
 		slog.Error("delete selected work item", "error", err, "id", id)
 		h.writeWorkError(w)
@@ -241,7 +241,7 @@ func (h *LandingContentHandler) MoveWorkItem(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	view, err := h.Service.MoveWorkItem(r.Context(), id, r.FormValue("direction"))
+	view, err := h.Service.MoveWorkItemForm(r.Context(), id, r.FormValue("direction"))
 	if err != nil {
 		slog.Error("move selected work item", "error", err, "id", id)
 		h.writeWorkError(w)

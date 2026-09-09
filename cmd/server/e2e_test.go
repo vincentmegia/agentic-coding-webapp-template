@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,7 +79,12 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("run migrations: %v", err)
 	}
 
-	mux, err := newMux(conn)
+	// A fixed test token rather than cfg.LandingAPIToken: this test must
+	// exercise the API regardless of whether the developer running it has
+	// LANDING_API_TOKEN set locally, and using a known value lets the
+	// subtests below assert both the authenticated and rejected paths.
+	// It never leaves this process — httptest binds to loopback.
+	mux, err := newMux(conn, testLandingAPIToken)
 	if err != nil {
 		t.Fatalf("newMux: %v", err)
 	}
@@ -381,6 +388,148 @@ func TestEndToEnd(t *testing.T) {
 			t.Errorf("status = %d, want 404", resp.StatusCode)
 		}
 	})
+
+	t.Run("landing API rejects an unauthenticated request", func(t *testing.T) {
+		resp, body := get(t, client, srv.URL+landingAPIPrefix+"/hero")
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", resp.StatusCode)
+		}
+		// The envelope matters as much as the status: HQ branches on the
+		// code, and a redirect-to-login (the HTML editor's behavior)
+		// would arrive here as a 200 with HTML instead.
+		if !strings.Contains(body, `"error":"unauthorized"`) {
+			t.Errorf("body = %q, want the JSON unauthorized envelope", body)
+		}
+	})
+
+	t.Run("landing API rejects a wrong token", func(t *testing.T) {
+		resp, _ := apiDo(t, client, http.MethodGet, srv.URL+landingAPIPrefix+"/hero",
+			"Bearer "+strings.Repeat("z", len(testLandingAPIToken)), nil)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401", resp.StatusCode)
+		}
+	})
+
+	t.Run("landing API hero round-trips to the rendered page", func(t *testing.T) {
+		// The behavior HQ actually depends on: a write through the API is
+		// visible on the next render of /. Restores the original copy
+		// afterward so this test is re-runnable and leaves the seeded
+		// content intact for the other subtests.
+		before, body := apiDo(t, client, http.MethodGet, srv.URL+landingAPIPrefix+"/hero", apiAuth(), nil)
+		if before.StatusCode != http.StatusOK {
+			t.Fatalf("GET hero status = %d, want 200, body: %s", before.StatusCode, body)
+		}
+		var original map[string]string
+		if err := json.Unmarshal([]byte(body), &original); err != nil {
+			t.Fatalf("decode hero: %v (body %s)", err, body)
+		}
+		t.Cleanup(func() {
+			restore, _ := json.Marshal(original)
+			apiDo(t, client, http.MethodPut, srv.URL+landingAPIPrefix+"/hero", apiAuth(), restore)
+		})
+
+		const sentinel = "E2E sentinel eyebrow"
+		updated, _ := json.Marshal(map[string]string{
+			"eyebrow": sentinel,
+			"title":   original["title"],
+			"message": original["message"],
+		})
+		resp, putBody := apiDo(t, client, http.MethodPut, srv.URL+landingAPIPrefix+"/hero", apiAuth(), updated)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("PUT hero status = %d, want 200, body: %s", resp.StatusCode, putBody)
+		}
+
+		_, page := get(t, client, srv.URL+"/")
+		if !strings.Contains(page, sentinel) {
+			t.Error("landing page does not reflect the hero written through the API")
+		}
+	})
+
+	t.Run("landing API rejects an invalid hero", func(t *testing.T) {
+		payload := []byte(`{"eyebrow":"   ","title":"t","message":"m"}`)
+		resp, body := apiDo(t, client, http.MethodPut, srv.URL+landingAPIPrefix+"/hero", apiAuth(), payload)
+		if resp.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422, body: %s", resp.StatusCode, body)
+		}
+		if !strings.Contains(body, `"error":"validation_failed"`) {
+			t.Errorf("body = %q, want the validation_failed envelope", body)
+		}
+	})
+
+	t.Run("landing API rejects an unknown field", func(t *testing.T) {
+		// Guards Decision 2 concretely: a client that sends sort_order
+		// (as HQ's UI does today) gets a clear 400 rather than having it
+		// silently dropped. See docs/features/landing-content-api.md.
+		payload := []byte(`{"image_path":"/x.svg","alt":"a","caption":"","link_url":"","external":false,"sort_order":9}`)
+		resp, body := apiDo(t, client, http.MethodPost, srv.URL+landingAPIPrefix+"/carousel", apiAuth(), payload)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400, body: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("landing API 404s an unknown slide", func(t *testing.T) {
+		resp, body := apiDo(t, client, http.MethodGet, srv.URL+landingAPIPrefix+"/carousel/99999999", apiAuth(), nil)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404, body: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("landing API reorder rejects a partial id list", func(t *testing.T) {
+		resp, body := apiDo(t, client, http.MethodPut, srv.URL+landingAPIPrefix+"/carousel/order",
+			apiAuth(), []byte(`{"ids":[1]}`))
+		if resp.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422, body: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("landing API route precedence keeps /order and /{id} distinct", func(t *testing.T) {
+		// "/carousel/order" must reach ReorderSlides, not UpdateSlide with
+		// a malformed id — otherwise reordering would 400 forever. A 422
+		// here (the empty-list mismatch) proves it routed to the reorder
+		// handler; a 400 would mean it fell through to /{id}.
+		resp, body := apiDo(t, client, http.MethodPut, srv.URL+landingAPIPrefix+"/carousel/order",
+			apiAuth(), []byte(`{"ids":[]}`))
+		if resp.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422 (reorder handler reached), body: %s", resp.StatusCode, body)
+		}
+	})
+}
+
+// testLandingAPIToken is the bearer token the end-to-end server is built
+// with. Length satisfies config's landingAPITokenMinLen so it stays
+// representative of a real deployment.
+const testLandingAPIToken = "e2e-test-token-0123456789abcdef0123456789abcdef"
+
+func apiAuth() string { return "Bearer " + testLandingAPIToken }
+
+// apiDo issues a JSON API request with an explicit Authorization header,
+// returning the response and its body. body may be nil for GET/DELETE.
+func apiDo(t *testing.T, client *http.Client, method, url, authorization string, body []byte) (*http.Response, string) {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp, string(b)
 }
 
 func get(t *testing.T, client *http.Client, url string) (*http.Response, string) {
