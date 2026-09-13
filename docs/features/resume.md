@@ -2,11 +2,12 @@
 
 ## Status
 
-`Shipped` — implemented, running against a real Postgres instance, and
-covered by both a backend end-to-end test (`cmd/server/e2e_test.go`) and a
-frontend Playwright suite (`e2e/`, Chromium + WebKit). One known gap: the
-"Least-privilege DB role" item under Security Considerations was never
-actually configured — see that section and the Open Questions below.
+`Shipped` — implemented, running against a real Postgres instance (now
+Supabase — CLAUDE.md's Open Decisions), and covered by both a backend
+end-to-end test (`cmd/server/e2e_test.go`) and a frontend Playwright suite
+(`e2e/`, Chromium + WebKit). The "Least-privilege DB role" item under
+Security Considerations, previously an open gap, is now implemented and
+verified live against production's `site_reader` role — see that section.
 
 ## Summary
 
@@ -498,17 +499,31 @@ Considerations).
   environment variable, never hardcoded, fails fast if missing, and is
   expected to require TLS (`sslmode=require`) once a hosted provider is
   chosen (CLAUDE.md's Database hosting decision is still open).
-* **Least-privilege DB role — designed but not yet configured**: the app's
-  runtime connection only ever needs `SELECT` on `resume_profile`/
-  `resume_roles` — there's no write path from the running app (writes only
-  happen via migrations/direct admin SQL, per Open Questions), so the
-  runtime role should not hold `INSERT`/`UPDATE`/`DELETE`/DDL on these
-  tables, per `postgres`'s "do not use a superuser account for the
-  application." **This isn't actually true of the current dev setup**: local
-  dev's `DATABASE_URL` connects as the `postgres` superuser, since goose
-  needs DDL privileges to run migrations and there's only one connection
-  string/role configured today, used for both migrating and serving. See
-  Open Questions.
+* **Least-privilege DB role — IMPLEMENTED.** `internal/config.Config`
+  gained an optional `DatabaseReadOnlyURL`
+  (`DATABASE_READONLY_URL`, env/`.env`-only like `DatabaseURL`); every
+  repository (`ResumeRepository`, `LandingContentRepository`,
+  `FishingRepository`, `CookingRepository`) now holds two `*sql.DB`
+  handles — `DB` for writes and migrations, `ReadDB` for every pure-read
+  method (`GetProfile`, `ListRoles`, `GetHero`, `TopScores`, ...). Picking
+  the wrong field per method is the actual enforcement mechanism, so each
+  read method's doc comment says "Read-only — uses ReadDB" explicitly.
+  `cmd/server/main.go`'s `run()` falls back to the same pool for both when
+  `DATABASE_READONLY_URL` is unset, so a single role still works for local
+  dev and the DB-gated test suite.
+  Production (Supabase) uses a real `site_reader` role for this, verified
+  live: it was confirmed to have zero grants until `GRANT SELECT` was run
+  for it, then confirmed to both read seeded content successfully *and*
+  be rejected from writing (`permission denied`) — see Open Questions.
+  **One correction to the original design this bullet replaces**: that
+  design assumed the runtime connection was pure-`SELECT` because "there's
+  no write path from the running app." That was true when this bullet was
+  first written, before `docs/features/resume-content-authoring.md` added
+  real write paths (`/settings/resume`). The split implemented here
+  reflects that — `ReadDB` is `SELECT`-only, but `DB` (used for every
+  write and for migrations) still needs `INSERT`/`UPDATE`/`DELETE`/DDL,
+  same role in production today (`postgres.<ref>`) as it always was; only
+  the *read* half was narrowed.
 * **`/healthz`'s DB check must not leak details**: once it verifies DB
   connectivity (Scope), the response stays the existing plain `ok`/non-200
   pattern — never the underlying driver error, connection string, or host,
@@ -594,20 +609,33 @@ covered by those suites are noted inline.
   whether `resume_profile.featured_projects` should be reconciled into a
   shared table with a "featured" flag instead of a resume-owned duplicate —
   not decided now since `/projects` has no data model yet.
-* How the migration actually runs at deploy time (embedded auto-run inside
-  `main.go` on boot, vs. a separate `goose up` deploy step) isn't decided
-  here — it depends on CLAUDE.md's still-open Hosting decision. Auto-run-on-
-  boot is meaningfully riskier on a serverless-style host (e.g. Vercel),
-  where concurrent cold starts could race the same migration; a discrete
-  deploy-time step is safer there. Revisit once hosting is chosen.
-* Splitting the single `DATABASE_URL`/`postgres`-superuser connection into
-  two roles (a migration role with DDL rights, a `SELECT`-only runtime role)
-  is designed (Security Considerations) but not implemented — today's
-  `runMigrations` and `newMux`'s repository both use the same `*sql.DB`,
-  connected as `postgres`. Worth doing before any real deployment, alongside
-  the migration-execution-mechanism question above, since both depend on
-  what the eventual hosting/DB provider actually supports (e.g. whether it
-  offers an easy way to provision a second, restricted role).
+* **Migration-execution mechanism — RESOLVED.** This was worried about a
+  serverless-style host (e.g. Vercel), where concurrent cold starts could
+  race the same migration against each other. Actual hosting (CLAUDE.md's
+  Open Decisions) is Render for the web service — a persistent, single
+  long-running container on the current tier, not serverless — so that
+  race condition doesn't apply, and embedded auto-run-on-boot inside
+  `main.go` (today's actual behavior) is the right design as-is. The
+  database itself moved to Supabase (also CLAUDE.md), which doesn't change
+  this: `runMigrations` just runs SQL over whichever connection
+  `DATABASE_URL` points at, and Supabase's session pooler (required for
+  this app's `options`-param timeouts and `pgx`'s default prepared
+  statements — see `docs/features/landing-content-api.md`'s Status)
+  supports DDL exactly like a normal Postgres connection. Worth
+  re-opening only if Render is ever scaled to more than one instance,
+  since concurrent boots would then race `goose_db_version` the same way
+  the original serverless worry described.
+* **Least-privilege DB role split — RESOLVED, implemented.** Not a full
+  two-role split (migration role vs. `SELECT`-only runtime role) as
+  originally framed, because that framing predates
+  `docs/features/resume-content-authoring.md`'s write paths — the running
+  app genuinely needs `INSERT`/`UPDATE`/`DELETE` now, not just `SELECT`.
+  What's implemented instead: every repository holds two connections
+  (`DB` for writes/migrations, `ReadDB` for reads), `DATABASE_READONLY_URL`
+  is optional and falls back to `DATABASE_URL` when unset, and production
+  points `ReadDB` at a real Supabase role (`site_reader`) verified to have
+  read access to the seeded tables and to be rejected from writing them.
+  See Security Considerations.
 
 ---
 
@@ -630,10 +658,9 @@ covered by those suites are noted inline.
 * [ ] `GET /healthz` verifies DB connectivity without leaking driver/connection
       details in its response. Implemented; only the healthy path is
       test-verified — see Testing Plan.
-* [ ] **Not done.** Runtime app DB role holds only `SELECT` on
-      `resume_profile`/`resume_roles`; migrations run under a separate, more
-      privileged role. Dev currently connects as the `postgres` superuser for
-      both — see Security Considerations and Open Questions.
+* [x] Read paths use a least-privilege, `SELECT`-only role in production
+      (`site_reader` on Supabase); writes and migrations use the
+      full-privilege role. See Security Considerations and Open Questions.
 * [x] Handler/service/repository boundaries followed (`go-backend`).
 * [x] Postgres connection pool, config, and `goose` setup established
       per `postgres`.
@@ -645,7 +672,7 @@ covered by those suites are noted inline.
       there — several gaps remain, tracked in that section rather than
       silently dropped.
 * [x] `go vet`/`go test` pass.
-* [ ] Open questions remain — the migration-execution-mechanism and
-      least-privilege-DB-role items are real, tracked gaps, not resolved
-      ones; this feature is shipped with them explicitly deferred, not
-      because they don't matter.
+* [x] Migration-execution mechanism resolved (Render is not serverless;
+      auto-run-on-boot is the right design — see Open Questions).
+* [x] Least-privilege-DB-role split implemented and verified live against
+      Supabase's `site_reader` role — see Open Questions.

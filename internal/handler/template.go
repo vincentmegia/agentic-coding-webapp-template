@@ -136,6 +136,12 @@ type PageData struct {
 	ContentHero     service.HeroFormView
 	ContentCarousel service.CarouselEditorView
 	ContentWork     service.WorkEditorView
+
+	// ResumeAdmin backs web/templates/pages/settings-resume.html
+	// (GET /settings/resume) and its six card-editor components. Set only
+	// by ResumeAdminHandler.Index. Zero-value for every other route. See
+	// docs/features/resume-content-authoring.md.
+	ResumeAdmin service.ResumeAdminView
 }
 
 // Project is one card in the /projects grid. Card markup/styling (image
@@ -235,6 +241,14 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "content-carousel-editor.html"),
 		filepath.Join(templatesDir, "components", "content-work-editor.html"),
 		filepath.Join(templatesDir, "pages", "settings-content.html"),
+		filepath.Join(templatesDir, "components", "resume-admin-font-select.html"),
+		filepath.Join(templatesDir, "components", "resume-admin-banner-form.html"),
+		filepath.Join(templatesDir, "components", "resume-admin-expertise-form.html"),
+		filepath.Join(templatesDir, "components", "resume-admin-education-form.html"),
+		filepath.Join(templatesDir, "components", "resume-admin-featured-form.html"),
+		filepath.Join(templatesDir, "components", "resume-admin-summary-form.html"),
+		filepath.Join(templatesDir, "components", "resume-admin-role-editor.html"),
+		filepath.Join(templatesDir, "pages", "settings-resume.html"),
 		filepath.Join(templatesDir, "components", "fishing-leaderboard.html"),
 		filepath.Join(templatesDir, "components", "fishing-shop.html"),
 		filepath.Join(templatesDir, "pages", "fishing-game.html"),
@@ -251,9 +265,23 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 }
 
 // templateFuncs are helper functions available to every parsed template.
-// "add" is the only one so far — see LoadTemplates' doc comment.
+// "add" is LoadTemplates' original need (see its doc comment). "derefString"
+// is settings-resume.html's resume-admin-role-editor component's: printing
+// a *string with {{.}} directly would fall through to fmt's default %v
+// pointer formatting (a hex address, not the pointed-to text) rather than
+// dereferencing — text/template only auto-dereferences pointers to
+// struct/array/slice/map, not to basic kinds like string. model.Subproject's
+// ClientTag (nil means "no client-engagement tag") is the one field in this
+// codebase with that shape, so this exists specifically for it rather than
+// as a general utility.
 var templateFuncs = template.FuncMap{
 	"add": func(a, b int) int { return a + b },
+	"derefString": func(s *string) string {
+		if s == nil {
+			return ""
+		}
+		return *s
+	},
 }
 
 // Renderer renders PageData through the shared template set, branching on

@@ -84,7 +84,7 @@ func TestEndToEnd(t *testing.T) {
 	// LANDING_API_TOKEN set locally, and using a known value lets the
 	// subtests below assert both the authenticated and rejected paths.
 	// It never leaves this process — httptest binds to loopback.
-	mux, err := newMux(conn, testLandingAPIToken)
+	mux, err := newMux(conn, conn, testLandingAPIToken)
 	if err != nil {
 		t.Fatalf("newMux: %v", err)
 	}
@@ -379,6 +379,20 @@ func TestEndToEnd(t *testing.T) {
 		defer resp.Body.Close()
 		if resp.Request.URL.Path == "/settings/content" {
 			t.Error("unauthenticated request to /settings/content did not redirect")
+		}
+	})
+
+	t.Run("resume authoring routes require auth", func(t *testing.T) {
+		// Same contract as /settings/profile above — see
+		// docs/features/resume-content-authoring.md's Security
+		// Considerations.
+		resp, err := client.Get(srv.URL + "/settings/resume")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.Request.URL.Path == "/settings/resume" {
+			t.Error("unauthenticated request to /settings/resume did not redirect")
 		}
 	})
 

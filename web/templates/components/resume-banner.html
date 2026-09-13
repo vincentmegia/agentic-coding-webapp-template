@@ -4,7 +4,7 @@
      accent-900 ramp step, docs/skills/tailwind-ui/SKILL.md's Visual Style),
      no dark: overrides needed here. Dot is .Resume (service.ResumeView). */}}
 {{define "resume-banner"}}
-<section id="resume-banner" class="rounded-card bg-banner-bg px-6 py-8 shadow-sm sm:px-10 sm:py-10">
+<section id="resume-banner" class="{{.BannerFontClass}} rounded-card bg-banner-bg px-6 py-8 shadow-sm sm:px-10 sm:py-10">
 	<h1 class="text-2xl font-semibold text-banner-ink sm:text-3xl">Vincent Megia</h1>
 	<p class="mt-1 text-base font-medium text-banner-accent sm:text-lg">{{.RoleTitle}}</p>
 	<p class="mt-3 text-sm text-banner-muted">

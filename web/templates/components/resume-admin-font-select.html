@@ -1,0 +1,23 @@
+{{/* Shared font-style <select>, used by every /settings/resume card/role
+     form (docs/features/resume-content-authoring.md's Font Presets). Dot
+     is a []service.FontStyleOption. Every option is a fixed allowlist key
+     (see resume_admin_validation.go's fontPresets) — this <select> is what
+     makes an invalid value practically impossible from the UI; the
+     handler/service still validate server-side regardless (defense in
+     depth, this file's doc comment's sibling note in
+     resume_admin_validation.go). name="font_style" is shared across every
+     form that includes this partial, since each form POSTs/PUTs to its
+     own independent endpoint. */}}
+{{define "resume-font-select"}}
+<label class="block space-y-1">
+	<span class="block text-xs font-medium text-muted">Font style</span>
+	<select
+		name="font_style"
+		class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+	>
+		{{range .}}
+		<option value="{{.Key}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+		{{end}}
+	</select>
+</label>
+{{end}}

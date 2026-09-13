@@ -11,13 +11,19 @@ import (
 // CookingRepository reads and writes the cooking_scores table — the
 // Kitchen Shift game's public leaderboard. See
 // docs/features/cooking-game.md's Data Model.
+//
+// DB and ReadDB are separate handles, same split as ResumeRepository
+// (docs/features/resume.md's Security Considerations): Insert uses DB,
+// TopScores uses ReadDB.
 type CookingRepository struct {
-	DB *sql.DB
+	DB     *sql.DB
+	ReadDB *sql.DB
 }
 
-// NewCookingRepository wraps an already-open database handle.
-func NewCookingRepository(db *sql.DB) *CookingRepository {
-	return &CookingRepository{DB: db}
+// NewCookingRepository wraps two already-open database handles — db for
+// writes, readDB for reads.
+func NewCookingRepository(db, readDB *sql.DB) *CookingRepository {
+	return &CookingRepository{DB: db, ReadDB: readDB}
 }
 
 // Insert stores one already-validated leaderboard submission. Callers
@@ -38,6 +44,7 @@ func (repo *CookingRepository) Insert(ctx context.Context, playerName string, to
 
 // TopScores fetches the top `limit` rows by total_earnings, descending —
 // the same ordering idx_cooking_scores_earnings exists to serve.
+// Read-only — uses ReadDB.
 func (repo *CookingRepository) TopScores(ctx context.Context, limit int) ([]model.CookingScore, error) {
 	const query = `
 		SELECT player_name, total_earnings, shifts_completed, created_at
@@ -45,7 +52,7 @@ func (repo *CookingRepository) TopScores(ctx context.Context, limit int) ([]mode
 		ORDER BY total_earnings DESC
 		LIMIT $1`
 
-	rows, err := repo.DB.QueryContext(ctx, query, limit)
+	rows, err := repo.ReadDB.QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query cooking_scores: %w", err)
 	}

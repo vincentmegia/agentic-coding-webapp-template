@@ -41,6 +41,17 @@ type ResumeView struct {
 	Education         []model.Education
 	FeaturedProjects  []model.FeaturedProject
 	Roles             []RoleView
+
+	// The five FontClass fields below are CSS class names (e.g.
+	// "resume-font-classic-serif"), already resolved from the stored
+	// preset key through resolveFontClass — templates apply them directly
+	// as a wrapper class, never seeing the raw key. See
+	// docs/features/resume-content-authoring.md's Font Presets.
+	BannerFontClass           string
+	SidebarExpertiseFontClass string
+	SidebarEducationFontClass string
+	SidebarFeaturedFontClass  string
+	SummaryFontClass          string
 }
 
 // ContactLinkView is one resolved contact link.
@@ -66,6 +77,9 @@ type RoleView struct {
 	Blurb       string
 	Bullets     []string
 	Subprojects []SubprojectView
+	// FontClass is this role's resolved font-preset CSS class — nested
+	// Subprojects render inside the same class, no separate resolution.
+	FontClass string
 }
 
 // SubprojectView is one prepared nested client-engagement/sub-project entry.
@@ -90,13 +104,18 @@ func (s *ResumeService) Get(ctx context.Context) (ResumeView, error) {
 	}
 
 	view := ResumeView{
-		RoleTitle:        profile.RoleTitle,
-		TenureLabel:      profile.TenureLabel,
-		LocationLabel:    profile.LocationLabel,
-		Stats:            profile.Stats,
-		SkillGroups:      profile.SkillGroups,
-		Education:        profile.Education,
-		FeaturedProjects: profile.FeaturedProjects,
+		RoleTitle:                 profile.RoleTitle,
+		TenureLabel:               profile.TenureLabel,
+		LocationLabel:             profile.LocationLabel,
+		Stats:                     profile.Stats,
+		SkillGroups:               profile.SkillGroups,
+		Education:                 profile.Education,
+		FeaturedProjects:          profile.FeaturedProjects,
+		BannerFontClass:           resolveFontClass(profile.BannerFontStyle),
+		SidebarExpertiseFontClass: resolveFontClass(profile.SidebarExpertiseFontStyle),
+		SidebarEducationFontClass: resolveFontClass(profile.SidebarEducationFontStyle),
+		SidebarFeaturedFontClass:  resolveFontClass(profile.SidebarFeaturedProjectsFontStyle),
+		SummaryFontClass:          resolveFontClass(profile.SummaryFontStyle),
 	}
 
 	for _, c := range profile.ContactLinks {
@@ -128,6 +147,7 @@ func toRoleView(r model.Role) RoleView {
 		Bullets:   r.Bullets,
 		IsCurrent: r.EndDate == nil,
 		DateRange: dateRange(r.StartDate, r.EndDate),
+		FontClass: resolveFontClass(r.FontStyle),
 	}
 	for _, sp := range r.Subprojects {
 		clientTag := ""
@@ -212,4 +232,21 @@ func svgIcon(inner string) template.HTML {
 // Rules / Security Considerations).
 func resolveIcon(key string) template.HTML {
 	return contactIcons[key]
+}
+
+// resolveFontClass maps a font_style DB key (see fontPresets in
+// resume_admin_validation.go) to the CSS wrapper class a card/role
+// container applies (web/static/css/app.css defines one such class per
+// preset, each setting --font-heading/--font-body for its subtree). An
+// unrecognized/empty key falls back to the "organic" class rather than
+// failing the render — the same "don't fail on a bad DB value" precedent
+// resolveIcon establishes above, applied to font presets
+// (docs/features/resume-content-authoring.md's Security Considerations).
+// The key itself never reaches a template directly — only this resolved,
+// fixed class name does.
+func resolveFontClass(key string) string {
+	if !isValidFontStyle(key) {
+		key = defaultFontStyle
+	}
+	return "resume-font-" + key
 }

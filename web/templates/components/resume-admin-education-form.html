@@ -1,0 +1,30 @@
+{{/* /settings/resume's Education card
+     (docs/features/resume-content-authoring.md). Dot is a
+     service.EducationFormView. Entries are one per line:
+     "Degree | School | StartYear | EndYear" — see
+     internal/service/resume_admin_encoding.go's DecodeEducation. */}}
+{{define "resume-admin-education-form"}}
+<form
+	id="resume-admin-education"
+	hx-post="/settings/resume/sidebar/education"
+	hx-target="#resume-admin-education"
+	hx-swap="outerHTML"
+	hx-indicator="#resume-admin-education-loading"
+	class="space-y-3 rounded-card border border-line bg-surface p-5"
+>
+	<h2 class="text-base font-semibold text-ink">Education</h2>
+	{{if .Error}}
+	<p class="rounded-card border border-danger bg-danger/10 px-3 py-2 text-sm text-danger">{{.Error}}</p>
+	{{end}}
+	{{template "resume-font-select" .FontOptions}}
+	<label class="block space-y-1">
+		<span class="block text-xs font-medium text-muted">Entries — one per line: Degree | School | Start year | End year</span>
+		<textarea name="education" rows="4" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{{range .Education}}{{.Degree}} | {{.School}} | {{.StartYear}} | {{.EndYear}}
+{{end}}</textarea>
+	</label>
+	<div class="flex items-center gap-3">
+		<button type="submit" class="rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Save</button>
+		<span id="resume-admin-education-loading" class="htmx-indicator text-sm text-muted">Saving…</span>
+	</div>
+</form>
+{{end}}

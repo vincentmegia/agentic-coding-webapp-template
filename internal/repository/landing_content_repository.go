@@ -12,21 +12,28 @@ import (
 // LandingContentRepository reads/writes the landing_hero,
 // landing_carousel_slides, and landing_selected_work_items tables. See
 // docs/features/landing-content-authoring.md's Data Model.
+//
+// DB and ReadDB are separate handles, same split and reasoning as
+// ResumeRepository's own doc comment (docs/features/resume.md's Security
+// Considerations): writes use DB, pure reads use ReadDB.
 type LandingContentRepository struct {
-	DB *sql.DB
+	DB     *sql.DB
+	ReadDB *sql.DB
 }
 
-// NewLandingContentRepository wraps an already-open database handle.
-func NewLandingContentRepository(db *sql.DB) *LandingContentRepository {
-	return &LandingContentRepository{DB: db}
+// NewLandingContentRepository wraps two already-open database handles —
+// db for writes, readDB for reads.
+func NewLandingContentRepository(db, readDB *sql.DB) *LandingContentRepository {
+	return &LandingContentRepository{DB: db, ReadDB: readDB}
 }
 
-// GetHero fetches the landing_hero singleton row (id = 1).
+// GetHero fetches the landing_hero singleton row (id = 1). Read-only —
+// uses ReadDB.
 func (repo *LandingContentRepository) GetHero(ctx context.Context) (model.HeroContent, error) {
 	const query = `SELECT eyebrow, title, message FROM landing_hero WHERE id = 1`
 
 	var h model.HeroContent
-	if err := repo.DB.QueryRowContext(ctx, query).Scan(&h.Eyebrow, &h.Title, &h.Message); err != nil {
+	if err := repo.ReadDB.QueryRowContext(ctx, query).Scan(&h.Eyebrow, &h.Title, &h.Message); err != nil {
 		return model.HeroContent{}, fmt.Errorf("query landing_hero: %w", err)
 	}
 	return h, nil
@@ -45,14 +52,15 @@ func (repo *LandingContentRepository) SaveHero(ctx context.Context, h model.Hero
 	return nil
 }
 
-// ListCarouselSlides fetches every landing_carousel_slides row, in display order.
+// ListCarouselSlides fetches every landing_carousel_slides row, in display
+// order. Read-only — uses ReadDB.
 func (repo *LandingContentRepository) ListCarouselSlides(ctx context.Context) ([]model.CarouselSlide, error) {
 	const query = `
 		SELECT id, image_path, alt, caption, link_url, external, sort_order
 		FROM landing_carousel_slides
 		ORDER BY sort_order`
 
-	rows, err := repo.DB.QueryContext(ctx, query)
+	rows, err := repo.ReadDB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query landing_carousel_slides: %w", err)
 	}
@@ -75,11 +83,14 @@ func (repo *LandingContentRepository) ListCarouselSlides(ctx context.Context) ([
 // CountCarouselSlides reports how many carousel slides currently exist, so
 // the service layer can enforce the 5-slide cap
 // (docs/features/landing-carousel.md's Business Rules) before inserting.
+// Read-only — uses ReadDB (the pre-insert count check was never
+// transactionally coupled to the insert itself, so reading it from a
+// separate connection changes nothing about that existing race window).
 func (repo *LandingContentRepository) CountCarouselSlides(ctx context.Context) (int, error) {
 	const query = `SELECT COUNT(*) FROM landing_carousel_slides`
 
 	var count int
-	if err := repo.DB.QueryRowContext(ctx, query).Scan(&count); err != nil {
+	if err := repo.ReadDB.QueryRowContext(ctx, query).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count landing_carousel_slides: %w", err)
 	}
 	return count, nil
@@ -87,7 +98,8 @@ func (repo *LandingContentRepository) CountCarouselSlides(ctx context.Context) (
 
 // GetCarouselSlide fetches one slide by ID. Returns a wrapped
 // sql.ErrNoRows when the slide doesn't exist — see this file's
-// "not-found convention" note on DeleteCarouselSlide.
+// "not-found convention" note on DeleteCarouselSlide. Read-only — uses
+// ReadDB.
 func (repo *LandingContentRepository) GetCarouselSlide(ctx context.Context, id int64) (model.CarouselSlide, error) {
 	const query = `
 		SELECT id, image_path, alt, caption, link_url, external, sort_order
@@ -95,7 +107,7 @@ func (repo *LandingContentRepository) GetCarouselSlide(ctx context.Context, id i
 		WHERE id = $1`
 
 	var s model.CarouselSlide
-	err := repo.DB.QueryRowContext(ctx, query, id).
+	err := repo.ReadDB.QueryRowContext(ctx, query, id).
 		Scan(&s.ID, &s.ImagePath, &s.Alt, &s.Caption, &s.LinkURL, &s.External, &s.SortOrder)
 	if err != nil {
 		return model.CarouselSlide{}, fmt.Errorf("query landing_carousel_slides id %d: %w", id, err)
@@ -186,14 +198,14 @@ func (repo *LandingContentRepository) MoveCarouselSlide(ctx context.Context, id 
 }
 
 // ListSelectedWorkItems fetches every landing_selected_work_items row, in
-// display order.
+// display order. Read-only — uses ReadDB.
 func (repo *LandingContentRepository) ListSelectedWorkItems(ctx context.Context) ([]model.SelectedWorkItem, error) {
 	const query = `
 		SELECT id, kicker, title, description, live_url, external, sort_order
 		FROM landing_selected_work_items
 		ORDER BY sort_order`
 
-	rows, err := repo.DB.QueryContext(ctx, query)
+	rows, err := repo.ReadDB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query landing_selected_work_items: %w", err)
 	}
@@ -214,7 +226,7 @@ func (repo *LandingContentRepository) ListSelectedWorkItems(ctx context.Context)
 }
 
 // GetSelectedWorkItem fetches one card by ID. See GetCarouselSlide — same
-// not-found convention.
+// not-found convention. Read-only — uses ReadDB.
 func (repo *LandingContentRepository) GetSelectedWorkItem(ctx context.Context, id int64) (model.SelectedWorkItem, error) {
 	const query = `
 		SELECT id, kicker, title, description, live_url, external, sort_order
@@ -222,7 +234,7 @@ func (repo *LandingContentRepository) GetSelectedWorkItem(ctx context.Context, i
 		WHERE id = $1`
 
 	var it model.SelectedWorkItem
-	err := repo.DB.QueryRowContext(ctx, query, id).
+	err := repo.ReadDB.QueryRowContext(ctx, query, id).
 		Scan(&it.ID, &it.Kicker, &it.Title, &it.Description, &it.LiveURL, &it.External, &it.SortOrder)
 	if err != nil {
 		return model.SelectedWorkItem{}, fmt.Errorf("query landing_selected_work_items id %d: %w", id, err)

@@ -93,6 +93,14 @@ var settingsMenu = NavMenu{
 			Icon:  icon("h-4 w-4", `<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5"/>`),
 		},
 		{
+			// Resume authoring (docs/features/resume-content-authoring.md):
+			// edit every card of /resume (banner, sidebar, summary,
+			// experience timeline) and choose a font preset per card.
+			Label: "Resume",
+			Href:  "/settings/resume",
+			Icon:  icon("h-4 w-4", `<path d="M8 3h8v4H8z"/><path d="M6 7h12v14H6z"/><path d="M9 12h6M9 15h6M9 18h4"/>`),
+		},
+		{
 			Label: "Security",
 			Href:  "/settings/security",
 			Icon:  icon("h-4 w-4", `<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>`),

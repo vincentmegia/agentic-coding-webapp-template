@@ -59,6 +59,20 @@ type Profile struct {
 	SkillGroups       []SkillGroup
 	Education         []Education
 	FeaturedProjects  []FeaturedProject
+
+	// The five FontStyle fields below are preset *keys* (e.g. "organic",
+	// "classic-serif"), one per authorable card on this singleton row —
+	// never raw font-family strings. Resolved through a fixed Go
+	// allowlist in internal/service, exactly mirroring ContactLink.Icon's
+	// resolve-through-allowlist pattern above. See
+	// docs/features/resume-content-authoring.md's Font Presets and
+	// migrations/006_add_resume_authoring.sql, which also enforces this
+	// set via a database CHECK constraint.
+	BannerFontStyle                  string
+	SidebarExpertiseFontStyle        string
+	SidebarEducationFontStyle        string
+	SidebarFeaturedProjectsFontStyle string
+	SummaryFontStyle                 string
 }
 
 // Subproject is one entry in a Role's subprojects.
@@ -91,4 +105,8 @@ type Role struct {
 	// role's nested client engagements aren't strictly chronological with
 	// the parent role's own start/end.
 	SortOrder int
+	// FontStyle is a preset key (see Profile's FontStyle fields above),
+	// independently chosen per role — nested Subprojects inherit it, no
+	// further nesting (docs/features/resume-content-authoring.md's Scope).
+	FontStyle string
 }

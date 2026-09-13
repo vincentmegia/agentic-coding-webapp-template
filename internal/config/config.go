@@ -26,8 +26,22 @@ type Config struct {
 	// docs/skills/postgres/SKILL.md). Required — this app has no code path
 	// that runs without a database as of the resume feature
 	// (docs/features/resume.md). Sourced from a real environment variable
-	// or .env — never from config.yaml; see fileConfig's doc comment.
+	// or .env — never from config.yaml; see fileConfig's doc comment. Used
+	// for every write path and for running migrations (`cmd/server/main.go`'s
+	// runMigrations) — the role behind it needs DDL rights.
 	DatabaseURL string
+	// DatabaseReadOnlyURL is an optional second Postgres connection string
+	// for a least-privilege, SELECT-only role (docs/features/resume.md's
+	// Security Considerations/Open Questions — "site_reader" in production).
+	// Every repository's pure-read methods (GetProfile, ListRoles, GetHero,
+	// TopScores, ...) use this connection when it's set; every write method
+	// and migrations always use DatabaseURL regardless. Optional and
+	// falls back to DatabaseURL when unset (cmd/server/main.go), so local
+	// dev and the DB-gated tests keep working with a single role — the
+	// split is a defense-in-depth hardening step for a real deployment, not
+	// a requirement to run the app at all. Like DatabaseURL, sourced from a
+	// real environment variable or .env only, never config.yaml.
+	DatabaseReadOnlyURL string
 	// DBMaxOpenConns bounds the connection pool per
 	// docs/skills/postgres/SKILL.md "Connection Management".
 	DBMaxOpenConns int
@@ -214,9 +228,11 @@ func Load() (Config, error) {
 		cfg.TrustProxyHeaders = b
 	}
 
-	// DatabaseURL and LandingAPIToken are real-env-or-.env-only — see
-	// fileConfig's doc comment. There is no config.yaml path for either.
+	// DatabaseURL, DatabaseReadOnlyURL, and LandingAPIToken are
+	// real-env-or-.env-only — see fileConfig's doc comment. There is no
+	// config.yaml path for any of them.
 	cfg.DatabaseURL, _ = e.lookup("DATABASE_URL")
+	cfg.DatabaseReadOnlyURL, _ = e.lookup("DATABASE_READONLY_URL")
 	cfg.LandingAPIToken, _ = e.lookup("LANDING_API_TOKEN")
 
 	if _, err := strconv.Atoi(cfg.Port); err != nil {

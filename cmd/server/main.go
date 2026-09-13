@@ -57,11 +57,27 @@ func run() error {
 	}
 	defer conn.Close()
 
+	// readConn is the least-privilege, SELECT-only connection every
+	// repository's read methods use (docs/features/resume.md's Security
+	// Considerations) — falls back to the same full-privilege conn when
+	// DATABASE_READONLY_URL isn't set, so local dev and a deployment that
+	// hasn't provisioned the second role yet both keep working unchanged.
+	// Migrations and every write path always use conn, never readConn,
+	// regardless of this fallback.
+	readConn := conn
+	if cfg.DatabaseReadOnlyURL != "" {
+		readConn, err = dbpkg.Open(context.Background(), cfg.DatabaseReadOnlyURL, cfg.DBMaxOpenConns)
+		if err != nil {
+			return fmt.Errorf("open read-only database: %w", err)
+		}
+		defer readConn.Close()
+	}
+
 	if err := runMigrations(conn); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	mux, err := newMux(conn, cfg.LandingAPIToken)
+	mux, err := newMux(conn, readConn, cfg.LandingAPIToken)
 	if err != nil {
 		return err
 	}
@@ -117,7 +133,12 @@ func runMigrations(conn *sql.DB) error {
 // entirely — the routes are never registered, so an unconfigured
 // deployment 404s rather than exposing an unauthenticated write API. See
 // config.Config.LandingAPIToken.
-func newMux(conn *sql.DB, landingAPIToken string) (*http.ServeMux, error) {
+//
+// readConn is the least-privilege, SELECT-only connection (equal to conn
+// when no second role is configured — see run()'s DatabaseReadOnlyURL
+// fallback). Every repository constructor below takes both: conn for
+// writes and migrations, readConn for pure-read queries.
+func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, error) {
 	mux := http.NewServeMux()
 
 	health := handler.NewHealthHandler(conn)
@@ -129,17 +150,23 @@ func newMux(conn *sql.DB, landingAPIToken string) (*http.ServeMux, error) {
 	}
 	renderer := handler.NewRenderer(tmpl)
 
-	landingContentService := service.NewLandingContentService(repository.NewLandingContentRepository(conn))
+	landingContentService := service.NewLandingContentService(repository.NewLandingContentRepository(conn, readConn))
 	pages := handler.NewPagesHandler(renderer, landingContentService, Version)
 	landingContent := handler.NewLandingContentHandler(renderer, landingContentService, Version)
 
-	resumeService := service.NewResumeService(repository.NewResumeRepository(conn))
+	resumeService := service.NewResumeService(repository.NewResumeRepository(conn, readConn))
 	resume := handler.NewResumeHandler(renderer, resumeService, Version)
+	// resumeAdmin shares resumeService with resume above — one service, one
+	// repository, one pair of connection pools; see docs/features/
+	// resume-content-authoring.md's Architecture ("no new network
+	// boundary"). ResumeService's write-side methods (resume_admin_service.go)
+	// live on the same *service.ResumeService as its read-side Get.
+	resumeAdmin := handler.NewResumeAdminHandler(renderer, resumeService, Version)
 
-	fishingService := service.NewFishingService(repository.NewFishingRepository(conn))
+	fishingService := service.NewFishingService(repository.NewFishingRepository(conn, readConn))
 	fishingGame := handler.NewFishingGameHandler(renderer, fishingService, Version)
 
-	cookingService := service.NewCookingService(repository.NewCookingRepository(conn))
+	cookingService := service.NewCookingService(repository.NewCookingRepository(conn, readConn))
 	cookingGame := handler.NewCookingGameHandler(renderer, cookingService, Version)
 
 	// See docs/features/home.md's Routes/Handlers table. This feature
@@ -173,6 +200,17 @@ func newMux(conn *sql.DB, landingAPIToken string) (*http.ServeMux, error) {
 	mux.HandleFunc("PUT /settings/content/selected-work/{id}", landingContent.UpdateWorkItem)
 	mux.HandleFunc("DELETE /settings/content/selected-work/{id}", landingContent.DeleteWorkItem)
 	mux.HandleFunc("POST /settings/content/selected-work/{id}/move", landingContent.MoveWorkItem)
+	// See docs/features/resume-content-authoring.md's Routes/Handlers table.
+	mux.HandleFunc("GET /settings/resume", resumeAdmin.Index)
+	mux.HandleFunc("POST /settings/resume/banner", resumeAdmin.SaveBanner)
+	mux.HandleFunc("POST /settings/resume/sidebar/expertise", resumeAdmin.SaveExpertise)
+	mux.HandleFunc("POST /settings/resume/sidebar/education", resumeAdmin.SaveEducation)
+	mux.HandleFunc("POST /settings/resume/sidebar/featured-projects", resumeAdmin.SaveFeaturedProjects)
+	mux.HandleFunc("POST /settings/resume/summary", resumeAdmin.SaveSummary)
+	mux.HandleFunc("POST /settings/resume/roles", resumeAdmin.CreateRole)
+	mux.HandleFunc("PUT /settings/resume/roles/{id}", resumeAdmin.UpdateRole)
+	mux.HandleFunc("DELETE /settings/resume/roles/{id}", resumeAdmin.DeleteRole)
+	mux.HandleFunc("POST /settings/resume/roles/{id}/move", resumeAdmin.MoveRole)
 	// TEMPORARY: real logout (session invalidation) is a separate,
 	// not-yet-built auth feature; see handler.PagesHandler.Logout.
 	mux.HandleFunc("POST /logout", pages.Logout)

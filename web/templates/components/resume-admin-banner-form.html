@@ -1,0 +1,47 @@
+{{/* /settings/resume's Banner card (docs/features/resume-content-authoring.md).
+     Dot is a service.BannerFormView — never the full PageData, since this
+     is also the fragment SaveBanner swaps back in directly
+     (Renderer.RenderFragment). #resume-admin-banner is both the <form>
+     element and the hx-target/hx-swap="outerHTML" root. Contact links are
+     one per line: "Label | Href | Icon" (Icon optional) — see
+     internal/service/resume_admin_encoding.go's DecodeContactLinks for the
+     parse side of this encoding. */}}
+{{define "resume-admin-banner-form"}}
+<form
+	id="resume-admin-banner"
+	hx-post="/settings/resume/banner"
+	hx-target="#resume-admin-banner"
+	hx-swap="outerHTML"
+	hx-indicator="#resume-admin-banner-loading"
+	class="space-y-3 rounded-card border border-line bg-surface p-5"
+>
+	<h2 class="text-base font-semibold text-ink">Banner</h2>
+	{{if .Error}}
+	<p class="rounded-card border border-danger bg-danger/10 px-3 py-2 text-sm text-danger">{{.Error}}</p>
+	{{end}}
+	<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+		<label class="block space-y-1">
+			<span class="block text-xs font-medium text-muted">Role title</span>
+			<input type="text" name="role_title" required value="{{.RoleTitle}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+		</label>
+		<label class="block space-y-1">
+			<span class="block text-xs font-medium text-muted">Tenure label</span>
+			<input type="text" name="tenure_label" required value="{{.TenureLabel}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+		</label>
+		<label class="block space-y-1">
+			<span class="block text-xs font-medium text-muted">Location label</span>
+			<input type="text" name="location_label" required value="{{.LocationLabel}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+		</label>
+		{{template "resume-font-select" .FontOptions}}
+	</div>
+	<label class="block space-y-1">
+		<span class="block text-xs font-medium text-muted">Contact links — one per line: Label | Href | Icon key (icon optional)</span>
+		<textarea name="contact_links" rows="5" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{{range .ContactLinks}}{{.Label}} | {{.Href}} | {{.Icon}}
+{{end}}</textarea>
+	</label>
+	<div class="flex items-center gap-3">
+		<button type="submit" class="rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Save</button>
+		<span id="resume-admin-banner-loading" class="htmx-indicator text-sm text-muted">Saving…</span>
+	</div>
+</form>
+{{end}}

@@ -1,0 +1,134 @@
+{{/* /settings/resume's Experience Timeline card
+     (docs/features/resume-content-authoring.md). Dot is a
+     service.RoleListView (Roles []service.RoleAdminView, Error) — same
+     fragment/hx-target pattern as content-carousel-editor.html
+     (#resume-admin-role-list), with an edit <form> per existing role (PUT)
+     plus Move up/down/Delete buttons, and one Add-role form at the
+     bottom (POST). Bullets are one per line; subprojects are one per
+     line: "Heading | ClientTag | Blurb | bullet1; bullet2" (ClientTag and
+     the bullets segment are both optional) — see
+     internal/service/resume_admin_encoding.go's DecodeSubprojects.
+     end_date is left blank for a current role — the only signal for
+     "current" (docs/features/resume.md's Business Rules), matched here by
+     ValidateRoleInput treating a blank end_date field as "current", not
+     an error. */}}
+{{define "resume-admin-role-editor"}}
+<div id="resume-admin-role-list" class="space-y-4 rounded-card border border-line bg-surface p-5">
+	<h2 class="text-base font-semibold text-ink">Experience Timeline</h2>
+	{{if .Error}}
+	<p class="rounded-card border border-danger bg-danger/10 px-3 py-2 text-sm text-danger">{{.Error}}</p>
+	{{end}}
+
+	{{range .Roles}}
+	<form
+		id="resume-admin-role-{{.ID}}"
+		hx-put="/settings/resume/roles/{{.ID}}"
+		hx-target="#resume-admin-role-list"
+		hx-swap="outerHTML"
+		class="space-y-2 border-t border-line pt-4"
+	>
+		<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Title</span>
+				<input type="text" name="title" required value="{{.Title}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Company</span>
+				<input type="text" name="company" required value="{{.Company}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Location (optional)</span>
+				<input type="text" name="location" value="{{.Location}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			{{template "resume-font-select" .FontOptions}}
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Start date</span>
+				<input type="date" name="start_date" required value="{{.StartDate}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">End date (blank = current)</span>
+				<input type="date" name="end_date" value="{{.EndDate}}" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+		</div>
+		<label class="block space-y-1">
+			<span class="block text-xs font-medium text-muted">Blurb (optional)</span>
+			<textarea name="blurb" rows="2" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{{.Blurb}}</textarea>
+		</label>
+		<label class="block space-y-1">
+			<span class="block text-xs font-medium text-muted">Bullets — one per line</span>
+			<textarea name="bullets" rows="4" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{{range .Bullets}}{{.}}
+{{end}}</textarea>
+		</label>
+		<label class="block space-y-1">
+			<span class="block text-xs font-medium text-muted">Subprojects — one per line: Heading | Client tag | Blurb | bullet1; bullet2 (client tag optional)</span>
+			<textarea name="subprojects" rows="3" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{{range .Subprojects}}{{.Heading}} | {{derefString .ClientTag}} | {{.Blurb}} | {{range $i, $b := .Bullets}}{{if $i}}; {{end}}{{$b}}{{end}}
+{{end}}</textarea>
+		</label>
+		<div class="flex flex-wrap items-center gap-2 pt-1">
+			<button type="submit" class="rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Save</button>
+			<button type="button" hx-post="/settings/resume/roles/{{.ID}}/move" hx-vals='{"direction":"up"}' hx-target="#resume-admin-role-list" hx-swap="outerHTML" class="rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Move up</button>
+			<button type="button" hx-post="/settings/resume/roles/{{.ID}}/move" hx-vals='{"direction":"down"}' hx-target="#resume-admin-role-list" hx-swap="outerHTML" class="rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Move down</button>
+			<button type="button" hx-delete="/settings/resume/roles/{{.ID}}" hx-confirm="Delete this role?" hx-target="#resume-admin-role-list" hx-swap="outerHTML" class="rounded-card border border-danger px-3 py-1.5 text-sm font-medium text-danger transition-colors duration-150 hover:bg-danger/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-danger">Delete</button>
+		</div>
+	</form>
+	{{end}}
+
+	<form
+		hx-post="/settings/resume/roles"
+		hx-target="#resume-admin-role-list"
+		hx-swap="outerHTML"
+		class="space-y-2 border-t border-line pt-4"
+	>
+		<h3 class="text-sm font-semibold text-ink">Add role</h3>
+		<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Title</span>
+				<input type="text" name="title" required class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Company</span>
+				<input type="text" name="company" required class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Location (optional)</span>
+				<input type="text" name="location" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			{{/* No existing role to read a current font_style from yet, so
+			     this one select is hardcoded to the same 4-key allowlist
+			     rather than reusing "resume-font-select" (which needs a
+			     []service.FontStyleOption dot) — "organic" is the default,
+			     matching every other section's default when unset. */}}
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Font style</span>
+				<select name="font_style" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+					<option value="organic" selected>Organic (default)</option>
+					<option value="classic-serif">Classic Serif</option>
+					<option value="modern-sans">Modern Sans</option>
+					<option value="editorial">Editorial</option>
+				</select>
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">Start date</span>
+				<input type="date" name="start_date" required class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+			<label class="block space-y-1">
+				<span class="block text-xs font-medium text-muted">End date (blank = current)</span>
+				<input type="date" name="end_date" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+			</label>
+		</div>
+		<label class="block space-y-1">
+			<span class="block text-xs font-medium text-muted">Blurb (optional)</span>
+			<textarea name="blurb" rows="2" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"></textarea>
+		</label>
+		<label class="block space-y-1">
+			<span class="block text-xs font-medium text-muted">Bullets — one per line</span>
+			<textarea name="bullets" rows="4" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"></textarea>
+		</label>
+		<label class="block space-y-1">
+			<span class="block text-xs font-medium text-muted">Subprojects — one per line: Heading | Client tag | Blurb | bullet1; bullet2 (client tag optional)</span>
+			<textarea name="subprojects" rows="3" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"></textarea>
+		</label>
+		<button type="submit" class="rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Add role</button>
+	</form>
+</div>
+{{end}}

@@ -1,0 +1,30 @@
+{{/* /settings/resume's Core Expertise card
+     (docs/features/resume-content-authoring.md). Dot is a
+     service.ExpertiseFormView. Skill groups are one per line:
+     "Group Name: skill1, skill2, skill3" — see
+     internal/service/resume_admin_encoding.go's DecodeSkillGroups. */}}
+{{define "resume-admin-expertise-form"}}
+<form
+	id="resume-admin-expertise"
+	hx-post="/settings/resume/sidebar/expertise"
+	hx-target="#resume-admin-expertise"
+	hx-swap="outerHTML"
+	hx-indicator="#resume-admin-expertise-loading"
+	class="space-y-3 rounded-card border border-line bg-surface p-5"
+>
+	<h2 class="text-base font-semibold text-ink">Core Expertise</h2>
+	{{if .Error}}
+	<p class="rounded-card border border-danger bg-danger/10 px-3 py-2 text-sm text-danger">{{.Error}}</p>
+	{{end}}
+	{{template "resume-font-select" .FontOptions}}
+	<label class="block space-y-1">
+		<span class="block text-xs font-medium text-muted">Skill groups — one per line: Group name: skill1, skill2, skill3</span>
+		<textarea name="skill_groups" rows="6" class="w-full rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{{range .SkillGroups}}{{.Name}}: {{range $i, $s := .Skills}}{{if $i}}, {{end}}{{$s}}{{end}}
+{{end}}</textarea>
+	</label>
+	<div class="flex items-center gap-3">
+		<button type="submit" class="rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Save</button>
+		<span id="resume-admin-expertise-loading" class="htmx-indicator text-sm text-muted">Saving…</span>
+	</div>
+</form>
+{{end}}

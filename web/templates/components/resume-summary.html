@@ -4,7 +4,7 @@
      resume_service.go's boldMarkup) — render each with plain {{.}},
      never re-escaped or passed through any other helper. */}}
 {{define "resume-summary"}}
-<section aria-label="Professional summary" class="rounded-card border border-line bg-surface p-6 shadow-sm sm:p-8">
+<section aria-label="Professional summary" class="{{.SummaryFontClass}} rounded-card border border-line bg-surface p-6 shadow-sm sm:p-8">
 	{{if .SummaryParagraphs}}
 	<div class="space-y-4 text-sm leading-relaxed text-ink sm:text-base">
 		{{range .SummaryParagraphs}}

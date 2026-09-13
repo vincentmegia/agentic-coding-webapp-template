@@ -12,8 +12,14 @@ touching that area rather than expecting this section to carry it:
   `docs/features/home.md`. Header nav is a flat Home/Projects/About link
   row plus a Résumé button, not a dropdown (`internal/handler/nav.go`'s
   `primaryNavItems`); Settings is a separate auth-gated dropdown
-  (Profile/Content/Security/Logout).
+  (Profile/Content/Resume/Security/Logout).
 - **Resume** (Postgres-backed `/resume`) — `docs/features/resume.md`.
+- **Resume Content Authoring** (`/settings/resume`: edit every card on
+  `/resume` — banner, sidebar, summary, experience timeline — plus an
+  independent font-preset choice per card, without a redeploy) —
+  `docs/features/resume-content-authoring.md`. Code-complete and verified
+  against a real database, but unreachable in production — see the auth
+  note below.
 - **Landing page** (`/`: hero, image carousel, "Selected work" card grid) —
   `docs/features/landing-page.md`, `docs/features/landing-carousel.md`.
 - **Fishing Game** (`/fishing-game`, canvas mini-game, Postgres
@@ -135,5 +141,14 @@ Decided and in place:
 ## Open decisions
 
 - **Hosting**: target is Vercel, but the stack is Go + Postgres. Vercel's Go support is serverless-function based, which has implications for persistent Postgres connections (pooling) and any long-lived server process — verify this fits before committing, or pick an alternative host (e.g. Render, Fly.io) that fits a standard Go server model more naturally.
-- **Database hosting**: needs a Postgres provider if not self-hosted (e.g. Neon, Supabase, Vercel Postgres).
+- ~~**Database hosting**: needs a Postgres provider if not self-hosted~~ —
+  **Decided: Supabase**, connected via its session pooler (not the
+  transaction pooler/Supavisor, and not the direct connection — see
+  `docs/features/landing-content-api.md`'s Status for why those two modes
+  are a real risk with this app's `pgx`/`options`-param usage). The web
+  app itself stays on Render; database and web service are no longer
+  co-located, which is why `docs/features/landing-content-api.md`'s
+  original "move to Render's internal connection string" plan is now
+  permanently unavailable rather than pending — see that doc's
+  Problem/Motivation and Decision 1.
 - **Migration plan**: how/when vincentmegia.onrender.com gets replaced by the new site (DNS cutover, redirect, etc.) is not yet defined.

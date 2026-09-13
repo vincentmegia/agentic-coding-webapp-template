@@ -12,18 +12,30 @@ auth with rate limiting, and tests (handler/auth/config tests run without a
 database; the round-trip case is in the DB-gated
 `cmd/server/e2e_test.go`).
 
-Still outstanding, and the security benefit does not exist until all of it
-lands:
+**Hosting changed since this was written, and it changes what "done" means
+here.** The database has since moved off Render entirely, onto Supabase
+(session pooler), for cost reasons — the web service stays on Render, but
+the two are no longer on the same infrastructure. The original plan below
+assumed the opposite: that this site's own database connection would move
+to *Render's* internal, private-network-only URL, making the database
+unreachable from the public internet regardless of what HQ did. That
+option never existed for a database hosted outside Render, so it is now
+permanently off the table, not just delayed — see Problem/Motivation and
+Decision 1 below for the corrected reasoning and Open Questions'
+downgraded, but still real, security goal.
+
+Still outstanding:
 
 * Not yet verified against a real Postgres instance or a live HQ.
-* Render not yet reconfigured — this service still needs switching to the
-  internal database URL, `LANDING_API_TOKEN` set on both sides, and the
-  database confirmed unreachable from the public internet.
+* `LANDING_API_TOKEN` not yet set on both sides.
 * HQ's own side (dropping its direct `landing_*` queries, relocating its
   workflow tables) is in progress separately.
 
-Until Render is reconfigured, the database remains internet-reachable and
-this API is additive rather than protective.
+Until HQ actually stops using its own direct database credentials, this
+API is additive rather than protective — that part of the original
+reasoning still holds. What no longer holds is any expectation that
+finishing this makes the database itself unreachable from the internet;
+see Problem/Motivation.
 
 ## Summary
 
@@ -32,28 +44,43 @@ service, covering exactly the three landing-content tables
 (`landing_hero`, `landing_carousel_slides`,
 `landing_selected_work_items`), so HQ can edit homepage content over HTTP
 instead of connecting to this site's Postgres database directly. That in
-turn lets the database move to Render's **internal** connection string and
-stop being reachable from the internet at all.
+turn gets HQ off holding direct database credentials entirely — the
+database (now Supabase, not Render — see Status) is reachable from the
+internet either way, so this API's value is reducing who and what can
+reach it with full SQL access, not making it unreachable.
 
 ## Problem / Motivation
 
 HQ currently reads and writes the three `landing_*` tables with its own SQL
-(`internal/repository/landing.go` in that repo), using Render's **external**
-Postgres connection string — protected only by password + TLS. Render's
-IP-allowlist feature isn't usable here because HQ runs on Vincent's home
-network behind a dynamic IP. So a database that HQ's docs had assumed was
-LAN-isolated is in fact internet-reachable, and its only defense is a
-password.
+(`internal/repository/landing.go` in that repo), using the database's
+**external** Postgres connection string — protected only by password + TLS.
+An IP-allowlist isn't usable here because HQ runs on Vincent's home network
+behind a dynamic IP. So a database that HQ's docs had assumed was
+LAN-isolated is in fact internet-reachable by design, and its only defense
+is a password.
 
-Moving HQ onto an HTTP API lets this site use Render's internal database URL
-(reachable only from services inside the same Render private network), which
-removes the database from the public internet entirely.
+**This is where the original plan changed.** The idea behind this feature
+was that moving HQ onto an HTTP API would let this site switch to Render's
+*internal* database URL — reachable only from services inside the same
+Render private network — removing the database from the public internet
+entirely. That depended on the database being hosted on Render alongside
+the web service. It has since moved to Supabase for cost reasons (see
+Status), and Supabase has no equivalent "same private network as this
+site's Render service" tier: every connection to it, from this site's own
+backend or from HQ, is an external, internet-facing connection secured by
+TLS and a password (Supabase's session pooler), the same shape of
+connection HQ was already using. So finishing this feature does not make
+the database unreachable from the internet — that outcome isn't available
+on the current hosting, full stop, not something blocked on HQ's migration.
 
-**Be precise about what this buys.** This does not make everything private —
-this site's own web service still has a public `*.onrender.com` URL, and
-these API routes live on it, so the write path is still internet-reachable
-and a bearer token is the only thing guarding it. The gain is a
-substantially smaller and better-shaped attack surface:
+**Be precise about what this buys, revised.** This does not make anything
+private — the database is internet-reachable regardless, and this site's
+own web service still has a public `*.onrender.com` URL that these API
+routes live on, so the write path is internet-reachable and a bearer token
+is the only thing guarding it. What this feature actually buys is getting
+HQ off holding a full-access database password at all, and replacing
+arbitrary SQL with a substantially smaller and better-shaped attack
+surface:
 
 * No raw SQL and no Postgres wire protocol exposed — only six resource
   shapes with fixed, validated fields.
@@ -72,6 +99,16 @@ one. The 5-slide carousel cap lives in Go
 (`service.maxCarouselSlides`), not in a database constraint — so HQ writing
 directly to Postgres can create a sixth slide today, which the site would
 then render.
+
+**A deferred option, not a commitment**: Supabase's Network Restrictions
+(an IP allowlist, available on paid plans) combined with Render's static
+outbound IPs (also a paid feature) could eventually narrow the database's
+reachability to "this site's Render service plus Supabase's own access,"
+which is the closest available equivalent to the original private-network
+idea. This isn't in scope now — it costs money on both ends, which is the
+same constraint that moved the database off Render in the first place —
+but it's worth naming so a future reader doesn't have to rediscover that
+the option exists.
 
 ## Scope
 
@@ -118,8 +155,9 @@ There is no human UI here. The flow is machine-to-machine:
 2. HQ applies it: issues the corresponding API request to this site,
    with `Authorization: Bearer <token>`.
 3. This site validates the token, validates the payload through the same
-   service the site's own editor uses, and writes to Postgres over the
-   internal (private) connection.
+   service the site's own editor uses, and writes to Postgres over
+   Supabase's session-pooler connection (TLS-protected, not
+   network-isolated — see Problem/Motivation).
 4. This site returns the resulting resource as JSON; HQ records the
    change as applied.
 5. The next load of `/` renders the new content.
@@ -393,7 +431,12 @@ so the choice is deliberate.
   pointing `link_url`/`live_url` at a malicious site. It does not grant
   database access, does not reach `users`, and does not permit arbitrary
   SQL. That is the entire point of the change, and it is a strictly smaller
-  exposure than today's shared database password.
+  exposure than a shared database password — which is the actual comparison
+  worth making now, not "internet-reachable vs. not." The database itself
+  (Supabase, session pooler) is internet-reachable on its own merits
+  regardless of this API or HQ's migration status; nothing in this feature
+  changes that fact, only who else needs a full-access password to it. See
+  Problem/Motivation.
 
 ---
 
@@ -438,34 +481,53 @@ All three resolved with HQ. Kept here (rather than deleted) because each
 records a real constraint a future reader would otherwise have to
 rediscover.
 
-### Decision 1 — HQ's remaining direct database access → **RESOLVED**
+### Decision 1 — HQ's remaining direct database access → **RESOLVED, reasoning updated for Supabase hosting**
 
 **Answer: HQ ends up with zero direct access to this site's database.**
 `content_change_requests` and `content_change_request_comments` move to a
 separate Postgres that HQ runs on its own home network. Confirmed by
 Vincent; HQ has corrected its own `CLAUDE.md`, which had previously
 suggested keeping a narrower direct connection, and now flags that earlier
-suggestion as wrong.
+suggestion as wrong. **This conclusion is unchanged by the Supabase move —
+only the reasoning underneath it is**, since the original reasoning
+depended on a Render-specific mechanism that no longer applies.
 
 `users` is confirmed a separate feature and does **not** block this one.
 The auth-architecture choice (API endpoint vs. HQ's own user store vs. a
 one-way sync) goes to Vincent separately.
 
-The reasoning, since it is the load-bearing constraint:
+**The reasoning, as it was originally written** (kept for the record, since
+it shaped this decision and a future reader may wonder why the database
+was ever assumed to be reachable only from Render): HQ could never use
+Render's internal connection string, since that URL resolves only inside
+Render's private network and HQ runs on Vincent's home LAN — so HQ
+retaining *any* direct connection would force the database to stay on
+Render's external URL, forfeiting the network-isolation benefit for
+everyone, not just HQ.
 
-**HQ can never use Render's internal connection string.** The internal URL
-resolves only inside Render's private network; HQ runs on Vincent's home
-LAN. So if HQ retains *any* direct database connection — even a narrow one
-for tables it owns — the database must remain reachable over the external
-URL, and the security benefit of this entire feature is forfeited. A
-"narrower" direct connection is not a partial win; it is the same exposure.
+**The reasoning, as it actually stands now that the database is on
+Supabase**: there is no Render-internal-network option for *anyone* to
+forfeit — this site's own backend and HQ both reach the database the same
+way, over Supabase's session pooler, secured by TLS and a password. HQ
+keeping direct database access is no longer "the one thing that cancels
+out an otherwise-achieved network isolation." It is simply, on its own
+terms, a second party holding a full-access Postgres password with
+arbitrary SQL scope — including `users` — versus one party (this site)
+holding it. That was already true before the hosting change; the hosting
+change just removes the *additional* justification this doc used to lean
+on. The conclusion doesn't move, but the API's contribution shifts from
+"the deciding factor in reaching network isolation" to "the deciding
+factor in reaching one-party-holds-the-password" — a real, smaller, still
+worthwhile goal (see Problem/Motivation's "Be precise about what this buys,
+revised").
 
 That reframed the question as *where HQ's own tables should live*, which is
 what the answer above settles. `content_change_requests` and
 `content_change_request_comments` are HQ's own workflow state, never read
-by this site, so relocating them removes HQ's need to reach Render at all —
-without adding workflow endpoints here, which would pull HQ's review
-workflow into this repo (something Scope explicitly excludes).
+by this site, so relocating them removes HQ's need to reach either this
+site's Render service or its Supabase database at all — without adding
+workflow endpoints here, which would pull HQ's review workflow into this
+repo (something Scope explicitly excludes).
 
 On `users`: it stays a shared login table this site owns. Worth carrying
 into that separate decision — this site's own `IsAuthenticated` is still a
@@ -473,10 +535,12 @@ permanent stub returning `false` (`internal/handler/auth_stub.go`), so the
 shared `users` table is not yet load-bearing here, which makes "HQ keeps
 its own user store" cheaper than it first appears.
 
-**This decision gates the security outcome**: shipping the content API
-while HQ still holds database credentials would leave the database
-internet-exposed and deliver none of the intended benefit. HQ's table
-relocation and this API should land together.
+**This decision still gates the security outcome, just a smaller one**:
+shipping the content API while HQ still holds database credentials would
+leave two parties with full SQL access to Supabase instead of one, and
+deliver none of this feature's intended benefit. HQ's table relocation and
+this API should land together, exactly as before — only the size of the
+prize changed, not the sequencing.
 
 ### Decision 2 — `sort_order` on create/update → **RESOLVED**
 
@@ -536,8 +600,12 @@ leak forces a hurried rotation.
       trip has not actually been run**, since no reachable Postgres was
       available in the implementing session.
 * [ ] Verified against a real database and a live HQ.
-* [ ] Render configuration updated: this site's service switched to the
-      internal database URL, `LANDING_API_TOKEN` set on both sides, and the
-      database confirmed unreachable from the public internet.
+* [x] Hosting reality documented: the database is on Supabase (session
+      pooler, TLS-enforced), not Render — the original "switch to Render's
+      internal database URL" goal is recorded as permanently unavailable
+      rather than left as a stale pending task. See Status and
+      Problem/Motivation.
+* [ ] `LANDING_API_TOKEN` set on both sides.
 * [ ] HQ's direct database credentials removed once its own tables are
-      relocated per Decision 1.
+      relocated per Decision 1 — this, not network isolation, is now the
+      actual security finish line for this feature.

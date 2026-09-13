@@ -25,6 +25,56 @@
 	src: url("/static/fonts/figtree-variable.woff2") format("woff2");
 }
 
+/* Three additional self-hosted pairs backing /settings/resume's per-card
+   font-style presets (docs/features/resume-content-authoring.md's Font
+   Presets) — same self-hosting reasoning as Caprasimo/Figtree above: this
+   shell's CSP has no font-src exception for a CDN. Only the one weight
+   each preset actually uses is vendored (a 700 for its heading face, a
+   400 for its body face), not full variable ranges, since these fonts
+   have no other use on the site today. */
+@font-face {
+	font-family: "Fraunces";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/static/fonts/fraunces-700.woff2") format("woff2");
+}
+@font-face {
+	font-family: "Source Serif 4";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/static/fonts/source-serif-4-400.woff2") format("woff2");
+}
+@font-face {
+	font-family: "Space Grotesk";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/static/fonts/space-grotesk-700.woff2") format("woff2");
+}
+@font-face {
+	font-family: "Inter";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/static/fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+	font-family: "Playfair Display";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/static/fonts/playfair-display-700.woff2") format("woff2");
+}
+@font-face {
+	font-family: "Lora";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/static/fonts/lora-400.woff2") format("woff2");
+}
+
 /* Class-based dark variant: an explicit `.dark` (or `.light`) ancestor,
    set server-side from the `theme` cookie (docs/features/dark-mode.md),
    always wins. When neither class is present — no cookie has been set
@@ -141,6 +191,42 @@ body {
 h1, h2, h3, h4, h5, h6 {
 	font-family: var(--font-heading);
 	font-weight: 400;
+}
+
+/* /settings/resume's per-card font-style presets
+   (docs/features/resume-content-authoring.md's Font Presets). Each class
+   redefines --font-heading/--font-body for its own subtree, then also
+   sets its own `font-family: var(--font-body)` — a custom property's
+   *value* inherits down the DOM regardless of where it's read, but
+   `font-family` itself only recomputes where something explicitly
+   references var(--font-body) again; the h1-h6 rule above already does
+   that fresh at each heading, but nothing does it for a plain <p>/<li>
+   inside this wrapper otherwise, so those would keep inheriting the
+   ancestor `body` rule's original computed value instead of picking up
+   the override. Declaring font-family here re-anchors normal inheritance
+   for everything below this element that doesn't set its own font-family.
+   resolveFontClass (internal/service/resume_service.go) is the only thing
+   that ever emits one of these four class names into a template — the
+   stored DB key never reaches markup directly. */
+.resume-font-organic {
+	--font-heading: "Caprasimo", system-ui, sans-serif;
+	--font-body: "Figtree", system-ui, sans-serif;
+	font-family: var(--font-body);
+}
+.resume-font-classic-serif {
+	--font-heading: "Fraunces", Georgia, serif;
+	--font-body: "Source Serif 4", Georgia, serif;
+	font-family: var(--font-body);
+}
+.resume-font-modern-sans {
+	--font-heading: "Space Grotesk", system-ui, sans-serif;
+	--font-body: "Inter", system-ui, sans-serif;
+	font-family: var(--font-body);
+}
+.resume-font-editorial {
+	--font-heading: "Playfair Display", Georgia, serif;
+	--font-body: "Lora", Georgia, serif;
+	font-family: var(--font-body);
 }
 
 /* Dark-mode values for the tokens above that must invert with the site's

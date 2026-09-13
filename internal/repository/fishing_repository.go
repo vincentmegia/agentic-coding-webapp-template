@@ -11,13 +11,19 @@ import (
 // FishingRepository reads and writes the fishing_scores table — the
 // fishing game's public leaderboard. See docs/features/fishing-game.md's
 // Data Model.
+//
+// DB and ReadDB are separate handles, same split as ResumeRepository
+// (docs/features/resume.md's Security Considerations): Insert uses DB,
+// TopScores uses ReadDB.
 type FishingRepository struct {
-	DB *sql.DB
+	DB     *sql.DB
+	ReadDB *sql.DB
 }
 
-// NewFishingRepository wraps an already-open database handle.
-func NewFishingRepository(db *sql.DB) *FishingRepository {
-	return &FishingRepository{DB: db}
+// NewFishingRepository wraps two already-open database handles — db for
+// writes, readDB for reads.
+func NewFishingRepository(db, readDB *sql.DB) *FishingRepository {
+	return &FishingRepository{DB: db, ReadDB: readDB}
 }
 
 // Insert stores one already-validated leaderboard submission. Callers
@@ -37,7 +43,8 @@ func (repo *FishingRepository) Insert(ctx context.Context, playerName string, sc
 }
 
 // TopScores fetches the top `limit` rows by score, descending — the same
-// ordering idx_fishing_scores_score exists to serve.
+// ordering idx_fishing_scores_score exists to serve. Read-only — uses
+// ReadDB.
 func (repo *FishingRepository) TopScores(ctx context.Context, limit int) ([]model.FishingScore, error) {
 	const query = `
 		SELECT player_name, score, depth_reached_miles, created_at
@@ -45,7 +52,7 @@ func (repo *FishingRepository) TopScores(ctx context.Context, limit int) ([]mode
 		ORDER BY score DESC
 		LIMIT $1`
 
-	rows, err := repo.DB.QueryContext(ctx, query, limit)
+	rows, err := repo.ReadDB.QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query fishing_scores: %w", err)
 	}

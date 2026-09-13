@@ -1,0 +1,22 @@
+{{/* /settings/resume page (docs/features/resume-content-authoring.md):
+     an auth-gated editor for every card on /resume plus a font-preset
+     choice per card — see ResumeAdminHandler.Index. Supplies its own
+     <main id="main-content"> wrapper, same reason as settings-content.html/
+     resume.html (hx-swap="outerHTML" replaces the entire element — see
+     resume.html's doc comment for the full explanation). Dot is the full
+     PageData; .ResumeAdmin's six sub-views are each handed to their own
+     component as that component's own dot context. */}}
+{{define "settings-resume"}}
+<main id="main-content" class="mx-auto max-w-5xl space-y-8 px-4 py-8">
+	<div>
+		<h1 class="text-2xl text-ink">Resume</h1>
+		<p class="mt-1 text-sm text-muted">Edit every card on the résumé page and pick a font pairing for each one independently. Changes are live on the next load of /resume — no redeploy needed.</p>
+	</div>
+	{{template "resume-admin-banner-form" .ResumeAdmin.Banner}}
+	{{template "resume-admin-expertise-form" .ResumeAdmin.Expertise}}
+	{{template "resume-admin-education-form" .ResumeAdmin.Education}}
+	{{template "resume-admin-featured-form" .ResumeAdmin.Featured}}
+	{{template "resume-admin-summary-form" .ResumeAdmin.Summary}}
+	{{template "resume-admin-role-editor" .ResumeAdmin.Roles}}
+</main>
+{{end}}

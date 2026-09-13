@@ -11,7 +11,7 @@
 {{define "resume-sidebar"}}
 <aside id="resume-sidebar" aria-label="Resume sidebar" class="space-y-6">
 	{{if .SkillGroups}}
-	<section class="rounded-card border border-line bg-surface p-6 shadow-sm">
+	<section class="{{.SidebarExpertiseFontClass}} rounded-card border border-line bg-surface p-6 shadow-sm">
 		<h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Core Expertise</h2>
 		<div class="mt-4 space-y-4">
 			{{range .SkillGroups}}
@@ -29,7 +29,7 @@
 	{{end}}
 
 	{{if .Education}}
-	<section class="rounded-card border border-line bg-surface p-6 shadow-sm">
+	<section class="{{.SidebarEducationFontClass}} rounded-card border border-line bg-surface p-6 shadow-sm">
 		<h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Education</h2>
 		<ul class="mt-4 space-y-4">
 			{{range .Education}}
@@ -47,7 +47,7 @@
 	     "See all projects" link is present regardless of how many
 	     featured projects are seeded — only the individual entries above
 	     it are conditional. */}}
-	<section class="rounded-card border border-line bg-surface p-6 shadow-sm">
+	<section class="{{.SidebarFeaturedFontClass}} rounded-card border border-line bg-surface p-6 shadow-sm">
 		<h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Featured Projects</h2>
 		{{if .FeaturedProjects}}
 		<ul class="mt-4 space-y-4">
