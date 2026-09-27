@@ -32,8 +32,11 @@ touching that area rather than expecting this section to carry it:
   `cooking-game-food-server-leveling.md`).
 - **Puzzle Solver** (`/puzzle-solver`, client-side DFS pathfinding
   visualizer, no DB/leaderboard) — `docs/features/puzzle-solver.md`.
+- **Library Shift** (`/library-game`, two-floor canvas library-shift sim —
+  shelving/fines/borrow-request minigames, a scripted Karen event, Postgres
+  leaderboard, `localStorage` progress) — `docs/features/library-game.md`.
 - **Projects** (`/projects` card grid: Fishing Game, Kitchen Shift, Puzzle
-  Solver) — `docs/features/projects.md`.
+  Solver, Library Shift) — `docs/features/projects.md`.
 - **Content Authoring** (`/settings/content`: edit the landing page's
   hero/carousel/Selected work without a redeploy, Postgres-backed) —
   `docs/features/landing-content-authoring.md`. Code-complete but

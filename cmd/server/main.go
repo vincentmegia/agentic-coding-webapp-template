@@ -169,6 +169,9 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, err
 	cookingService := service.NewCookingService(repository.NewCookingRepository(conn, readConn))
 	cookingGame := handler.NewCookingGameHandler(renderer, cookingService, Version)
 
+	libraryService := service.NewLibraryService(repository.NewLibraryRepository(conn, readConn))
+	libraryGame := handler.NewLibraryGameHandler(renderer, libraryService, Version)
+
 	// See docs/features/home.md's Routes/Handlers table. This feature
 	// owns the shell and these routes; the real page content behind each
 	// is a separate, not-yet-built feature (placeholders for now).
@@ -182,6 +185,10 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, err
 	mux.HandleFunc("GET /kitchen-shift", cookingGame.Index)
 	mux.HandleFunc("GET /kitchen-shift/leaderboard", cookingGame.Leaderboard)
 	mux.HandleFunc("POST /kitchen-shift/score", cookingGame.SubmitScore)
+	// See docs/features/library-game.md's Routes/Handlers table.
+	mux.HandleFunc("GET /library-game", libraryGame.Index)
+	mux.HandleFunc("GET /library-game/leaderboard", libraryGame.Leaderboard)
+	mux.HandleFunc("POST /library-game/score", libraryGame.SubmitScore)
 	mux.HandleFunc("GET /projects", pages.Projects)
 	// See docs/features/puzzle-solver.md's Routes/Handlers table.
 	mux.HandleFunc("GET /puzzle-solver", pages.PuzzleSolver)

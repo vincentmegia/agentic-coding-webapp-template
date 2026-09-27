@@ -1,0 +1,280 @@
+{{/* /library-game page: canvas game shell (placeholder only — see
+     docs/features/library-game.md, this backend PR does not implement any
+     game logic/rendering) + leaderboard, per that doc's UI and HTMX
+     Interactions sections. Defines "library-game-content", not "content" —
+     reusing "content" would silently take over the shared placeholder every
+     other still-placeholder route renders. Mirrors cooking-game.html's
+     structure/reasoning (see that file's header comment for the full
+     explanation of the outerHTML-swap requirement, the type="module" script
+     placement, and the pre-JS default-visibility convention).
+
+     DOM ids below are a fixed contract two other agents (game-logic and
+     canvas-rendering) build against — do not rename without updating both:
+
+       #library-game-container      Fullscreen API target (mirrors
+                                     #cooking-game-container); the whole
+                                     game shell lives inside this element.
+       #library-canvas-wrapper      Aspect-locked wrapper around the canvas
+                                     and every overlay screen (mirrors
+                                     #cooking-canvas-wrapper) — sized so
+                                     app.css's :fullscreen override can
+                                     target it directly.
+       #library-canvas               The canvas element itself, internal
+                                     resolution 960x600 (mirrors
+                                     #cooking-canvas's own fixed resolution
+                                     and "make the characters BIG" scale
+                                     goal from this doc's Visual Direction).
+       #library-hud-shift            HUD: "n/30" shift counter text node.
+       #library-hud-clock            HUD: in-game shift-clock text node.
+       #library-hud-status           HUD: patron-mood/status text node.
+       #library-floor-button         Instant 1st/2nd Floor switch shortcut
+                                     (mirrors #cooking-room-button) — added
+                                     alongside the Stairs/Elevator stations
+                                     per docs/features/library-game.md's
+                                     two-floor Scope addition; library-
+                                     game.js flips its label between "Go
+                                     Upstairs"/"Go Downstairs" and toggles
+                                     aria-pressed to reflect the current
+                                     floor.
+       #library-fullscreen-button    Fullscreen toggle button.
+       #library-interact-hint        Hover/interaction tooltip (hidden by
+                                     default, role="status").
+       #library-toast                Transient message toast (hidden by
+                                     default, role="status") — e.g. Karen's
+                                     scripted line, minigame results.
+       #library-start-screen         Start-screen overlay, visible by
+                                     default (this is the only screen shown
+                                     pre-JS — see the file-header convention
+                                     note above).
+       #library-start-shift-button   "Start Shift" button on the start
+                                     screen.
+       #library-paycheck-screen      Shift-end payout overlay, hidden by
+                                     default. JS sets data-outcome and
+                                     data-final="true" on shift 30, same
+                                     convention as #cooking-paycheck-screen.
+       #library-paycheck-title            Payout screen heading text node.
+       #library-paycheck-outcome          Payout screen outcome text node.
+       #library-paycheck-shift-total      This shift's Gard total text node.
+       #library-paycheck-month-total      Running-total Gard text node.
+       #library-final-paycheck-block      Leaderboard-submission block,
+                                          hidden except on shift 30 (JS
+                                          toggles via the paycheck screen's
+                                          data-final attribute).
+       #library-paycheck-name-input       Leaderboard submission name
+                                          <input name="player_name">.
+       #library-paycheck-earnings-input   Hidden <input
+                                          name="total_earnings">, JS sets
+                                          the value before submit.
+       #library-paycheck-shifts-input     Hidden <input
+                                          name="shifts_completed">, JS sets
+                                          the value before submit.
+       #library-paycheck-submit-button    Leaderboard submission submit
+                                          button.
+       #library-paycheck-next-shift-button  "Start Next Shift" button.
+       #library-paycheck-new-month-button  "Start New Month" button, hidden
+                                          except after the final shift
+                                          (mirrors #cooking-paycheck-
+                                          new-month-button).
+       #library-leaderboard           Leaderboard fragment root (see
+                                      components/library-leaderboard.html) —
+                                      hx-get="/library-game/leaderboard" on
+                                      load, self-replacing via outerHTML on
+                                      submit (same pattern as
+                                      #cooking-leaderboard).
+       #leaderboard-loading           Shared htmx-indicator id — already
+                                      used by the other two games' pages;
+                                      reused here rather than inventing a
+                                      library-specific name since each
+                                      game's own page only ever has one
+                                      leaderboard indicator active at a time.
+
+     This page loads /static/js/library-game.js as a module (see the
+     bottom of this file) — that file does not exist yet; it's the
+     game-logic/rendering agents' deliverable, mirroring cooking-game.js's
+     relationship to cooking-game.html.
+
+     The book-shelving/fines/borrowing minigame overlays (Shelf Skill-Check,
+     Coin Hunt, Fines Sort, Find the Book, Checkout Skill-Check — see this
+     doc's Scope) are NOT included in this placeholder: they render as
+     canvas-primitive overlays per the Visual Direction section, and are the
+     game-logic/rendering agents' own work, not this backend PR's.
+
+     Dot is PageData; this page reads none of its fields directly (no
+     server-side fetch — all player state is localStorage-driven, per
+     docs/features/library-game.md's Data Model). */}}
+{{define "library-game-content"}}
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<div class="space-y-6">
+		<section class="space-y-2">
+			<h1 class="text-2xl font-semibold text-ink">Library Shift</h1>
+			<p class="text-muted">
+				Work a shift at the library: shelve returned books at their color-coded shelf, process patron fines
+				at the Fines Counter, and fulfill borrow requests — earn Gard over 30 shifts.
+			</p>
+		</section>
+
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
+			<div class="space-y-4">
+				<p id="library-interact-hint" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
+
+				<p id="library-toast" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
+
+				<div id="library-game-container" class="relative mx-auto flex w-full max-w-[900px] flex-col overflow-hidden rounded-card border border-line bg-surface-2 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2/95 px-3 py-2">
+						<dl class="grid flex-1 grid-cols-3 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
+							<div>
+								<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Shift</dt>
+								<dd id="library-hud-shift" class="font-mono text-sm tabular-nums text-ink sm:text-base">1/30</dd>
+							</div>
+							<div>
+								<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Time</dt>
+								<dd id="library-hud-clock" class="font-mono text-sm tabular-nums text-ink sm:text-base">--:--</dd>
+							</div>
+							<div>
+								<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Status</dt>
+								<dd id="library-hud-status" class="text-sm font-medium text-ink sm:text-base">Quiet</dd>
+							</div>
+						</dl>
+						<button
+							type="button"
+							id="library-floor-button"
+							aria-pressed="false"
+							class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>Go Upstairs</button>
+						<button
+							type="button"
+							id="library-fullscreen-button"
+							class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>Fullscreen</button>
+					</div>
+
+					<div id="library-canvas-wrapper" class="relative aspect-[960/600] w-full overflow-hidden">
+						<canvas
+							id="library-canvas"
+							width="960"
+							height="600"
+							class="block h-full w-full cursor-pointer touch-none"
+							role="img"
+							aria-label="Library Shift play area"
+						>Your browser doesn't support the canvas element needed to play this game.</canvas>
+
+						{{/* Start screen — visible by default (this is the only screen
+						     shown pre-JS, matching cooking-game.html's convention). */}}
+						<div id="library-start-screen" class="absolute inset-0 flex items-center justify-center p-4">
+							<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 text-center shadow-lg">
+								<h2 class="text-lg font-semibold text-ink">The Library</h2>
+								<p class="text-xs text-muted">
+									Coming soon: click-to-move book shelving, fines, and borrow requests over a
+									30-shift run.
+								</p>
+								<button
+									type="button"
+									id="library-start-shift-button"
+									class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Start Shift</button>
+							</div>
+						</div>
+
+						{{/* Paycheck screen — hidden by default; game-logic JS unhides
+						     it and sets data-outcome/data-final, same convention as
+						     #cooking-paycheck-screen. */}}
+						<div id="library-paycheck-screen" class="hidden absolute inset-0 flex items-center justify-center overflow-y-auto p-4">
+							<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
+								<h2 id="library-paycheck-title" class="text-center text-lg font-semibold text-ink">Closing up</h2>
+
+								<dl class="space-y-1.5 text-sm">
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">Outcome</dt>
+										<dd id="library-paycheck-outcome" class="font-medium text-ink">Went well</dd>
+									</div>
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">This shift</dt>
+										<dd id="library-paycheck-shift-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
+									</div>
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">Run total</dt>
+										<dd id="library-paycheck-month-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
+									</div>
+								</dl>
+
+								{{/* Final Paycheck — hidden except on shift 30. Submit to
+								     leaderboard — real HTML form + hx-post, per the doc's
+								     HTMX Interactions table. hx-swap="outerHTML" matches
+								     #library-leaderboard's own fragment root swap below. */}}
+								<div id="library-final-paycheck-block" class="hidden space-y-2 border-t border-line pt-4">
+									<p class="text-sm font-medium text-ink">Final Paycheck</p>
+									<form
+										hx-post="/library-game/score"
+										hx-target="#library-leaderboard"
+										hx-swap="outerHTML"
+										hx-indicator="#leaderboard-loading"
+										class="space-y-2"
+									>
+										<label for="library-paycheck-name-input" class="block text-xs font-medium text-muted">
+											Submit to leaderboard (optional)
+										</label>
+										<div class="flex gap-2">
+											<input
+												type="text"
+												id="library-paycheck-name-input"
+												name="player_name"
+												maxlength="20"
+												required
+												placeholder="Your name"
+												class="w-full min-w-0 rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+											>
+											<button
+												type="submit"
+												id="library-paycheck-submit-button"
+												class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+											>Submit</button>
+										</div>
+										<input type="hidden" id="library-paycheck-earnings-input" name="total_earnings" value="0">
+										<input type="hidden" id="library-paycheck-shifts-input" name="shifts_completed" value="30">
+									</form>
+								</div>
+
+								<div class="flex gap-2 pt-1">
+									<button
+										type="button"
+										id="library-paycheck-next-shift-button"
+										class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Start Next Shift</button>
+									<button
+										type="button"
+										id="library-paycheck-new-month-button"
+										class="hidden w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Start New Month</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<aside class="space-y-3">
+				<div class="flex items-center justify-between gap-2">
+					<h2 class="text-lg font-semibold text-ink">Leaderboard</h2>
+					<span id="leaderboard-loading" class="htmx-indicator text-xs text-muted">Loading…</span>
+				</div>
+
+				{{/* Leaderboard: same self-replacing-target pattern as
+				     #cooking-leaderboard (see that file's comment for why
+				     outerHTML on a self-carrying id avoids a duplicate-id bug). */}}
+				<div
+					id="library-leaderboard"
+					hx-get="/library-game/leaderboard"
+					hx-trigger="load"
+					hx-target="this"
+					hx-swap="outerHTML"
+					hx-indicator="#leaderboard-loading"
+				>
+					<p class="rounded-card border border-line bg-surface px-4 py-3 text-sm text-muted">Loading leaderboard…</p>
+				</div>
+			</aside>
+		</div>
+	</div>
+</main>
+
+<script type="module" src="/static/js/library-game.js"></script>
+{{end}}

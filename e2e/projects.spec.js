@@ -25,6 +25,11 @@ const PROJECTS = [
 		description: 'A 30×30 pathfinding visualizer — mark a start and end, draw walls, then watch a depth-first search explore the grid and trace the path it finds.',
 		tags: ['Go', 'Canvas', 'JavaScript'],
 	},
+	{
+		title: 'Library Shift',
+		description: 'A two-floor library-shift sim — shelve returned books, process fines, and fulfill borrow requests across a 30-shift run, with a public leaderboard for the best runs.',
+		tags: ['Go', 'Canvas', 'PostgreSQL'],
+	},
 ];
 
 test('direct page load renders heading, subhead, and all project cards', async ({ page }) => {

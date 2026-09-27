@@ -130,7 +130,12 @@ func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
 // pocket's fully-explored "visited" cells, the maze walls, and the solved
 // path threading out to End are all visible at once, clipped to the card's
 // 16:10 aspect the same way the Fishing Game screenshot's own doc comment
-// describes.
+// describes. Library Shift (docs/features/library-game.md) is the fourth
+// real entry, added the same way; its screenshot (web/static/images/
+// library/screenshot.png) is a live Playwright capture of the 1st Floor
+// mid-shift — a book pile on the Return Cart, three Front Desk patrons
+// (two fines, one borrow request) queued, and the Sanity/Mood bars — taken
+// via the game's own test hooks rather than waiting out real spawn timers.
 var projectItems = []Project{
 	{
 		Title:       "Fishing Game",
@@ -155,6 +160,14 @@ var projectItems = []Project{
 		TagTint:     "accent",
 		LiveURL:     "/puzzle-solver",
 		ImagePath:   "/static/images/puzzle/screenshot.png",
+	},
+	{
+		Title:       "Library Shift",
+		Description: "A two-floor library-shift sim — shelve returned books, process fines, and fulfill borrow requests across a 30-shift run, with a public leaderboard for the best runs.",
+		Tags:        []string{"Go", "Canvas", "PostgreSQL"},
+		TagTint:     "primary",
+		LiveURL:     "/library-game",
+		ImagePath:   "/static/images/library/screenshot.png",
 	},
 }
 

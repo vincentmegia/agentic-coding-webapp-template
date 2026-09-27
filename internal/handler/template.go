@@ -260,6 +260,8 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		// puzzle-solver.md's Data Model: "None"), so it's just the one
 		// page file, unlike the two games above it.
 		filepath.Join(templatesDir, "pages", "puzzle-solver.html"),
+		filepath.Join(templatesDir, "components", "library-leaderboard.html"),
+		filepath.Join(templatesDir, "pages", "library-game.html"),
 	}
 	return template.New(filepath.Base(files[0])).Funcs(templateFuncs).ParseFiles(files...)
 }
