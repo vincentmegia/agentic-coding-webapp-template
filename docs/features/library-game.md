@@ -169,6 +169,28 @@ this is a pure-rendering change) and `e2e/library-game.spec.js`'s full
 23-test suite (both Chromium and WebKit) still green, confirming the
 widened Return Cart spacing didn't break click hit-testing on any book.
 
+**v1.5 the neck still read as disconnected in real play** — the user
+reported, with a screenshot from an actual play session, that a
+character's "body is not great its seperated from the body its looking
+disfigured" — the head visibly floating above the shoulders with a gap
+of bare background between them. v1.1's neck (`drawLibraryPerson`) was
+sized to just exactly bridge the head circle's bottom edge and the
+torso's top edge (touching, not overlapping) — this session's own
+Playwright screenshots of that geometry (both at native canvas
+resolution and at the front-desk's smaller 0.62 scale) rendered it as
+connected, so the exact-edges approach wasn't reproduced as broken here,
+but the user's own screenshot from a real browser session is the ground
+truth. Rather than chase a rendering-environment difference further, the
+neck was made unconditionally robust: it now overlaps 2px *into* both the
+head circle and the torso rect (grown from 6×4 to 10×8, at `y-26*s` to
+`y-18*s` instead of exactly `y-24*s` to `y-20*s`) so there is no shared
+edge for any renderer's sub-pixel handling to expose a seam on. Re-verified
+via the same native-resolution screenshot technique as v1.1 — the neck now
+reads as a solid, unambiguous column between head and shoulders. `node
+--test web/static/js/library/*.test.js` (175/175) and
+`e2e/library-game.spec.js` (23/23, both Chromium and WebKit) unaffected —
+pure-rendering change, no logic touched.
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the

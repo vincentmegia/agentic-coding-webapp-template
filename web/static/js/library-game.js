@@ -397,9 +397,16 @@ export function drawLibraryPerson(ctx, x, y, opts = {}) {
   // Torso (shirt) — narrower than the arm span above, on purpose.
   drawRoundRect(ctx, x - 8 * s, y - 20 * s, 16 * s, 16 * s, 5 * s, personality.bodyColor);
 
-  // Neck — a visible skin-tone gap between the head and shoulders, so the
-  // head doesn't sit flush on the torso with no separation.
-  drawRoundRect(ctx, x - 3 * s, y - 24 * s, 6 * s, 4 * s, 1.5 * s, personality.headColor);
+  // Neck — connects the head to the shoulders. Deliberately overlaps
+  // *into* both the head circle (below) and the torso rect (above) by a
+  // couple pixels each, rather than just touching their exact edges —
+  // real user report: a neck sized to only exactly bridge the two
+  // (edge-to-edge, no overlap) rendered as a visibly disconnected
+  // floating head in a real browser, even though it measured out fine in
+  // this session's own Playwright screenshots. Overlapping removes any
+  // dependency on sub-pixel-exact rendering: there's no longer a seam
+  // that could show background through it on any renderer.
+  drawRoundRect(ctx, x - 5 * s, y - 26 * s, 10 * s, 8 * s, 2 * s, personality.headColor);
 
   ctx.fillStyle = personality.headColor;
   ctx.beginPath();
