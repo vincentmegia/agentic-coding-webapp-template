@@ -243,22 +243,22 @@ export const LIBRARY_PERSON_SCALE = 1.55;
 export const PERSONALITY_TEMPLATES = {
   grumpyRegular: {
     label: 'Grumpy Regular',
-    bodyColor: '#7d8570', pantsColor: '#5a5f4f', headColor: '#e3c2a0', hairColor: '#5a5248',
+    bodyColor: '#7d8570', pantsColor: '#5a5f4f', headColor: '#c68642', hairColor: '#5a5248',
     eyeColor: '#3a2a2a', eyeShape: 'narrow', browAngle: -0.8, mouthCurve: -1.4, blush: false,
   },
   shyStudent: {
     label: 'Shy Student',
-    bodyColor: '#a7c4d1', pantsColor: '#5c7480', headColor: '#f0d9c0', hairColor: '#3a2a20',
+    bodyColor: '#a7c4d1', pantsColor: '#5c7480', headColor: '#ffdbac', hairColor: '#3a2a20',
     eyeColor: '#2a2a3a', eyeShape: 'roundSmall', browAngle: 0.15, mouthCurve: 0.3, blush: true,
   },
   cheerfulKid: {
     label: 'Cheerful Kid',
-    bodyColor: '#f2b6c6', pantsColor: '#e0899f', headColor: '#f6dcb8', hairColor: '#caa24a',
+    bodyColor: '#f2b6c6', pantsColor: '#e0899f', headColor: '#8d5524', hairColor: '#2a1a10',
     eyeColor: '#2a2a2a', eyeShape: 'bigRound', browAngle: 0.7, mouthCurve: 1.6, blush: true,
   },
   karen: {
     label: 'Karen',
-    bodyColor: '#d94f4f', pantsColor: '#8f2f2f', headColor: '#f0cba0', hairColor: '#d6b23e',
+    bodyColor: '#d94f4f', pantsColor: '#8f2f2f', headColor: '#e0ac69', hairColor: '#d6b23e',
     eyeColor: '#3a2a2a', eyeShape: 'narrow', browAngle: -1.3, mouthCurve: -0.6, blush: false,
   },
 };

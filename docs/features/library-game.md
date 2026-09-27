@@ -45,6 +45,18 @@ draw function). The `/projects` grid screenshot
 shape. No logic changed — `node --test`/`go test ./...` unaffected (450/450
 JS, Go green).
 
+**v1.2 distinct skin tones per personality** — the user pointed out every
+personality template's `headColor` was nearly the same light tan
+(`#e3c2a0`/`#f0d9c0`/`#f6dcb8`/`#f0cba0`), so patrons didn't actually read
+as having different skin tones despite the personality system's distinct
+faces/hair/outfits. Spread across a genuinely distinct range instead —
+Grumpy Regular `#c68642` (medium-tan), Shy Student `#ffdbac` (light),
+Cheerful Kid `#8d5524` (deep brown, hair darkened to `#2a1a10` to pair
+naturally with it), Karen `#e0ac69` (medium) — re-verified via a cropped
+screenshot of all three regular patrons side by side. Projects-grid
+screenshot recaptured again. `node --test`/`go test ./...` unaffected
+(450/450 JS, Go green) — cosmetic-only change.
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the
