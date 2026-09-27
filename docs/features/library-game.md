@@ -26,6 +26,25 @@ payout) and dark mode, both with zero console errors. Recipe/volume/
 skill-check magnitudes remain illustrative/tunable, as called out throughout
 this doc — nothing in that tuning blocks calling this Shipped.
 
+**v1.1 character body redesign** — the user tried the shipped game and
+reported not liking the character shape; they confirmed they wanted an
+"articulated humanoid" (a visible neck/shoulders and distinct arms, not a
+chibi/rounder direction) when asked to pick a direction. The root cause
+of the original blob look: `drawLibraryPerson`'s arm rectangles sat
+*underneath* the torso rectangle's x-range (only a ~1px sliver poking out
+past the torso's rounded corners), and the head circle's bottom edge
+overlapped directly into the torso's top edge with no gap — so arms were
+functionally invisible and there was no neck. Fixed by narrowing the
+torso so the arms sit fully outside its width (touching its edge, not
+hidden behind it) and inserting a small skin-tone neck rectangle between
+the head and the torso. Re-verified via a cropped Playwright screenshot
+at native pixel size: both arms and a clear neck are now visible on the
+player and every patron/personality template (they all share this one
+draw function). The `/projects` grid screenshot
+(`web/static/images/library/screenshot.png`) was recaptured with the new
+shape. No logic changed — `node --test`/`go test ./...` unaffected (450/450
+JS, Go green).
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the

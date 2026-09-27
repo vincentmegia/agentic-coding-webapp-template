@@ -360,11 +360,22 @@ export function drawLibraryPerson(ctx, x, y, opts = {}) {
   const s = (opts.scale ?? 1) * LIBRARY_PERSON_SCALE;
   const pants = personality.pantsColor || personality.bodyColor;
 
+  // Legs.
   drawRoundRect(ctx, x - 9 * s, y - 4 * s, 7 * s, 16 * s, 2 * s, pants);
   drawRoundRect(ctx, x + 2 * s, y - 4 * s, 7 * s, 16 * s, 2 * s, pants);
-  drawRoundRect(ctx, x - 13 * s, y - 24 * s, 7 * s, 18 * s, 3 * s, personality.bodyColor);
-  drawRoundRect(ctx, x + 6 * s, y - 24 * s, 7 * s, 18 * s, 3 * s, personality.bodyColor);
-  drawRoundRect(ctx, x - 12 * s, y - 26 * s, 24 * s, 22 * s, 7 * s, personality.bodyColor);
+
+  // Arms — positioned fully outside the torso's width below (touching its
+  // edge, not underneath it), so they read as distinct limbs instead of
+  // being swallowed by the torso's rounded corners into one blob.
+  drawRoundRect(ctx, x - 15 * s, y - 20 * s, 7 * s, 22 * s, 3 * s, personality.bodyColor);
+  drawRoundRect(ctx, x + 8 * s, y - 20 * s, 7 * s, 22 * s, 3 * s, personality.bodyColor);
+
+  // Torso (shirt) — narrower than the arm span above, on purpose.
+  drawRoundRect(ctx, x - 8 * s, y - 20 * s, 16 * s, 16 * s, 5 * s, personality.bodyColor);
+
+  // Neck — a visible skin-tone gap between the head and shoulders, so the
+  // head doesn't sit flush on the torso with no separation.
+  drawRoundRect(ctx, x - 3 * s, y - 24 * s, 6 * s, 4 * s, 1.5 * s, personality.headColor);
 
   ctx.fillStyle = personality.headColor;
   ctx.beginPath();
