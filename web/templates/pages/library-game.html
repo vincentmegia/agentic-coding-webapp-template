@@ -37,8 +37,46 @@
                                      aria-pressed to reflect the current
                                      floor.
        #library-fullscreen-button    Fullscreen toggle button.
+       #library-camera-button        Instant Top-Down/First Person camera
+                                     toggle, added per docs/features/
+                                     library-game.md's "First Person Mode"
+                                     Scope addition (the game shipped
+                                     without it; this is the follow-up
+                                     feature) — library-game.js flips its
+                                     label between "First Person"/"Top-Down
+                                     View" and toggles aria-pressed, same
+                                     pattern as #library-floor-button.
+       #library-fp-controls          First Person's own on-screen control
+                                     cluster (turn/move/interact) — hidden
+                                     by default (only relevant once First
+                                     Person is active; click-to-move doesn't
+                                     apply there, so First Person needs its
+                                     own controls, "for parity with the
+                                     existing on-screen Fullscreen/
+                                     floor-switch buttons" per the doc).
+                                     library-game.js toggles this element's
+                                     `hidden` class alongside
+                                     #library-camera-button's label flip.
+       #library-fp-turn-left-button
+       #library-fp-turn-right-button  Press-and-hold to turn the camera
+                                     left/right (same effect as holding the
+                                     Left/Right arrow keys).
+       #library-fp-forward-button
+       #library-fp-back-button        Press-and-hold to move forward/back
+                                     along the current facing (same effect
+                                     as holding the Up/Down arrow keys).
+       #library-fp-interact-button    Same action as the interact key
+                                     (Enter/Space) or a canvas click while
+                                     in First Person — interacts with
+                                     whichever station is centered in view
+                                     within range, via the exact same
+                                     station-arrival logic click-to-move
+                                     already uses in Top-Down mode.
        #library-interact-hint        Hover/interaction tooltip (hidden by
-                                     default, role="status").
+                                     default, role="status") — reused
+                                     as-is by First Person for its own
+                                     "station centered in view" prompt, not
+                                     a separate element.
        #library-toast                Transient message toast (hidden by
                                      default, role="status") — e.g. Karen's
                                      scripted line, minigame results.
@@ -143,6 +181,12 @@
 						>Go Upstairs</button>
 						<button
 							type="button"
+							id="library-camera-button"
+							aria-pressed="false"
+							class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>First Person</button>
+						<button
+							type="button"
 							id="library-fullscreen-button"
 							class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
 						>Fullscreen</button>
@@ -157,6 +201,51 @@
 							role="img"
 							aria-label="Library Shift play area"
 						>Your browser doesn't support the canvas element needed to play this game.</canvas>
+
+						{{/* First Person's own on-screen controls (doc's Scope: "on-screen
+						     buttons (for parity with the existing on-screen Fullscreen/
+						     floor-switch buttons), since click-to-move doesn't make sense
+						     without a visible top-down floor"). Hidden by default —
+						     library-game.js only unhides this alongside
+						     #library-camera-button's label flip into First Person. The
+						     wrapper is pointer-events-none so it never blocks canvas
+						     clicks/hover in Top-Down mode or the gaps between its own
+						     buttons; each button group re-enables pointer-events. */}}
+						<div id="library-fp-controls" class="hidden pointer-events-none absolute inset-x-0 bottom-2 flex items-end justify-between gap-2 px-3">
+							<div class="pointer-events-auto flex touch-none select-none gap-2">
+								<button
+									type="button"
+									id="library-fp-turn-left-button"
+									aria-label="Turn left"
+									class="rounded-card border border-line bg-surface/90 px-3 py-2 text-base font-medium text-ink shadow-sm transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>&#9664;</button>
+								<button
+									type="button"
+									id="library-fp-turn-right-button"
+									aria-label="Turn right"
+									class="rounded-card border border-line bg-surface/90 px-3 py-2 text-base font-medium text-ink shadow-sm transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>&#9654;</button>
+							</div>
+							<button
+								type="button"
+								id="library-fp-interact-button"
+								class="pointer-events-auto touch-none select-none rounded-card border border-line bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+							>Interact</button>
+							<div class="pointer-events-auto flex touch-none select-none gap-2">
+								<button
+									type="button"
+									id="library-fp-back-button"
+									aria-label="Move back"
+									class="rounded-card border border-line bg-surface/90 px-3 py-2 text-base font-medium text-ink shadow-sm transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>&#9660;</button>
+								<button
+									type="button"
+									id="library-fp-forward-button"
+									aria-label="Move forward"
+									class="rounded-card border border-line bg-surface/90 px-3 py-2 text-base font-medium text-ink shadow-sm transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>&#9650;</button>
+							</div>
+						</div>
 
 						{{/* Start screen — visible by default (this is the only screen
 						     shown pre-JS, matching cooking-game.html's convention). */}}

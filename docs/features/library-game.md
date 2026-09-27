@@ -57,6 +57,73 @@ screenshot of all three regular patrons side by side. Projects-grid
 screenshot recaptured again. `node --test`/`go test ./...` unaffected
 (450/450 JS, Go green) — cosmetic-only change.
 
+**v1.3 First Person Mode** — built per the Scope addition above (the
+user's explicit "seeing in first person and seeing anything but
+yourself"): a new `web/static/js/library/first-person.js` pure module
+(angle/distance projection math — `projectEntity`/`projectScene`/
+`screenXForAngleOffset`/`scaleForDistance`/`groundScreenY`/
+`findInteractTarget`, plus turning/moving helpers — fully unit-tested,
+`first-person.test.js`) driving a billboard-sprite camera in
+`library-game.js`: a floor/horizon gradient, every visible station/patron
+on the current floor projected by angle-and-distance from the player
+(FOV-culled, back-to-front painter's-algorithm sort) and drawn with the
+exact same `drawLibraryPerson`/station-drawing primitives Top-Down mode
+uses, just at a computed screen position/scale instead of a world
+position — no separate sprite art needed. A new `#library-camera-button`
+toggles instantly between modes with no loss of position/floor; a new
+`#library-fp-controls` cluster (turn left/right, move forward/back,
+interact) plus arrow-key equivalents drive movement, since click-to-move
+doesn't apply without a visible top-down floor; the interact
+action/prompt calls the exact same station-arrival logic the Top-Down
+click path already uses, not a duplicate. All five minigame overlays,
+the Sanity/Mood bars, and the HUD clock are unchanged and confirmed
+working identically in both camera modes.
+
+**Two real bugs found during verification** (the implementing agent's
+own manual-verification pass stalled/timed out before completing, so
+these were caught in a follow-up verification pass instead):
+
+1. **Stale compiled CSS made the on-screen Interact button unclickable.**
+   `web/templates/pages/library-game.html`'s new `#library-fp-controls`
+   bar uses `bottom-2` (among other new Tailwind classes), but
+   `web/static/css/output.css` hadn't been rebuilt since those classes
+   were added to the template, so the compiled stylesheet had no
+   `.bottom-2` rule at all. With no `bottom` value, the browser fell back
+   to the element's normal-flow static position — rendering the entire
+   control bar directly below the canvas, outside
+   `#library-canvas-wrapper`'s `overflow: hidden` box, where every button
+   was geometrically present but visually/interactively unreachable
+   (Playwright's actionability check reported the wrapper `<div>` itself
+   intercepting every click). Fixed by rebuilding CSS
+   (`npm run build:css`) — a build-step gap, not a logic bug, but a real
+   regression a manual click-through would have caught immediately.
+2. **Entering 2nd Floor left the player facing exactly backward.**
+   `floor-plan.js`'s `FLOOR_1_ENTRY_POINT`/`FLOOR_2_ENTRY_POINT` are both
+   defined as exactly the canvas center (`{x: 480, y: 300}` on the
+   960x600 canvas), and `defaultFacingTowardCenter` computes "face toward
+   the center" via `angleTo` from the player's own position — which, at
+   an entry point, already IS the center. That's a zero-distance
+   `Math.atan2(0, -0)` call, which JavaScript defines as returning `PI`
+   (not `0`), so every arrival at either floor's entry point silently
+   faced the player exactly backward instead of at the intended default.
+   Fixed by having `defaultFacingTowardCenter` special-case near-zero
+   distance and return `0` directly. Covered by a new regression test
+   (`first-person.test.js`'s "a player already exactly at the center
+   faces 0 (north), not PI").
+
+Re-verified after both fixes: `node --test web/static/js/library/*.test.js`
+(175/175, including the new regression test), full `npm run test:unit`
+(498/498), `go build`/`go vet`/`go test ./...` clean, and
+`e2e/library-game.spec.js`'s full 23-test suite green on both Chromium and
+WebKit, including every First Person test (camera toggle, sprite
+visibility, turn/move controls, Coffee Machine interaction via the Enter
+key, and the Stairs floor-switch/facing-reset test that exercised bug #2
+directly). Manually screenshotted First Person Mode via Playwright to
+confirm it reads as a genuine first-person view (floor/horizon split,
+centered crosshair, distance-scaled patron/station billboards, no player
+avatar, control buttons along the bottom) rather than a re-skinned
+top-down camera.
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the
@@ -158,6 +225,26 @@ sorting minigame, instead of Kitchen Shift's cooking/serving loop.
   `closing-wait` — a borrow/shelving trip could still be in progress on
   the 2nd Floor when the clock hits 11 PM, and the player must be able to
   come back down to reach the (1st-Floor-only) Boss's Office.
+* **First Person Mode**: an HUD toggle switching the camera from the
+  default top-down click-to-move view to a genuine first-person
+  perspective — the player sees the world from their character's own
+  eyes (floor/stations/patrons ahead of them) and does not see their own
+  avatar at all, per the user's explicit "seeing in first person and
+  seeing anything but yourself." Since there's no 3D engine or wall
+  textures anywhere in this codebase, the view is a lightweight
+  billboard-sprite perspective (a simple floor/horizon gradient, with
+  stations and patrons drawn as the same existing canvas-primitive art —
+  `drawLibraryPerson`, station shapes — scaled and horizontally
+  positioned by their angle/distance from the player, not a textured
+  raycast engine). Click-to-move doesn't apply in this mode, so it adds
+  its own controls: turn left/right and move forward/back (arrow keys or
+  on-screen buttons), plus a "look at a station, then interact" prompt
+  for whichever station is centered in view within range, functionally
+  equivalent to clicking that station in Top-Down mode. All five minigame
+  overlays are unchanged and camera-mode-agnostic (they're already
+  full-canvas takeovers). Switching modes is instant and preserves the
+  player's position/floor; it's a pure alternate camera+control scheme,
+  not a separate game mode with different rules.
 * `/library-game` added to the `/projects` grid (`internal/handler/
   pages.go`'s `projectItems`), following the exact Fishing Game/Kitchen
   Shift/Puzzle Solver pattern.

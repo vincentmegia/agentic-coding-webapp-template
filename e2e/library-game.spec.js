@@ -499,6 +499,147 @@ test.describe('leaderboard submission (final shift)', () => {
 	});
 });
 
+// First Person Mode (docs/features/library-game.md's Scope: added after the
+// game shipped, per the user's explicit "seeing in first person and seeing
+// anything but yourself"). Same "drive the real input path, use test hooks
+// only for exact positioning/facing so the test isn't hostage to walking
+// there via clicks" philosophy as the rest of this file:
+// `setPlayerPosition`/`setPlayerFacing` put the player in a known spot near
+// a station instead of navigating First Person's own turn/move controls to
+// find it (which the "on-screen buttons and arrow keys" test below already
+// covers on its own), then every interaction still goes through the real
+// button click/keyboard path into the exact same `handleArrival` station
+// logic Top-Down's click-to-move already uses.
+test.describe('First Person Mode', () => {
+	test('the camera toggle flips label/aria-pressed and shows/hides the First Person control cluster', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+
+		await expect(page.locator('#library-camera-button')).toHaveText('First Person');
+		await expect(page.locator('#library-camera-button')).toHaveAttribute('aria-pressed', 'false');
+		await expect(page.locator('#library-fp-controls')).toBeHidden();
+
+		await page.locator('#library-camera-button').click();
+		await expect(page.locator('#library-camera-button')).toHaveText('Top-Down View');
+		await expect(page.locator('#library-camera-button')).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.locator('#library-fp-controls')).toBeVisible();
+
+		await page.locator('#library-camera-button').click();
+		await expect(page.locator('#library-camera-button')).toHaveText('First Person');
+		await expect(page.locator('#library-fp-controls')).toBeHidden();
+	});
+
+	test("the player's own sprite is drawn every frame in Top-Down but never drawn in First Person", async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.wasPlayerSpriteDrawnLastFrame())).toBe(true);
+
+		await page.locator('#library-camera-button').click();
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.wasPlayerSpriteDrawnLastFrame())).toBe(false);
+
+		// And back again — confirms this is a live per-frame flag reacting to
+		// the toggle, not a one-time snapshot from shift start.
+		await page.locator('#library-camera-button').click();
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.wasPlayerSpriteDrawnLastFrame())).toBe(true);
+	});
+
+	test('on-screen buttons and arrow keys both turn and move the player', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await page.locator('#library-camera-button').click();
+
+		const initialFacing = await page.evaluate(() => window.__libraryGameTestHooks.getPlayerFacing());
+		await page.locator('#library-fp-turn-right-button').dispatchEvent('pointerdown');
+		await page.waitForTimeout(300);
+		await page.locator('#library-fp-turn-right-button').dispatchEvent('pointerup');
+		const afterButtonTurn = await page.evaluate(() => window.__libraryGameTestHooks.getPlayerFacing());
+		expect(Math.abs(afterButtonTurn - initialFacing)).toBeGreaterThan(0.1);
+
+		await page.keyboard.down('ArrowLeft');
+		await page.waitForTimeout(300);
+		await page.keyboard.up('ArrowLeft');
+		const afterKeyTurn = await page.evaluate(() => window.__libraryGameTestHooks.getPlayerFacing());
+		expect(Math.abs(afterKeyTurn - afterButtonTurn)).toBeGreaterThan(0.1);
+
+		const beforeMove = await page.evaluate(() => window.__libraryGameTestHooks.getPlayerPosition());
+		await page.locator('#library-fp-forward-button').dispatchEvent('pointerdown');
+		await page.waitForTimeout(300);
+		await page.locator('#library-fp-forward-button').dispatchEvent('pointerup');
+		const afterButtonMove = await page.evaluate(() => window.__libraryGameTestHooks.getPlayerPosition());
+		expect(Math.hypot(afterButtonMove.x - beforeMove.x, afterButtonMove.y - beforeMove.y)).toBeGreaterThan(5);
+
+		await page.keyboard.down('ArrowDown');
+		await page.waitForTimeout(300);
+		await page.keyboard.up('ArrowDown');
+		const afterKeyMove = await page.evaluate(() => window.__libraryGameTestHooks.getPlayerPosition());
+		expect(Math.hypot(afterKeyMove.x - afterButtonMove.x, afterKeyMove.y - afterButtonMove.y)).toBeGreaterThan(5);
+	});
+
+	test('interacting with the Coffee Machine in First Person (via the Enter key) restores Sanity, same as Top-Down', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+
+		// Sanity drains passively (rules.js's SANITY_DRAIN_PER_SECOND) — wait
+		// for that to be observable before checking the Coffee Machine
+		// actually restores it, same setup as the Top-Down Coffee Machine test.
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity)).toBeLessThan(100);
+
+		await page.locator('#library-camera-button').click();
+		const coffee = await getStation(page, 'coffee-machine');
+		await page.evaluate(({ x, y }) => {
+			window.__libraryGameTestHooks.setPlayerPosition(x, y + 60); // just south of it...
+			window.__libraryGameTestHooks.setPlayerFacing(0); // ...facing north, i.e. looking straight at it.
+		}, coffee);
+
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getFirstPersonScene().interactTarget?.ref?.kind))
+			.toBe('coffee-machine');
+
+		await page.keyboard.press('Enter');
+
+		const after = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity);
+		expect(after).toBeGreaterThan(99);
+	});
+
+	test('interacting with Stairs in First Person (via the on-screen Interact button) switches floors and resets to a sensible facing, same as Top-Down', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await page.locator('#library-camera-button').click();
+
+		const stairs = await getStation(page, 'stairs');
+		await page.evaluate(({ x, y }) => {
+			window.__libraryGameTestHooks.setPlayerPosition(x, y + 60);
+			window.__libraryGameTestHooks.setPlayerFacing(0);
+		}, stairs);
+
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getFirstPersonScene().interactTarget?.ref?.kind))
+			.toBe('stairs');
+
+		await page.locator('#library-fp-interact-button').click();
+
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getCurrentFloor())).toBe(2);
+		// FLOOR_2_ENTRY_POINT (floor-plan.js) is exactly the canvas center, so
+		// `defaultFacingTowardCenter` from that same point resolves to exactly 0.
+		const pos = await page.evaluate(() => window.__libraryGameTestHooks.getPlayerPosition());
+		expect(pos.x).toBeCloseTo(480, 0);
+		expect(pos.y).toBeCloseTo(300, 0);
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getPlayerFacing())).toBeCloseTo(0, 5);
+	});
+
+	test('toggling back to Top-Down after First Person still supports normal click-to-move', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+
+		await page.locator('#library-camera-button').click(); // -> First Person
+		await page.locator('#library-camera-button').click(); // -> back to Top-Down
+
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity)).toBeLessThan(100);
+		await walkToStation(page, 'coffee-machine');
+		const sanity = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity);
+		expect(sanity).toBeGreaterThan(99);
+	});
+});
+
 // Regression test for the same class of bug documented in cooking-game.js's
 // bootstrap()/fishing-game.spec.js's own revisit test: a `<script
 // type="module">`'s top-level code runs at most once per resolved URL for
@@ -555,6 +696,19 @@ test('no console errors on load and during play, including no CSP violations', a
 	await page.waitForTimeout(200);
 	await page.locator('#library-fullscreen-button').click();
 	await page.waitForTimeout(200);
+
+	// First Person Mode: toggle in, exercise its turn/move/interact controls
+	// for a few frames, then toggle back out.
+	await page.locator('#library-camera-button').click();
+	await page.locator('#library-fp-turn-right-button').dispatchEvent('pointerdown');
+	await page.waitForTimeout(150);
+	await page.locator('#library-fp-turn-right-button').dispatchEvent('pointerup');
+	await page.locator('#library-fp-forward-button').dispatchEvent('pointerdown');
+	await page.waitForTimeout(150);
+	await page.locator('#library-fp-forward-button').dispatchEvent('pointerup');
+	await page.locator('#library-fp-interact-button').click();
+	await page.waitForTimeout(200);
+	await page.locator('#library-camera-button').click();
 
 	expect(errors).toEqual([]);
 });

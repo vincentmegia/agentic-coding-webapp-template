@@ -102,6 +102,14 @@ import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
 } from './library/floor-plan.js';
+import {
+  defaultFacingTowardCenter,
+  projectScene,
+  findInteractTarget,
+  turnFacing,
+  stepForward,
+  MOVE_SPEED_PIXELS_PER_SECOND,
+} from './library/first-person.js';
 
 // ---------------------------------------------------------------------------
 // localStorage progress (doc's Data Model: "in-progress shift state, Gard,
@@ -464,6 +472,23 @@ export function init(canvas, elements) {
   let moveTarget = null; // { x, y, station: station|null }
   let hoverStation = null;
 
+  // First Person Mode (docs/features/library-game.md's Scope addition) —
+  // a pure alternate camera+control scheme over the SAME player.x/y/floor,
+  // not a separate game mode. `cameraMode` toggles which of render()'s two
+  // branches draws and which input path (click-to-move vs. turn/move/
+  // interact) is active; `playerFacing` only matters in First Person but is
+  // tracked unconditionally so switching floors (which picks a fresh
+  // "sensible facing angle" — see `switchFloor`) doesn't need special-casing.
+  let cameraMode = 'top-down'; // 'top-down' | 'first-person'
+  let playerFacing = 0;
+  const heldFP = { turnLeft: false, turnRight: false, forward: false, back: false };
+  // Recomputed once per frame by `updateFirstPersonScene` — the projected
+  // station/patron/book billboards for the current frame, and whichever one
+  // (if any) is centered near the crosshair within interact range. Read by
+  // both `render()`'s First Person branch and `updateHoverHint()`/
+  // `attemptInteract()`, so both act on the exact same frame's projection.
+  let fpScene = { projected: [], interactTarget: null };
+
   let currentShiftNumber = save.currentShift;
   let karenShiftNumber = karenShiftForSeed(save.karenSeed);
   let karenAvailable = false; // true once her scheduled appearance time has passed this shift, until triggered
@@ -558,9 +583,28 @@ export function init(canvas, elements) {
     return STATION_LABELS[station.kind] || '';
   }
 
+  /** The station a First Person interact target ultimately maps to, for hint-text purposes — front-desk slots/Return Cart books read as their parent station's label, same text a Top-Down hover over that station box would show. */
+  function labelForFPTarget(target) {
+    if (target.entityKind === 'station') return labelForStation(target.ref);
+    if (target.entityKind === 'frontDeskSlot') return labelForStation(stations.find((s) => s.kind === 'front-desk'));
+    if (target.entityKind === 'returnCartBook') return labelForStation(stations.find((s) => s.kind === 'return-cart'));
+    return '';
+  }
+
   function updateHoverHint() {
     if (overlay || !running) {
       elements.hoverHint.classList.add('hidden');
+      return;
+    }
+    if (cameraMode === 'first-person') {
+      const target = fpScene.interactTarget;
+      const label = target ? labelForFPTarget(target) : '';
+      if (!label) {
+        elements.hoverHint.classList.add('hidden');
+        return;
+      }
+      elements.hoverHint.textContent = label;
+      elements.hoverHint.classList.remove('hidden');
       return;
     }
     if (!hoverStation) {
@@ -640,7 +684,129 @@ export function init(canvas, elements) {
     player.y = entry.y;
     moveTarget = null;
     hoverStation = null;
+    // "Picking a sensible default facing angle... is fine" (doc's Scope) —
+    // face the new floor's room center rather than keeping whatever facing
+    // happened to be current, same reasoning as `setCameraMode`'s own
+    // default below. Harmless in Top-Down mode, which never reads facing.
+    playerFacing = defaultFacingTowardCenter(entry.x, entry.y, CANVAS_WIDTH, CANVAS_HEIGHT);
     updateFloorButton();
+  }
+
+  // -- First Person Mode ------------------------------------------------------
+  //
+  // A pure alternate camera+control scheme over the same player.x/y/floor
+  // (doc's Scope: "not a separate game mode with different rules"). Toggled
+  // instantly by `#library-camera-button`; click-to-move doesn't apply here,
+  // so it adds its own turn/move controls (keyboard + on-screen buttons) and
+  // an "interact" action that calls the exact same `handleArrival` station
+  // logic Top-Down's click-to-move already uses — see `attemptInteract`.
+
+  function setCameraMode(mode) {
+    if (cameraMode === mode) return;
+    cameraMode = mode;
+    if (mode === 'first-person') {
+      playerFacing = defaultFacingTowardCenter(player.x, player.y, CANVAS_WIDTH, CANVAS_HEIGHT);
+      hoverStation = null;
+      moveTarget = null; // stop any in-flight Top-Down walk — First Person has its own movement
+    } else {
+      heldFP.turnLeft = false;
+      heldFP.turnRight = false;
+      heldFP.forward = false;
+      heldFP.back = false;
+      fpScene = { projected: [], interactTarget: null };
+    }
+    updateCameraButton();
+    updateFPControlsVisibility();
+  }
+
+  function updateCameraButton() {
+    if (!elements.cameraButton) return;
+    const isFirstPerson = cameraMode === 'first-person';
+    elements.cameraButton.textContent = isFirstPerson ? 'Top-Down View' : 'First Person';
+    elements.cameraButton.setAttribute('aria-pressed', String(isFirstPerson));
+  }
+
+  function updateFPControlsVisibility() {
+    if (!elements.fpControls?.root) return;
+    elements.fpControls.root.classList.toggle('hidden', cameraMode !== 'first-person');
+  }
+
+  /** Builds this frame's First Person entity list: every station on the current floor, plus (1st Floor only, mirroring `drawFrontDeskSlots`/`drawReturnCartBooks`'s own floor gate) every front-desk patron slot and Return Cart book — the doc's "every station... and every visible patron on the current floor." */
+  function buildFirstPersonEntities() {
+    const entities = [];
+    for (const station of stationsOnFloor(stations, currentFloor)) {
+      entities.push({ id: station.id, x: station.x, y: station.y, entityKind: 'station', ref: station });
+    }
+    if (currentFloor === FLOOR_1) {
+      frontDeskSlots().forEach((slot, i) => {
+        entities.push({ id: `fd-${slot.id}`, x: slot.x, y: slot.y, entityKind: 'frontDeskSlot', ref: slot, slotIndex: i });
+      });
+      returnCartSlots().forEach((book) => {
+        entities.push({ id: `cart-${book.id}`, x: book.x, y: book.y, entityKind: 'returnCartBook', ref: book });
+      });
+    }
+    return entities;
+  }
+
+  /** Recomputes this frame's projection + interact target — called once per frame from `loop`, read by both `render()` and `updateHoverHint()`/`attemptInteract()` so all three act on the same frame's numbers. */
+  function updateFirstPersonScene() {
+    if (cameraMode !== 'first-person') {
+      fpScene = { projected: [], interactTarget: null };
+      return;
+    }
+    const projected = projectScene(
+      { x: player.x, y: player.y, facing: playerFacing },
+      buildFirstPersonEntities(),
+      { canvasWidth: CANVAS_WIDTH },
+    );
+    fpScene = { projected, interactTarget: findInteractTarget(projected) };
+  }
+
+  function updateFirstPersonMovement(deltaSeconds) {
+    if (cameraMode !== 'first-person') return;
+    let turnDirection = 0;
+    if (heldFP.turnLeft) turnDirection -= 1;
+    if (heldFP.turnRight) turnDirection += 1;
+    if (turnDirection !== 0) playerFacing = turnFacing(playerFacing, turnDirection, deltaSeconds);
+
+    let moveDirection = 0;
+    if (heldFP.forward) moveDirection += 1;
+    if (heldFP.back) moveDirection -= 1;
+    if (moveDirection !== 0) {
+      const sanityMultiplier = walkSpeedMultiplierForSanity(shiftState ? shiftState.sanity : SANITY_MAX);
+      const distance = MOVE_SPEED_PIXELS_PER_SECOND * sanityMultiplier * deltaSeconds;
+      const next = stepForward(player.x, player.y, playerFacing, moveDirection, distance);
+      const clamped = clampToCanvas(next.x, next.y);
+      player.x = clamped.x;
+      player.y = clamped.y;
+    }
+  }
+
+  /**
+   * First Person's "interact" action — the interact key/button, or a canvas
+   * click while in First Person (doc: "a 'look at a station, then interact'
+   * prompt... functionally equivalent to clicking that station in Top-Down
+   * mode"). Deliberately calls into the SAME functions Top-Down's
+   * click-to-move arrival already uses (`handleArrival`, and the same
+   * pending-action queue variables `onCanvasClick` sets for a front-desk
+   * slot/Return Cart book click) rather than duplicating any of that logic.
+   */
+  function attemptInteract() {
+    if (!running || overlay || cameraMode !== 'first-person') return;
+    const target = fpScene.interactTarget;
+    if (!target) return;
+    if (target.entityKind === 'frontDeskSlot') {
+      const slot = target.ref;
+      pendingFrontDeskAction = slot.kind === 'karen' ? { kind: 'karen' } : { kind: slot.kind, id: slot.id };
+      handleArrival(stations.find((s) => s.kind === 'front-desk'));
+    } else if (target.entityKind === 'returnCartBook') {
+      if (shiftState && !shiftState.carriedBook) {
+        pendingCartPickupId = target.ref.id;
+        handleArrival(stations.find((s) => s.kind === 'return-cart'));
+      }
+    } else if (target.entityKind === 'station') {
+      handleArrival(target.ref);
+    }
   }
 
   // -- Front Desk / Return Cart queue slots ---------------------------------
@@ -982,6 +1148,15 @@ export function init(canvas, elements) {
       return;
     }
 
+    // Click-to-move doesn't apply in First Person (doc's Scope) — a canvas
+    // click there is instead the same "interact" action as the interact
+    // key/on-screen button, per that same section's "pressing the interact
+    // key/clicking triggers the exact same station-arrival logic."
+    if (cameraMode === 'first-person') {
+      attemptInteract();
+      return;
+    }
+
     if (shiftState && shiftState.phase === 'playing') {
       const slot = frontDeskSlotAtPoint(x, y);
       if (slot) {
@@ -1008,7 +1183,7 @@ export function init(canvas, elements) {
   }
 
   function onCanvasMouseMove(e) {
-    if (overlay) return;
+    if (overlay || cameraMode === 'first-person') return;
     const { x, y } = canvasCoordsFromEvent(e);
     hoverStation = stationAtPoint(x, y, stationsOnFloor(stations, currentFloor));
   }
@@ -1016,6 +1191,9 @@ export function init(canvas, elements) {
   function onCanvasMouseLeave() {
     hoverStation = null;
   }
+
+  const FP_TURN_KEYS = { ArrowLeft: 'turnLeft', ArrowRight: 'turnRight' };
+  const FP_MOVE_KEYS = { ArrowUp: 'forward', ArrowDown: 'back' };
 
   function onKeyDown(e) {
     if (overlay && (e.key === ' ' || e.key === 'Enter')) {
@@ -1028,10 +1206,36 @@ export function init(canvas, elements) {
       if (overlay.kind === 'skill-check') resolveSkillCheck();
       return;
     }
+
+    // First Person's own turn/move/interact keys (doc's Scope: "arrow keys
+    // or on-screen buttons") — arrow keys are otherwise unused anywhere in
+    // this game, so there's no conflict with the existing Enter/Space
+    // handling above or below. Held (not one-shot): keydown sets the flag,
+    // `onKeyUp` clears it, and `updateFirstPersonMovement` applies it every
+    // frame for as long as it's held, same press-and-hold feel as the
+    // on-screen buttons.
+    if (cameraMode === 'first-person' && running && !overlay) {
+      if (e.key in FP_TURN_KEYS || e.key in FP_MOVE_KEYS) {
+        e.preventDefault();
+        heldFP[FP_TURN_KEYS[e.key] ?? FP_MOVE_KEYS[e.key]] = true;
+        return;
+      }
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        attemptInteract();
+        return;
+      }
+    }
+
     if (e.key !== 'Enter') return;
     if (overlay || !running || !hoverStation) return;
     e.preventDefault();
     commitStationTarget(hoverStation, null);
+  }
+
+  function onKeyUp(e) {
+    if (e.key in FP_TURN_KEYS) heldFP[FP_TURN_KEYS[e.key]] = false;
+    else if (e.key in FP_MOVE_KEYS) heldFP[FP_MOVE_KEYS[e.key]] = false;
   }
 
   // -- Shift lifecycle ----------------------------------------------------
@@ -1041,6 +1245,11 @@ export function init(canvas, elements) {
     karenShiftNumber = karenShiftForSeed(save.karenSeed);
     shiftState = startShiftState(createInitialState(currentShiftNumber, karenShiftNumber));
     player = { ...PLAYER_START };
+    playerFacing = defaultFacingTowardCenter(player.x, player.y, CANVAS_WIDTH, CANVAS_HEIGHT);
+    heldFP.turnLeft = false;
+    heldFP.turnRight = false;
+    heldFP.forward = false;
+    heldFP.back = false;
     currentFloor = FLOOR_1;
     updateFloorButton();
     moveTarget = null;
@@ -1213,17 +1422,37 @@ export function init(canvas, elements) {
     ctx.restore();
   }
 
-  function drawStation(station) {
-    const isHovered = hoverStation && hoverStation.id === station.id;
-    const isTarget = moveTarget && moveTarget.station && moveTarget.station.id === station.id;
+  /**
+   * Draws one station's box. `opts` is First Person's billboard hook (doc's
+   * "draw it via the *same* existing drawing functions... whatever
+   * function(s) draw station boxes"): passing `opts.scale`/`centerX`/
+   * `centerY` draws this exact same art scaled and positioned anywhere on
+   * screen instead of at the station's own world x/y, via a single
+   * `ctx.scale` transform rather than rewriting every fixed pixel offset
+   * below — Top-Down's own call site (`drawStation(station)`, no opts)
+   * renders byte-for-byte as before (scale 1, centered on the station's own
+   * world position, hover/target highlight and label both still apply).
+   * `opts.skipLabel` skips the on-canvas label chip — First Person shows the
+   * same text via `#library-interact-hint` instead (see `updateHoverHint`),
+   * since a label chip glued to a shrinking/growing billboard reads poorly
+   * at a distance.
+   */
+  function drawStation(station, opts = {}) {
+    const billboard = opts.scale !== undefined;
+    const scale = opts.scale ?? 1;
+    const isHovered = !billboard && hoverStation && hoverStation.id === station.id;
+    const isTarget = !billboard && moveTarget && moveTarget.station && moveTarget.station.id === station.id;
     const half = station.size / 2;
     const genre = station.kind === 'bookshelf' ? findGenre(station.genreId) : null;
     const baseColor = genre ? genre.color : (STATION_COLORS[station.kind] || '#8a6a4a');
     const locked = station.kind === 'boss-office' && shiftState
       && shiftState.phase !== 'closing-wait' && shiftState.phase !== 'paycheck';
+    const cx = opts.centerX ?? station.x;
+    const cy = opts.centerY ?? station.y;
 
     ctx.save();
-    ctx.translate(Math.round(station.x), Math.round(station.y));
+    ctx.translate(Math.round(cx), Math.round(cy));
+    ctx.scale(scale, scale);
 
     if (station.kind === 'elevator') {
       // Visually distinct from Stairs (below) — a rounded shape with
@@ -1271,10 +1500,12 @@ export function init(canvas, elements) {
     ctx.roundRect(-half + 1, -half + 1, station.size - 2, station.size - 2, 8);
     ctx.stroke();
 
-    const label = labelForStation(station);
-    if (label) {
-      const labelBelowFits = station.y + half + 13 + 7 <= CANVAS_HEIGHT;
-      drawLabelChip(ctx, 0, labelBelowFits ? half + 13 : -half - 13, label, 'bold 11px sans-serif');
+    if (!opts.skipLabel) {
+      const label = labelForStation(station);
+      if (label) {
+        const labelBelowFits = cy + half + 13 + 7 <= CANVAS_HEIGHT;
+        drawLabelChip(ctx, 0, labelBelowFits ? half + 13 : -half - 13, label, 'bold 11px sans-serif');
+      }
     }
 
     ctx.restore();
@@ -1336,7 +1567,15 @@ export function init(canvas, elements) {
     return null;
   }
 
+  // Set by `drawPlayer` (Top-Down only — First Person never calls it, per
+  // the doc's "the player's own sprite is never drawn in this mode"), reset
+  // false at the top of every `render()`. Exists so a test can assert this
+  // directly (`window.__libraryGameTestHooks.wasPlayerSpriteDrawnLastFrame`)
+  // rather than inferring it from pixel sampling.
+  let lastFrameDrewPlayerSprite = false;
+
   function drawPlayer() {
+    lastFrameDrewPlayerSprite = true;
     drawLibraryPerson(ctx, player.x, player.y, { personalityKey: 'shyStudent', scale: 1 });
     const badge = currentPlayerBadge();
     if (badge) {
@@ -1587,12 +1826,131 @@ export function init(canvas, elements) {
     else if (overlay.kind === 'karen') drawKarenOverlay();
   }
 
+  // -- First Person rendering --------------------------------------------
+
+  const FP_HORIZON_Y = CANVAS_HEIGHT / 2;
+  const FP_CEILING_COLOR = '#e8ddc8';
+  const FP_FLOOR_COLOR_NEAR = '#cbab7c';
+  const FP_FLOOR_COLOR_FAR = '#b08f5e';
+
+  /**
+   * Doc's Visual Direction for First Person: "a simple background: a
+   * floor-color band below a horizon line and a sky/ceiling-color band
+   * above it" — no wall texture or raycast, just the two flat bands plus a
+   * subtle floor gradient for a cheap sense of depth.
+   */
+  function drawFirstPersonBackground() {
+    ctx.fillStyle = FP_CEILING_COLOR;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, FP_HORIZON_Y);
+
+    const floorGradient = ctx.createLinearGradient(0, FP_HORIZON_Y, 0, CANVAS_HEIGHT);
+    floorGradient.addColorStop(0, FP_FLOOR_COLOR_NEAR);
+    floorGradient.addColorStop(1, FP_FLOOR_COLOR_FAR);
+    ctx.fillStyle = floorGradient;
+    ctx.fillRect(0, FP_HORIZON_Y, CANVAS_WIDTH, CANVAS_HEIGHT - FP_HORIZON_Y);
+
+    ctx.strokeStyle = 'rgba(58,42,42,0.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, FP_HORIZON_Y);
+    ctx.lineTo(CANVAS_WIDTH, FP_HORIZON_Y);
+    ctx.stroke();
+
+    ctx.fillStyle = '#8a6a4a';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(currentFloor === FLOOR_1 ? '1st Floor' : '2nd Floor', CANVAS_WIDTH / 2, 24);
+  }
+
+  /**
+   * Draws one projected entity (as produced by `first-person.js`'s
+   * `projectScene`) via the SAME art functions Top-Down uses —
+   * `drawLibraryPerson` for a front-desk patron, `drawStation`'s billboard
+   * mode for every station — per the doc's explicit instruction not to
+   * reinvent the art for this camera mode. `entity.groundY` is where the
+   * entity's ground-contact point sits on screen (first-person.js's
+   * perspective stand-in); each branch below anchors its own art to that
+   * point using its own known height, same as Top-Down anchors each shape
+   * to the station/player's own y.
+   */
+  function drawFirstPersonEntity(entity) {
+    if (entity.entityKind === 'frontDeskSlot') {
+      const slot = entity.ref;
+      const personality = personalityForSlot(slot, entity.slotIndex ?? 0);
+      drawLibraryPerson(ctx, entity.screenX, entity.groundY, {
+        personalityKey: personality,
+        scale: entity.scale * 0.62,
+        angryTint: slot.kind === 'karen',
+      });
+      return;
+    }
+    if (entity.entityKind === 'returnCartBook') {
+      const book = entity.ref;
+      const genre = findGenre(book.genreId);
+      const w = 18 * entity.scale;
+      const h = 24 * entity.scale;
+      drawRoundRect(ctx, entity.screenX - w / 2, entity.groundY - h, w, h, 2 * entity.scale, genre ? genre.color : '#8a6a4a');
+      return;
+    }
+    // 'station' — anchor the box's bottom edge (not its center) to groundY,
+    // so it visually "stands" on the floor band rather than floating
+    // centered on the horizon.
+    const station = entity.ref;
+    const halfOnScreen = (station.size / 2) * entity.scale;
+    drawStation(station, {
+      scale: entity.scale,
+      centerX: entity.screenX,
+      centerY: entity.groundY - halfOnScreen,
+      skipLabel: true,
+    });
+  }
+
+  function drawFirstPersonCrosshair() {
+    const cx = CANVAS_WIDTH / 2;
+    const cy = CANVAS_HEIGHT / 2;
+    const armLength = 9;
+    const gap = 3;
+    ctx.save();
+    ctx.strokeStyle = fpScene.interactTarget ? '#e0a83a' : 'rgba(58,42,42,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - armLength, cy);
+    ctx.lineTo(cx - gap, cy);
+    ctx.moveTo(cx + gap, cy);
+    ctx.lineTo(cx + armLength, cy);
+    ctx.moveTo(cx, cy - armLength);
+    ctx.lineTo(cx, cy - gap);
+    ctx.moveTo(cx, cy + gap);
+    ctx.lineTo(cx, cy + armLength);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawFirstPersonView() {
+    drawFirstPersonBackground();
+    // `fpScene.projected` is already sorted back-to-front by
+    // `first-person.js`'s `projectScene` — drawing in that order alone
+    // gives correct nearer-over-farther layering (simple painter's
+    // algorithm), no per-entity z-check needed here.
+    for (const entity of fpScene.projected) drawFirstPersonEntity(entity);
+    drawFirstPersonCrosshair();
+  }
+
   function render() {
-    drawFloor();
-    stationsOnFloor(stations, currentFloor).forEach((station) => drawStation(station));
-    drawReturnCartBooks();
-    drawFrontDeskSlots();
-    drawPlayer();
+    lastFrameDrewPlayerSprite = false;
+    if (cameraMode === 'first-person') {
+      drawFirstPersonView();
+    } else {
+      drawFloor();
+      stationsOnFloor(stations, currentFloor).forEach((station) => drawStation(station));
+      drawReturnCartBooks();
+      drawFrontDeskSlots();
+      drawPlayer();
+    }
+    // Doc's Scope: "Sanity/Mood bars, the HUD clock, and all five minigame
+    // overlays are unchanged and must still work identically in First
+    // Person Mode" — drawn unconditionally, outside the camera-mode branch
+    // above, same as every other frame.
     drawSanityBar();
     drawLibraryMoodBar();
     drawOverlay();
@@ -1606,7 +1964,10 @@ export function init(canvas, elements) {
     const deltaSeconds = Math.min(0.1, (timestamp - lastTimestamp) / 1000);
     lastTimestamp = timestamp;
 
-    if (!overlay) updatePlayer(deltaSeconds);
+    if (!overlay) {
+      updatePlayer(deltaSeconds);
+      updateFirstPersonMovement(deltaSeconds);
+    }
 
     const beforeBorrowStage = shiftState.activeBorrow?.stage;
     const beforeKarenActive = shiftState.karen.active;
@@ -1624,6 +1985,7 @@ export function init(canvas, elements) {
     if (shiftState.phase === 'playing') processScheduledEvents();
 
     updateOverlay(deltaSeconds);
+    updateFirstPersonScene();
     updateHoverHint();
     renderHud();
     render();
@@ -1662,10 +2024,34 @@ export function init(canvas, elements) {
   canvas.addEventListener('mousemove', onCanvasMouseMove);
   canvas.addEventListener('mouseleave', onCanvasMouseLeave);
   document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
   document.addEventListener('visibilitychange', onVisibilityChange);
   elements.fullscreenButton.addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', onFullscreenChange);
   elements.floorButton?.addEventListener('click', () => switchFloor(currentFloor === FLOOR_1 ? FLOOR_2 : FLOOR_1));
+  elements.cameraButton?.addEventListener('click', () => setCameraMode(cameraMode === 'top-down' ? 'first-person' : 'top-down'));
+
+  // First Person's on-screen turn/move buttons (doc: "on-screen buttons (for
+  // parity with the existing on-screen Fullscreen/floor-switch buttons)") —
+  // press-and-hold, same continuous-while-held feel as the arrow keys
+  // (`onKeyDown`/`onKeyUp`), not a one-shot click. Pointer events cover
+  // mouse and touch alike; `pointerleave`/`pointercancel` guard against a
+  // press that ends by the pointer sliding off the button rather than a
+  // clean release, which would otherwise leave the direction stuck "held."
+  function bindHoldButton(button, key) {
+    if (!button) return;
+    const press = (e) => { e.preventDefault(); heldFP[key] = true; };
+    const release = () => { heldFP[key] = false; };
+    button.addEventListener('pointerdown', press);
+    button.addEventListener('pointerup', release);
+    button.addEventListener('pointerleave', release);
+    button.addEventListener('pointercancel', release);
+  }
+  bindHoldButton(elements.fpControls?.turnLeftButton, 'turnLeft');
+  bindHoldButton(elements.fpControls?.turnRightButton, 'turnRight');
+  bindHoldButton(elements.fpControls?.forwardButton, 'forward');
+  bindHoldButton(elements.fpControls?.backButton, 'back');
+  elements.fpControls?.interactButton?.addEventListener('click', attemptInteract);
 
   elements.startScreen.shiftButton.addEventListener('click', startShift);
   elements.paycheckScreen.nextShiftButton.addEventListener('click', startShift);
@@ -1690,6 +2076,7 @@ export function init(canvas, elements) {
     canvas.removeEventListener('mousemove', onCanvasMouseMove);
     canvas.removeEventListener('mouseleave', onCanvasMouseLeave);
     document.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('keyup', onKeyUp);
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('visibilitychange', onVisibilityChange);
     document.body.removeEventListener('htmx:beforeSwap', teardown);
@@ -1714,12 +2101,26 @@ export function init(canvas, elements) {
   if (typeof window !== 'undefined') {
     window.__libraryGameTestHooks = {
       getPlayerPosition: () => ({ ...player }),
+      setPlayerPosition: (x, y) => { player.x = x; player.y = y; },
       isPlayerMoving: () => moveTarget !== null,
       getCurrentFloor: () => currentFloor,
       getStations: () => stations.map((s) => ({ ...s })),
       getFrontDeskSlots: () => frontDeskSlots(),
       getReturnCartSlots: () => returnCartSlots(),
       getOverlay: () => (overlay ? JSON.parse(JSON.stringify(overlay)) : null),
+      // First Person Mode hooks — same "expose exact state, drive the real
+      // input path" spirit as the rest of this object: tests call
+      // `setCameraMode`/`setPlayerFacing` to get into a known camera/facing
+      // state without hunting for the right turn amount, then still drive
+      // the SAME `attemptInteract`/keyboard/on-screen-button paths a real
+      // player uses for movement and interaction.
+      getCameraMode: () => cameraMode,
+      setCameraMode: (mode) => setCameraMode(mode),
+      getPlayerFacing: () => playerFacing,
+      setPlayerFacing: (facing) => { playerFacing = facing; },
+      getFirstPersonScene: () => JSON.parse(JSON.stringify(fpScene)),
+      attemptInteractNow: () => attemptInteract(),
+      wasPlayerSpriteDrawnLastFrame: () => lastFrameDrewPlayerSprite,
       getShiftState: () => shiftState,
       isBossOfficeReady: () => shiftState && isBossOfficeReady(shiftState),
       spawnBookNow(isCoinHunt) { if (shiftState?.phase === 'playing') spawnBook(Boolean(isCoinHunt)); },
@@ -1780,6 +2181,15 @@ function bootstrap() {
     toast: document.getElementById('library-toast'),
     fullscreenButton: document.getElementById('library-fullscreen-button'),
     floorButton: document.getElementById('library-floor-button'),
+    cameraButton: document.getElementById('library-camera-button'),
+    fpControls: {
+      root: document.getElementById('library-fp-controls'),
+      turnLeftButton: document.getElementById('library-fp-turn-left-button'),
+      turnRightButton: document.getElementById('library-fp-turn-right-button'),
+      forwardButton: document.getElementById('library-fp-forward-button'),
+      backButton: document.getElementById('library-fp-back-button'),
+      interactButton: document.getElementById('library-fp-interact-button'),
+    },
     startScreen: {
       root: document.getElementById('library-start-screen'),
       shiftButton: document.getElementById('library-start-shift-button'),
