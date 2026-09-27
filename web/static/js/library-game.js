@@ -232,6 +232,22 @@ function drawLabelChip(ctx, x, y, text, font) {
   ctx.restore();
 }
 
+/** Truncates `text` (adding "…") to fit within `maxWidth` at `font`, measured via the same canvas context text will render in — used wherever a label chip's width must stay bounded (e.g. front-desk slots sitting only 46px apart) rather than auto-sizing to a title of arbitrary length. */
+function truncateForChip(ctx, text, maxWidth, font) {
+  ctx.save();
+  ctx.font = font;
+  if (ctx.measureText(text).width <= maxWidth) {
+    ctx.restore();
+    return text;
+  }
+  let truncated = text;
+  while (truncated.length > 1 && ctx.measureText(`${truncated}…`).width > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+  ctx.restore();
+  return `${truncated}…`;
+}
+
 // ---------------------------------------------------------------------------
 // Big, expressive pixel characters (doc's Visual Direction: "make the
 // characters BIG," a personality-template system with distinct
@@ -838,7 +854,7 @@ export function init(canvas, elements) {
     const cart = stations.find((s) => s.kind === 'return-cart');
     return shiftState.returnCart.slice(0, 5).map((book, i) => ({
       ...book,
-      x: cart.x - 60 + (i % 5) * 30,
+      x: cart.x - 68 + (i % 5) * 34,
       y: cart.y + cart.size / 2 + 34,
     }));
   }
@@ -869,7 +885,14 @@ export function init(canvas, elements) {
   function spawnBook(forceCoinHunt) {
     const genre = GENRES[Math.floor(random() * GENRES.length)];
     const isCoinHunt = forceCoinHunt ?? isCoinHuntBook(random());
-    const book = { id: `book-${bookIdCounter++}`, genreId: genre.id, isCoinHunt };
+    // `title` is purely cosmetic (drawn on the Return Cart cover and the
+    // Coin Hunt header — user feedback: "i dunno what book it is") — it
+    // rides along on the plain object engine-state.js's addBookToCart/
+    // pickUpBook store and pass through verbatim (they never touch fields
+    // they don't know about), so no engine-state.js/rules.js change is
+    // needed to carry it all the way to `carriedBook`.
+    const title = titleForGenre(genre.id, random);
+    const book = { id: `book-${bookIdCounter++}`, genreId: genre.id, isCoinHunt, title };
     shiftState = addBookToCart(shiftState, book);
   }
 
@@ -1515,10 +1538,34 @@ export function init(canvas, elements) {
     if (currentFloor !== FLOOR_1) return;
     for (const book of returnCartSlots()) {
       const genre = findGenre(book.genreId);
-      drawRoundRect(ctx, book.x - 9, book.y - 12, 18, 24, 2, genre ? genre.color : '#8a6a4a');
+      const coverX = book.x - 12;
+      const coverY = book.y - 16;
+      const coverW = 26;
+      const coverH = 32;
+      drawRoundRect(ctx, coverX, coverY, coverW, coverH, 2, genre ? genre.color : '#8a6a4a');
       ctx.fillStyle = 'rgba(255,251,246,0.5)';
-      ctx.fillRect(book.x - 9, book.y - 12, 3, 24);
-      if (book.isCoinHunt) drawStar(ctx, book.x + 8, book.y - 14, 5, 2, '#f2d98a');
+      ctx.fillRect(coverX, coverY, 3, coverH);
+      // Title on the front cover — user feedback: "i dunno what book it
+      // is" when choosing among the cart's covers. Clipped strictly to
+      // this book's own cover rect (real bug found in manual review:
+      // without a clip, a title wider than the ~26px-wide cover bled
+      // visibly into the neighboring book 34px away, making both
+      // unreadable) — so a long title is cleanly cropped, never
+      // overlapping the book next to it.
+      if (book.title) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(coverX, coverY, coverW, coverH);
+        ctx.clip();
+        ctx.fillStyle = '#fdf8ee';
+        ctx.font = 'bold 7px sans-serif';
+        ctx.textAlign = 'center';
+        const words = book.title.split(' ');
+        ctx.fillText(words.slice(0, 2).join(' '), book.x + 1, book.y - 3);
+        if (words.length > 2) ctx.fillText(words.slice(2, 4).join(' '), book.x + 1, book.y + 6);
+        ctx.restore();
+      }
+      if (book.isCoinHunt) drawStar(ctx, book.x + 11, book.y - 18, 5, 2, '#f2d98a');
     }
     const cart = stations.find((s) => s.kind === 'return-cart');
     if (shiftState && shiftState.returnCart.length > 5) {
@@ -1546,6 +1593,13 @@ export function init(canvas, elements) {
         const entry = bookCatalog.get(slot.bookId);
         const genre = entry ? findGenre(entry.genreId) : null;
         drawRoundRect(ctx, slot.x + 8, slot.y - 66, 10, 14, 1, genre ? genre.color : '#8a6a4a');
+        // Front-desk slots sit only 46px apart (frontDeskSlots) — a full
+        // title's label chip (drawLabelChip auto-sizes to text width, no
+        // wrapping) can run wider than that and spill into the
+        // neighboring slot's own chip, same class of overflow bug as the
+        // Return Cart covers above. Truncated to a short, single-word-ish
+        // snippet that reliably stays inside one slot's width instead.
+        if (entry?.title) drawLabelChip(ctx, slot.x, slot.y + 20, truncateForChip(ctx, entry.title, 40, 'bold 9px sans-serif'), 'bold 9px sans-serif');
       } else if (slot.kind === 'karen') {
         drawLabelChip(ctx, slot.x, slot.y + 20, 'Karen!', 'bold 10px sans-serif');
       }
@@ -1733,7 +1787,13 @@ export function init(canvas, elements) {
     ctx.fillStyle = LABEL_TEXT_COLOR;
     ctx.font = 'bold 20px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Coin Hunt — find every coin and bill', CANVAS_WIDTH / 2, 170);
+    const huntTitle = shiftState?.carriedBook?.title;
+    if (huntTitle) ctx.font = 'bold 16px sans-serif'; // a bit smaller than the plain header, to keep the longest titles on one line within the box
+    ctx.fillText(
+      huntTitle ? `Coin Hunt — "${huntTitle}" — find every coin and bill` : 'Coin Hunt — find every coin and bill',
+      CANVAS_WIDTH / 2,
+      170,
+    );
     for (const item of overlay.items) {
       if (item.found) continue;
       drawCoinIcon(item.x, item.y, item.isBill);

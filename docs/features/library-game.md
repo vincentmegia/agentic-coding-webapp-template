@@ -124,6 +124,51 @@ centered crosshair, distance-scaled patron/station billboards, no player
 avatar, control buttons along the bottom) rather than a re-skinned
 top-down camera.
 
+**v1.4 book titles on the front cover** — the user reported "the mini
+games have problems... i dunno what book it is" for the Coin Hunt/Return
+Cart/borrow-request flows (Find the Book already showed titles on its
+candidate books; the others never rendered a title anywhere).
+`spawnBook` now assigns each Return Cart book a `title` (via the existing
+`titleForGenre` pool, already used for borrow requests) — a plain field
+on the object `addBookToCart`/`pickUpBook` (engine-state.js) already pass
+through untouched, so no pure-logic-layer change was needed to carry it
+to `carriedBook`. Rendered in three places: the Return Cart's own book
+covers, the Coin Hunt overlay's header (`Coin Hunt — "<title>" — find
+every coin and bill`), and the front-desk borrow slot (a label chip below
+the patron, same treatment as the fine amount chip).
+
+**Two real overflow bugs caught during visual review** (not caught by
+the automated suite, since it drives every minigame via exact coordinates
+from `getOverlay()`/`getReturnCartSlots()` rather than actually reading
+rendered text — a gap worth knowing about for any future purely-cosmetic
+text change):
+
+1. A title text wider than a Return Cart book's ~22px-wide cover bled
+   directly into the neighboring book 30px away, since nothing clipped
+   the draw — two adjacent books' titles visually merged into one
+   unreadable smear. Fixed by widening each cover (22x30 → 26x32) and the
+   cart's per-slot spacing (30px → 34px) *and*, more importantly, clipping
+   the title draw to the book's own cover rect (`ctx.clip()`) so any
+   remaining overflow is cropped cleanly rather than spilling outward
+   regardless of title length.
+2. Front-desk slots sit only 46px apart; `drawLabelChip` auto-sizes to
+   its text's full width with no wrapping or truncation, so a full title
+   like "Complete Grammar Guide" rendered a chip wider than the slot
+   spacing itself, overlapping the neighboring slot's own chip. Fixed
+   with a new `truncateForChip` helper (measures against the real font,
+   appends "…" only if needed) capping the borrow slot's title chip to a
+   safe width.
+
+Re-verified via cropped Playwright screenshots at native scale: three
+Return Cart books with different long titles show fully distinct,
+non-overlapping cover text; a front-desk fine chip ("45g") and an
+adjacent borrow-title chip ("The Sil…") render side by side with no
+overlap; the Coin Hunt header fits a full title on one line inside its
+box. `node --test web/static/js/library/*.test.js` (175/175, unaffected —
+this is a pure-rendering change) and `e2e/library-game.spec.js`'s full
+23-test suite (both Chromium and WebKit) still green, confirming the
+widened Return Cart spacing didn't break click hit-testing on any book.
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the
