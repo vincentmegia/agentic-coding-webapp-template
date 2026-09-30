@@ -23,11 +23,34 @@
 {{define "resume-content"}}
 <main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
 	<div class="space-y-6">
-		{{/* Plain button, no hx-* attributes: printing has no server round
-		     trip (docs/features/resume.md's HTMX Interactions). Outside the
-		     banner per the spec. resume-print.js (owned by a parallel agent)
-		     binds the click handler that calls window.print(). */}}
-		<div class="flex justify-end">
+		{{/* Export row: three plain links/buttons, no hx-* attributes.
+		     Download PDF/Word are ordinary GET links to
+		     internal/handler/resume_export.go's routes — a real server
+		     round trip, unlike Print, which stays a client-only
+		     window.print() call with no request at all
+		     (docs/features/resume-export.md's HTMX Interactions). Outside
+		     the banner per the original spec this replaces. */}}
+		<div class="flex flex-wrap justify-end gap-2">
+			<a
+				href="/resume/download.pdf"
+				id="resume-download-pdf"
+				class="inline-flex items-center gap-2 rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-sm transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true">
+					<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+				</svg>
+				<span>Download PDF</span>
+			</a>
+			<a
+				href="/resume/download.docx"
+				id="resume-download-word"
+				class="inline-flex items-center gap-2 rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-sm transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true">
+					<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+				</svg>
+				<span>Download Word</span>
+			</a>
 			<button
 				type="button"
 				id="resume-print-button"
@@ -36,7 +59,7 @@
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true">
 					<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" />
 				</svg>
-				<span>Print / Save as PDF</span>
+				<span>Print</span>
 			</button>
 		</div>
 

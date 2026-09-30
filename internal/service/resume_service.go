@@ -94,13 +94,9 @@ type SubprojectView struct {
 
 // Get fetches and prepares the full resume view.
 func (s *ResumeService) Get(ctx context.Context) (ResumeView, error) {
-	profile, err := s.Repo.GetProfile(ctx)
+	profile, roles, err := s.fetch(ctx)
 	if err != nil {
-		return ResumeView{}, fmt.Errorf("get resume profile: %w", err)
-	}
-	roles, err := s.Repo.ListRoles(ctx)
-	if err != nil {
-		return ResumeView{}, fmt.Errorf("list resume roles: %w", err)
+		return ResumeView{}, err
 	}
 
 	view := ResumeView{
@@ -135,6 +131,22 @@ func (s *ResumeService) Get(ctx context.Context) (ResumeView, error) {
 	}
 
 	return view, nil
+}
+
+// fetch runs the two fixed queries backing every resume read — Get (the
+// HTML view) and GenerateDocx (resume_docx.go) both start from the exact
+// same raw data, so this is the one place either shares rather than each
+// issuing its own copy of the same two calls.
+func (s *ResumeService) fetch(ctx context.Context) (model.Profile, []model.Role, error) {
+	profile, err := s.Repo.GetProfile(ctx)
+	if err != nil {
+		return model.Profile{}, nil, fmt.Errorf("get resume profile: %w", err)
+	}
+	roles, err := s.Repo.ListRoles(ctx)
+	if err != nil {
+		return model.Profile{}, nil, fmt.Errorf("list resume roles: %w", err)
+	}
+	return profile, roles, nil
 }
 
 func toRoleView(r model.Role) RoleView {
@@ -178,6 +190,39 @@ func dateRange(start time.Time, end *time.Time) string {
 // boldPattern matches the one supported lightweight markup: **text**.
 var boldPattern = regexp.MustCompile(`\*\*(.+?)\*\*`)
 
+// boldSegment is one plain-text or bold-text run parsed out of a summary
+// paragraph's "**bold**" mini-markup by parseBoldSegments.
+type boldSegment struct {
+	Text string
+	Bold bool
+}
+
+// parseBoldSegments splits a raw summary paragraph on "**...**" into an
+// ordered list of plain/bold text segments — the one shared implementation
+// of this app's one supported markup rule, consumed by both boldMarkup
+// (HTML output for /resume and its PDF export) and resume_docx.go's
+// buildResumeDocx (Word runs for the .docx export), per
+// docs/features/resume-export.md's Security Considerations: a second,
+// independently-maintained regex parse of the same rule is exactly how the
+// two outputs would quietly drift apart. Segment text is always the raw,
+// unescaped substring — callers are responsible for whatever
+// escaping/encoding their own output format requires.
+func parseBoldSegments(raw string) []boldSegment {
+	var segs []boldSegment
+	last := 0
+	for _, loc := range boldPattern.FindAllStringSubmatchIndex(raw, -1) {
+		if loc[0] > last {
+			segs = append(segs, boldSegment{Text: raw[last:loc[0]]})
+		}
+		segs = append(segs, boldSegment{Text: raw[loc[2]:loc[3]], Bold: true})
+		last = loc[1]
+	}
+	if last < len(raw) {
+		segs = append(segs, boldSegment{Text: raw[last:]})
+	}
+	return segs
+}
+
 // boldMarkup converts a raw summary paragraph into trusted template.HTML.
 //
 // Escaping order here is the actual security mechanism, not a style
@@ -189,15 +234,16 @@ var boldPattern = regexp.MustCompile(`\*\*(.+?)\*\*`)
 // re-escape "<b>" into "&lt;b&gt;").
 func boldMarkup(raw string) template.HTML {
 	var b strings.Builder
-	last := 0
-	for _, loc := range boldPattern.FindAllStringSubmatchIndex(raw, -1) {
-		b.WriteString(template.HTMLEscapeString(raw[last:loc[0]]))
-		b.WriteString("<b>")
-		b.WriteString(template.HTMLEscapeString(raw[loc[2]:loc[3]]))
-		b.WriteString("</b>")
-		last = loc[1]
+	for _, seg := range parseBoldSegments(raw) {
+		escaped := template.HTMLEscapeString(seg.Text)
+		if seg.Bold {
+			b.WriteString("<b>")
+			b.WriteString(escaped)
+			b.WriteString("</b>")
+		} else {
+			b.WriteString(escaped)
+		}
 	}
-	b.WriteString(template.HTMLEscapeString(raw[last:]))
 	return template.HTML(b.String())
 }
 

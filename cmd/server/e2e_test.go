@@ -84,7 +84,7 @@ func TestEndToEnd(t *testing.T) {
 	// LANDING_API_TOKEN set locally, and using a known value lets the
 	// subtests below assert both the authenticated and rejected paths.
 	// It never leaves this process — httptest binds to loopback.
-	mux, err := newMux(conn, conn, testLandingAPIToken)
+	mux, err := newMux(conn, conn, testLandingAPIToken, fakePDFGenerator{})
 	if err != nil {
 		t.Fatalf("newMux: %v", err)
 	}

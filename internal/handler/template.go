@@ -233,6 +233,7 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "resume-timeline.html"),
 		filepath.Join(templatesDir, "components", "resume-role.html"),
 		filepath.Join(templatesDir, "pages", "resume.html"),
+		filepath.Join(templatesDir, "pages", "resume-print.html"),
 		filepath.Join(templatesDir, "components", "carousel.html"),
 		filepath.Join(templatesDir, "components", "selected-work.html"),
 		filepath.Join(templatesDir, "pages", "landing.html"),

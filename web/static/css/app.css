@@ -327,7 +327,9 @@ h1, h2, h3, h4, h5, h6 {
 	#site-header,
 	#nav-loading,
 	footer,
-	#resume-print-button {
+	#resume-print-button,
+	#resume-download-pdf,
+	#resume-download-word {
 		display: none !important;
 	}
 

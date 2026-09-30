@@ -44,3 +44,21 @@ func (h *ResumeHandler) Index(w http.ResponseWriter, r *http.Request) {
 	data.Resume = &view
 	h.Renderer.Render(w, r, data)
 }
+
+// Print handles GET /resume/print — a standalone, chrome-free document
+// (see web/templates/pages/resume-print.html) that GET /resume/download.pdf
+// (internal/handler/resume_export.go) navigates chromedp to over loopback
+// HTTP in order to print it to PDF. Unauthenticated like /resume itself:
+// it renders exactly the same public resume content, just without the
+// site's header/nav/footer, so reaching it directly exposes nothing new.
+// Never wrapped in base.html/Renderer.Render's HX-Request branching — this
+// is always the full standalone document, regardless of caller.
+func (h *ResumeHandler) Print(w http.ResponseWriter, r *http.Request) {
+	view, err := h.Service.Get(r.Context())
+	if err != nil {
+		slog.Error("get resume view for print", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.Renderer.RenderFragment(w, "resume-print", &view)
+}
