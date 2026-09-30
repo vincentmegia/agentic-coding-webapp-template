@@ -2,59 +2,91 @@
 
 ## Status
 
-`Proposed`
+`Implemented` — PDF and Word downloads work end to end locally, covered by
+unit, DB-backed end-to-end, and Playwright (Chromium + WebKit) tests. Not
+yet verified on the deployed site; see Definition of Done.
 
 ## Summary
 
-Extends `/resume`'s existing "Print / Save as PDF" button into a small
-download menu offering three ways to get the resume offline: a server-
-generated **PDF** built for visual fidelity to the live page's design, a
-server-generated **Word (.docx)** built for a plain, professional look, and
-the existing browser **Print** (`window.print()`), kept as-is since it costs
+Extends `/resume`'s original "Print / Save as PDF" button into three export
+options: a server-generated **PDF** styled after the live page's design, a
+server-generated **Word (.docx)** with a plain, professional look, and the
+existing browser **Print** (`window.print()`), kept as-is since it costs
 nothing extra.
+
+Both files are built in-process by pure Go code from the same resume data
+`/resume` renders — no headless browser, no external binary, no second
+service. Every visitor gets the same file regardless of their browser,
+because no browser takes part in producing it.
 
 ## Problem / Motivation
 
-The current print button only triggers the browser's native print dialog —
-there's no way to get an actual PDF or Word file without a user manually
-choosing "Save as PDF" from that dialog, and no Word option exists at all.
+The original print button only triggered the browser's native print dialog
+— there was no way to get an actual PDF or Word file without manually
+choosing "Save as PDF" from that dialog, and no Word option existed at all.
 Recruiters and ATS systems commonly expect a downloadable `.docx`, and a
-directly-downloadable PDF (rather than one round-tripped through the OS
-print dialog) is both a better UX and lets the output be styled more
-deliberately than `@media print` CSS alone allows.
+directly-downloadable PDF is both a better UX and lets the output be styled
+more deliberately than `@media print` CSS alone allows.
+
+## Decision: pure-Go PDF generation (replaces chromedp)
+
+The first implementation rendered the PDF by driving headless Chrome
+(`chromedp`) against a print-only `/resume/print` page. It shipped broken:
+**every** visitor got `internal server error` from
+`/resume/download.pdf` on the deployed site, whatever their browser. Render
+runs this app on its native Go runtime, which has no Chrome binary, so
+`chromedp` failed with `exec: "google-chrome": executable file not found`.
+This doc had already listed "move Render to a Dockerfile with Chromium" as
+a prerequisite, but that step was never done, and nothing caught its
+absence:
+
+* Every test — handler unit tests, the DB-gated end-to-end test, the
+  routing tests — injected a fake PDF generator, so the real renderer never
+  ran under test.
+* Tests ran on a developer Mac that *has* Chrome, so even a real-renderer
+  test would have passed locally.
+* The Playwright suite had no download tests, and still asserted the old
+  button's "Print / Save as PDF" text (stale after the menu change).
+* The renderer's startup warm-up discarded its error, so the server booted
+  healthy and failed only on first click.
+
+Options considered: keep `chromedp` and add a Dockerfile + Chromium;
+generate the PDF client-side (`html2pdf`/`jsPDF` — rasterized, poor text
+extractability for ATS, and browser-dependent); an external rendering
+service (Gotenberg/DocRaptor — another dependency to run or pay for); or
+build the PDF in pure Go. **Chosen: pure Go**, via
+`codeberg.org/go-pdf/fpdf` (the maintained successor of `go-pdf/fpdf`/
+`jung-kurt/gofpdf`). It mirrors the Word export's existing pattern
+(`resume_docx.go`), adds no runtime dependency beyond the Go binary itself,
+deploys on Render unchanged, and — most importantly — the real generator
+runs in an ordinary `go test` anywhere, so the class of bug above can't
+recur silently.
+
+Tradeoff accepted: the PDF's design is re-expressed in Go layout code
+rather than rendered from the live page's HTML/CSS, so a visual change to
+`/resume` isn't automatically reflected in the PDF. See Business Rules.
 
 ## Scope
 
 **In scope:**
 
-* `GET /resume/download.pdf` — server-renders a print-optimized version of
-  the resume through headless Chrome (`chromedp`) and streams it back as
-  `application/pdf`, reusing the same `ResumeView` data and design tokens as
-  the live page for close visual fidelity.
-* `GET /resume/download.docx` — builds a `.docx` programmatically from
-  `ResumeView` via `github.com/fumiama/go-docx`, styled plainly (headings,
-  bold company/role lines, bullet lists) for a simple, professional look —
-  no attempt to visually match the site's branding.
-* Replacing the single print button with a small menu: Download PDF,
+* `GET /resume/download.pdf` — builds an A4 PDF from the resume data with
+  `fpdf` (`internal/service/resume_pdf.go`) and returns it as
+  `application/pdf`.
+* `GET /resume/download.docx` — builds a `.docx` from the same data via
+  `github.com/fumiama/go-docx` (`internal/service/resume_docx.go`), styled
+  plainly (headings, bold company/role lines, bullet lists) — no attempt to
+  match the site's branding.
+* Replacing the single print button with three controls: Download PDF,
   Download Word, Print.
-* A dedicated print/PDF HTML template (extending the current `@media print`
-  block) that `chromedp` renders — this may absorb or replace the existing
-  print stylesheet rather than living alongside it, to avoid maintaining two
-  divergent print layouts.
-* Deployment change: the Render web service needs a Chromium binary
-  available at runtime for `chromedp`, which means moving from Render's
-  native Go buildpack to a Dockerfile-based build. See Open Questions.
 
 **Out of scope:**
 
 * Editing/authoring export content — both formats always reflect whatever
-  `/resume` currently renders from Postgres; no separate export-specific
-  content.
-* Any format beyond PDF and Word (e.g. plain text, LinkedIn-import format).
-* Async/background generation, job queues, or caching generated files —
-  each request generates fresh, synchronously, same as any other page
-  render. Revisit only if `chromedp` latency proves too slow in practice
-  (see Testing Plan).
+  `/resume` currently renders from Postgres.
+* Any format beyond PDF and Word.
+* Async/background generation or caching — each request generates fresh
+  and synchronously (a PDF takes tens of milliseconds).
 
 ---
 
@@ -62,14 +94,11 @@ deliberately than `@media print` CSS alone allows.
 
 ```text
 1. User navigates to /resume.
-2. User clicks the export control (replacing today's single print button),
-   which reveals three options: Download PDF, Download Word, Print.
-3a. Download PDF  → browser downloads resume.pdf, server-rendered via
-    headless Chrome from the print template, matching the site's visual
-    design (terracotta banner, Caprasimo headings, accent colors).
-3b. Download Word → browser downloads resume.docx, a plain, professional
-    document (no site branding/colors) built directly from the same resume
-    data.
+2. The export row above the banner shows: Download PDF, Download Word, Print.
+3a. Download PDF  → browser downloads vincent-megia-resume.pdf, styled after
+    the live page (terracotta banner, Caprasimo headings, cards, timeline).
+3b. Download Word → browser downloads vincent-megia-resume.docx, a plain,
+    professional document built from the same data.
 3c. Print         → unchanged: window.print() opens the OS print dialog
     using the existing @media print stylesheet.
 ```
@@ -80,229 +109,168 @@ deliberately than `@media print` CSS alone allows.
 
 ```text
 web/templates/pages/
-├── resume.html                  # export menu replaces the current print
-│                                 # button; still {{define "resume-content"}}
-└── resume-print.html            # new: standalone print-quality HTML page
-                                  # chromedp navigates to / renders, sharing
-                                  # resume-banner/-sidebar/-summary/-timeline
-                                  # component data but its own top-level
-                                  # layout (no header/nav/footer chrome)
+└── resume.html          # export row (two <a href> links + Print button)
+                          # above the banner, still {{define "resume-content"}}
 
 web/static/js/
-└── resume-print.js              # extended: menu open/close + the existing
-                                  # window.print() handler for the Print item
+└── resume-print.js      # window.print() handler for the Print button only;
+                          # the download links need no JS
 ```
 
 States this feature's UI must handle:
 
 | State    | Behavior |
 | -------- | -------- |
-| Default  | Export menu shows all three options. |
-| Loading  | PDF/Word downloads take a real server round trip (unlike Print) — button shows a brief inline spinner/disabled state while the request is in flight. |
-| Error    | PDF/Word generation failure (e.g. `chromedp` timeout) returns a small inline error near the menu, not a broken download or raw error page. |
+| Default  | Export row shows all three options. |
+| Loading  | Not implemented. Generation is fast enough (tens of ms) that no visible loading state is needed in practice. |
+| Error    | **Not yet implemented as designed.** A failure (realistically only an unreachable database — the same condition that breaks `/resume` itself) navigates to the plain-text `internal server error` response rather than showing an inline error near the export row. |
 
 ---
 
 ## HTMX Interactions
 
-None — both downloads are plain `<a href="/resume/download.pdf">` /
-`<a href="/resume/download.docx">` links (or `<button>`s navigating to those
-URLs), not HTMX requests, since the response is a binary file download
-(`Content-Disposition: attachment`), not an HTML fragment. Print stays a
-non-HTMX `window.print()` click handler as today.
+None — both downloads are plain `<a href>` links, not HTMX requests, since
+the response is a binary file (`Content-Disposition: attachment`), not an
+HTML fragment. Print is a non-HTMX `window.print()` click handler.
 
-Confirmation required for destructive actions:
-
-* None — this feature has no destructive actions.
+Confirmation required for destructive actions: none.
 
 ---
 
 ## Routes / Handlers
 
-| Method | Path                    | Handler                     | Auth required | Notes |
-| ------ | ------------------------ | ----------------------------- | ------------- | ----- |
-| GET    | `/resume/download.pdf`  | `ResumeExportHandler.PDF`   | no            | Renders `resume-print.html` via `chromedp`, returns `application/pdf`. |
-| GET    | `/resume/download.docx` | `ResumeExportHandler.Word`  | no            | Builds a `.docx` from `ResumeView`, returns `application/vnd.openxmlformats-officedocument.wordprocessingml.document`. |
+| Method | Path                    | Handler                            | Auth required | Notes |
+| ------ | ----------------------- | ---------------------------------- | ------------- | ----- |
+| GET    | `/resume/download.pdf`  | `ResumeExportHandler.DownloadPDF`  | no            | `ResumeService.GeneratePDF`, returns `application/pdf`. |
+| GET    | `/resume/download.docx` | `ResumeExportHandler.DownloadWord` | no            | `ResumeService.GenerateDocx`, returns the `.docx` media type. |
 
-Both reuse `ResumeService.Get` — no new data-access path.
-
-How `chromedp` reaches `resume-print.html`'s rendered output is a deliberate
-choice, not an implementation detail to improvise: render the template to
-an HTML string in-process and hand it to `chromedp` directly (e.g. via
-`page.setDocumentContent`), rather than having `chromedp` make an HTTP
-round trip back to the server's own `/resume/print`. This avoids adding a
-self-loopback network hop and a second publicly-routable page whose only
-purpose is to be fetched by the server itself — even though that page would
-expose nothing beyond what `/resume` already does, direct in-process
-rendering is simpler and removes a moving part. If a loopback route turns
-out to be necessary in practice (e.g. a `chromedp` API constraint), it must
-bind to `127.0.0.1`, never a public hostname.
+Both share `ResumeService.fetch` with `ResumeService.Get` — the same two
+repository queries, no new data-access path. Each generator is split into a
+thin DB-reading method and a pure `build*` function over
+`model.Profile`/`[]model.Role`, so the builders are unit-tested with
+fixture data and no database.
 
 ---
 
 ## Data Model
 
-None. Both exports are derived entirely from the existing `resume_profile` /
-`resume_roles` tables via the existing `ResumeService.Get`.
+None. Both exports derive entirely from the existing `resume_profile` /
+`resume_roles` tables.
 
 ---
 
 ## Business Rules / Validation
 
-* Both exports must reflect exactly what `/resume` currently shows — no
-  export-only content, no stale/cached copies of the resume data.
-* The Word document intentionally does **not** carry over site branding
-  (colors, custom fonts) — "professional and simple" per the design goal
-  means default Word-native styling (e.g. Calibri/Times-equivalent, black
-  text, standard heading sizes), not a themed document.
-* The PDF should closely match the live page's visual design (banner
-  colors, accent tokens, Caprasimo headings) — it's the "pretty" artifact
-  of the two.
-* A role with `end_date IS NULL` still renders "Current"/"PRESENT" in both
+* Both exports reflect exactly what `/resume` currently shows — no
+  export-only content, no cached copies.
+* **PDF design**: follows the live page's components card for card —
+  banner, summary + stats, experience timeline (gutter line, per-role dot,
+  "Current" badge, nested sub-project boxes with client chips), Core
+  Expertise chips, Education, Featured Projects — using the light-mode
+  Organic tokens from `app.css` and the site's own Caprasimo/Figtree fonts
+  (static OFL TTFs embedded from `internal/service/pdffonts/`, since `fpdf`
+  can't read the `.woff2` files served to browsers).
+* **PDF reading order** is banner → summary → experience → Core Expertise →
+  Education → Featured Projects: conventional résumé order, rather than a
+  linearization of the on-screen two-column layout.
+* **PDF pagination**: a card that fits on a page is never split across a
+  page break (mirroring the print stylesheet's `break-inside: avoid`); a
+  card taller than a whole page is split between its children, each page's
+  piece getting its own background.
+* **Not carried into the PDF**: per-card font presets
+  (`resume-content-authoring.md`) — the PDF always uses the default Organic
+  pairing, since supporting every preset would mean embedding eight more
+  font files; contact-link icons; and the Featured Projects card's "See all
+  projects" link (relative site navigation, meaningless in a file).
+* **Keeping the PDF in sync**: because its layout is Go code, a visual
+  change to the resume templates needs a matching change in
+  `resume_pdf.go` if the PDF should follow.
+* The Word document intentionally does **not** carry site branding —
+  default Word-native styling only.
+* A role with `end_date IS NULL` renders "Current"/"PRESENT" in both
   exports, same rule as the live page (`resume.md`'s Business Rules).
-* `**bold**` mini-markup in summary paragraphs renders as actual bold text
-  in both the PDF (already true via HTML `<b>`) and the Word doc (via a
-  bold text run, not literal `**`).
+* `**bold**` mini-markup renders as real bold text in both exports (Figtree
+  Bold runs in the PDF, bold runs in Word), via the one shared
+  `parseBoldSegments` parser also behind the HTML `boldMarkup`.
 
 ---
 
 ## Security Considerations
 
-* **Authz**: unauthenticated, matching `/resume` itself — no new auth
-  surface.
-* **No user input**: both routes take no query params or body; there's no
-  injection surface into the `chromedp`-rendered page or the generated
-  `.docx` beyond what `/resume` itself already trusts (owner-authored DB
-  content, already escaped per `resume.md`'s Security Considerations).
-* **Rate limiting — required, matching existing precedent**: these are
-  unauthenticated `GET`s that each trigger real per-request work (a
-  headless Chrome render, in the PDF case) — more expensive than any
-  existing unauthenticated route in this app. Every other unauthenticated
-  route doing non-trivial per-request work (`POST /fishing-game/score`,
-  `/kitchen-shift/score`, `/library-game/score`) is already rate-limited
-  per-IP via `scoreSubmitLimiter` + `middleware.ClientKey`
-  (`internal/handler/fishing_game.go`); both export routes reuse that same
-  pattern rather than shipping as the one unauthenticated route in the app
-  with no limiter.
-* **`chromedp` process lifecycle**: reuse a single long-lived
-  `chromedp` allocator/browser across requests (one per-request *tab*, not
-  one per-request *browser process*) — launching a fresh browser per
-  request is slow (multi-second cold start) and turns every request into a
-  fresh chance for a missed `cancel()` to leak a process. Each render still
-  runs under its own bounded `context.WithTimeout` so a slow/hung render
-  can't hold the shared browser hostage.
-* **Concurrency cap**: a small semaphore bounding concurrent `chromedp`
-  tabs (e.g. 1–2, generous for a personal site's expected traffic) so a
-  burst of requests can't multiply Chrome's memory footprint past what
-  Render's instance can hold.
-* **`chromedp` isolation / no SSRF**: headless Chrome renders only the
-  app's own `resume-print.html` template — never a user-supplied URL — so
-  this doesn't introduce an SSRF vector regardless of how the template
-  content reaches it (see the loopback-vs-direct-render note in Routes /
-  Handlers).
-* **`--no-sandbox` tradeoff, named explicitly**: running Chromium in a
-  minimal Docker container will very likely require the `--no-sandbox`
-  flag (containers typically lack the namespace/seccomp setup Chrome's own
-  sandbox needs), which is a real reduction in Chrome's defense-in-depth.
-  Accepted here specifically because `chromedp` only ever renders this
-  app's own trusted, `html/template`-escaped output — never attacker-
-  supplied HTML or a user-supplied URL — not as a general-purpose
-  assumption.
-* **Chromium provenance**: install Chromium in the Dockerfile from the base
-  image's distro package repo (`apt-get install chromium`), not via
-  `chromedp`'s optional auto-download of a browser binary from a URL at
-  runtime — pinned the same deliberate way `go.sum` pins Go dependencies.
-* **`Content-Disposition` filename is a hardcoded literal**: both handlers
-  set a fixed filename (e.g. `"vincent-megia-resume.pdf"`), never one built
-  from `ResumeView` data — even though that data is owner-authored,
-  `resume.md`'s own precedent is "don't assume DB content is safe," and a
-  stray CR/LF in a header value is a header-injection primitive however
-  unlikely the content source.
-* **`resume-print.html` reuses the existing trusted-escaping path**: it
-  must call the same bold-markup converter and icon allowlist
-  (`resume.md`'s Security Considerations) that `/resume` itself uses,
-  rather than re-implementing rendering for the print template — a second,
-  parallel HTML-assembly path for the same data is exactly how an escaping
-  bug quietly gets introduced.
-* **`.docx` text-escaping must be verified, not assumed**: `.docx` is XML
-  under the hood; confirm `github.com/fumiama/go-docx` escapes `<`, `&`,
-  `"` in text runs (e.g. seeded content containing "R&D" must not corrupt
-  the generated file) — covered by a test mirroring `TestBoldMarkup`'s
-  escaping check (see Testing Plan).
+* **Authz**: unauthenticated, matching `/resume` itself.
+* **No user input**: both routes take no query params or body.
+* **Rate limiting**: both routes are limited per IP (5/min, separate
+  budgets) via `scoreSubmitLimiter` + `middleware.ClientKey`, matching every
+  other unauthenticated route that does real per-request work.
+* **Only safe link schemes become clickable**: resume content is editable
+  via `/settings/resume`, so the PDF only creates link annotations for
+  `http(s)://`, `mailto:` and `tel:` hrefs (`pdfLinkable`); anything else
+  (e.g. `javascript:`) renders as plain text with no link.
+* **No SSRF or subprocess surface**: generation is in-process Go; there's
+  no browser, no URL fetch, no child process.
+* **`Content-Disposition` filenames are hardcoded literals**, never built
+  from resume data, so a stray CR/LF in content can't inject headers.
+* **`.docx` text-escaping is verified by test**: raw `&`/`<` in content
+  (e.g. "R&D") comes out XML-escaped, not as a corrupted document.
+* **Fonts**: Caprasimo and Figtree are SIL OFL 1.1; license texts ship in
+  `internal/service/pdffonts/`.
 * **Secrets**: none introduced.
 
 ---
 
 ## Testing Plan
 
-* [ ] `GET /resume/download.pdf` returns a valid PDF (`%PDF-` magic bytes,
-      correct `Content-Type`/`Content-Disposition`) reflecting seeded resume
-      content.
-* [ ] `GET /resume/download.docx` returns a valid, openable `.docx`
-      reflecting the same seeded content, including nested subprojects and
-      the "Current" role badge equivalent.
-* [ ] `**bold**` spans render as real bold runs in the Word doc, not literal
-      asterisks.
-* [ ] A `chromedp` render failure/timeout returns a clean error response
-      (no partial file, no hung request) — bounded by a context timeout.
-* [ ] Rapid repeated requests to `/resume/download.pdf` or `.docx` from one
-      source are rate-limited (mirroring
-      `TestFishingGameHandler_SubmitScore_RateLimited`'s pattern) — the
-      limited request must not reach `chromedp`/the docx generator at all.
-* [ ] A raw `&`/`<` in seeded resume content (e.g. "R&D") renders correctly
-      escaped in the generated `.docx`, not as corrupted/invalid XML —
-      mirroring `TestBoldMarkup`'s escaping check.
-* [ ] `Content-Disposition`'s filename is verified to come from a hardcoded
-      literal in the handler, never built from `ResumeView` data.
-* [ ] Export menu (Download PDF / Download Word / Print) is keyboard-
-      operable and matches the existing Print button's accessibility
-      baseline.
-* [ ] Manual visual check: the PDF closely matches the live `/resume` page's
-      design; the Word doc opens cleanly in real Word/Google Docs with
-      sane default styling.
-* [ ] Load/latency check: measure real `chromedp` render time on Render's
-      actual instance size before deciding if synchronous generation
-      (Scope) stays acceptable.
+No test uses a fake generator — the real PDF/Word builders run in every
+layer below.
+
+* [x] `buildResumePDF` output parses as a PDF, and every section's content
+      is extractable as text with an independent reader
+      (`github.com/ledongthuc/pdf`) — including Current/PRESENT, bold runs
+      without literal `**`, and raw `&`/`<` (`resume_pdf_test.go`).
+* [x] A multi-page resume, including one role taller than a whole page,
+      keeps every role and bullet across pages.
+* [x] Only `http(s)`/`mailto`/`tel` hrefs become link annotations; a
+      `javascript:` href never reaches the file.
+* [x] An empty resume still produces a valid one-page PDF.
+* [x] `buildResumeDocx` produces a valid zip with the expected content and
+      XML-escaped special characters (`resume_docx_test.go`).
+* [x] A generation failure returns a clean 500 with no attachment headers
+      and no leaked error detail (`resume_export_test.go`).
+* [x] Requests beyond the rate limit get 429 before reaching generation;
+      another source is unaffected; PDF and Word budgets are independent.
+* [x] Against a real seeded database, both routes return 200 with the right
+      headers, and the downloaded PDF's text contains the seeded resume
+      (`cmd/server/e2e_test.go`).
+* [x] Clicking Download PDF / Download Word in a real browser saves a real
+      PDF / `.docx` with the right filename, in both Chromium and WebKit
+      (`e2e/resume.spec.js`).
+* [x] Manual visual check of the generated PDF against the live page
+      (rendered locally with macOS PDFKit, including a multi-page split).
+* [ ] Smoke check against the deployed site after release:
+      `curl -sI https://<site>/resume/download.pdf` returns 200 and
+      `application/pdf`.
+* [ ] Export row keyboard/accessibility check.
 
 ---
 
 ## Open Questions
 
-* **Render deployment**: no `Dockerfile`/`render.yaml` exists in this repo
-  today — the service currently deploys via Render's native Go buildpack.
-  Shipping `chromedp` requires a Chromium binary present at runtime, which
-  means introducing a `Dockerfile` (e.g. based on a Go build stage plus an
-  `apt-get install chromium` runtime stage) and switching the Render
-  service's build method — a real infra change outside this repo's Go code,
-  to be done deliberately and verified against Render's actual instance
-  size/memory limits before this ships.
-* **`chromedp`'s memory footprint on Render's current plan** — headless
-  Chrome is heavier than anything this app runs today; needs a real check
-  against whatever Render tier is in use, not just an assumption it fits.
-* Exact Word-library choice (`github.com/fumiama/go-docx`) is a pseudo-
-  versioned module with no tagged release — confirm it covers everything
-  needed (nested bullet lists, bold runs, basic tables for the skills
-  section) during implementation; fall back to
-  `github.com/lukasjarosch/go-docx` (tagged releases, but template/
-  placeholder-oriented rather than build-from-scratch) if it doesn't hold up.
+* Exact Word-library choice (`github.com/fumiama/go-docx`) is a
+  pseudo-versioned module with no tagged release — it has held up for
+  nested bullets and bold runs so far; fall back to
+  `github.com/lukasjarosch/go-docx` if it doesn't.
 
 ---
 
 ## Definition of Done
 
-* [ ] User flow works end-to-end for all three export options.
-* [ ] All states in the UI table are implemented (default/loading/error).
-* [ ] `ResumeExportHandler` reuses `ResumeService.Get` — no duplicated data
-      access.
-* [ ] `chromedp` calls are timeout-bounded, reuse a single long-lived
-      browser instance, and don't leak processes.
-* [ ] Both export routes are per-IP rate-limited and bounded by a
-      concurrency cap on simultaneous `chromedp` tabs.
-* [ ] Render deployment updated (Dockerfile + Chromium) and verified live,
-      not just locally.
-* [ ] Handler/service boundaries followed (`go-backend`).
-* [ ] Accessibility checked on the new export menu (keyboard, focus,
-      contrast).
-* [ ] Tests cover the behavior in the Testing Plan above.
-* [ ] `go vet`/`go test` pass.
-* [ ] No open questions remain unresolved.
+* [x] User flow works end to end for all three export options (locally).
+* [ ] All states in the UI table are implemented — the inline error state
+      is still outstanding.
+* [x] Exports reuse the same `ResumeService` data access as `/resume`.
+* [x] Both export routes are per-IP rate-limited.
+* [ ] Verified on the deployed site, not just locally.
+* [x] Handler/service boundaries followed (`go-backend`).
+* [ ] Accessibility checked on the export row (keyboard, focus, contrast).
+* [x] Tests cover the behavior in the Testing Plan above.
+* [x] `go vet`/`go test` pass.

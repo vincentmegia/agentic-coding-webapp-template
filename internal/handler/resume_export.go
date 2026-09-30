@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -21,21 +20,10 @@ const (
 	resumeDownloadLimitWindow = time.Minute
 )
 
-// PDFGenerator is the subset of *PDFRenderer ResumeExportHandler (and
-// cmd/server's newMux) depend on — an exported interface so callers can
-// inject a fake instead of launching a real headless Chrome process, which
-// matters beyond this package's own tests: cmd/server's non-DB-gated
-// routing tests (e.g. landing_api_routes_test.go) build a full mux and
-// must not suddenly require a real Chrome binary to do so.
-type PDFGenerator interface {
-	RenderResumePDF(ctx context.Context) ([]byte, error)
-}
-
 // ResumeExportHandler serves GET /resume/download.pdf and
 // GET /resume/download.docx. See docs/features/resume-export.md.
 type ResumeExportHandler struct {
 	Service *service.ResumeService
-	PDF     PDFGenerator
 
 	// pdfLimiter/docxLimiter are separate instances (not one shared
 	// limiter) so hitting one export format doesn't consume the other's
@@ -45,10 +33,9 @@ type ResumeExportHandler struct {
 }
 
 // NewResumeExportHandler constructs a ResumeExportHandler.
-func NewResumeExportHandler(resumeService *service.ResumeService, pdf PDFGenerator) *ResumeExportHandler {
+func NewResumeExportHandler(resumeService *service.ResumeService) *ResumeExportHandler {
 	return &ResumeExportHandler{
 		Service:     resumeService,
-		PDF:         pdf,
 		pdfLimiter:  newScoreSubmitLimiter(resumeDownloadLimit, resumeDownloadLimitWindow),
 		docxLimiter: newScoreSubmitLimiter(resumeDownloadLimit, resumeDownloadLimitWindow),
 	}
@@ -61,9 +48,9 @@ func (h *ResumeExportHandler) DownloadPDF(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	data, err := h.PDF.RenderResumePDF(r.Context())
+	data, err := h.Service.GeneratePDF(r.Context())
 	if err != nil {
-		slog.Error("render resume pdf", "error", err)
+		slog.Error("generate resume pdf", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}

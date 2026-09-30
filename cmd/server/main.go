@@ -77,15 +77,7 @@ func run() error {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	// pdfRenderer owns one long-lived headless Chrome process for
-	// GET /resume/download.pdf (docs/features/resume-export.md). Its
-	// target is always this server's own loopback address, built from
-	// cfg.Port — never a public hostname or anything request-derived —
-	// per that doc's Security Considerations.
-	pdfRenderer := handler.NewPDFRenderer("http://127.0.0.1:" + cfg.Port)
-	defer pdfRenderer.Close()
-
-	mux, err := newMux(conn, readConn, cfg.LandingAPIToken, pdfRenderer)
+	mux, err := newMux(conn, readConn, cfg.LandingAPIToken)
 	if err != nil {
 		return err
 	}
@@ -146,16 +138,7 @@ func runMigrations(conn *sql.DB) error {
 // when no second role is configured — see run()'s DatabaseReadOnlyURL
 // fallback). Every repository constructor below takes both: conn for
 // writes and migrations, readConn for pure-read queries.
-//
-// pdfGen backs GET /resume/download.pdf. In production this is the one
-// shared headless-Chrome *handler.PDFRenderer, constructed once in run()
-// (not here, since it owns a real OS process that must outlive a single
-// newMux call — tests call newMux repeatedly, and the browser process must
-// not be relaunched each time). Typed as the handler.PDFGenerator
-// interface, not the concrete type, so a non-DB-gated routing test (e.g.
-// landing_api_routes_test.go) can build a full mux with a fake instead of
-// requiring a real Chrome binary just to exercise routing/auth.
-func newMux(conn, readConn *sql.DB, landingAPIToken string, pdfGen handler.PDFGenerator) (*http.ServeMux, error) {
+func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, error) {
 	mux := http.NewServeMux()
 
 	health := handler.NewHealthHandler(conn)
@@ -180,10 +163,10 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string, pdfGen handler.PDFGe
 	// live on the same *service.ResumeService as its read-side Get.
 	resumeAdmin := handler.NewResumeAdminHandler(renderer, resumeService, Version)
 	// resumeExport also shares resumeService — see docs/features/
-	// resume-export.md's Routes/Handlers: GenerateDocx (resume_docx.go)
-	// reuses the exact same ResumeService/ResumeRepository as Get, no new
-	// data-access path.
-	resumeExport := handler.NewResumeExportHandler(resumeService, pdfGen)
+	// resume-export.md's Routes/Handlers: GeneratePDF (resume_pdf.go) and
+	// GenerateDocx (resume_docx.go) reuse the exact same
+	// ResumeService/ResumeRepository as Get, no new data-access path.
+	resumeExport := handler.NewResumeExportHandler(resumeService)
 
 	fishingService := service.NewFishingService(repository.NewFishingRepository(conn, readConn))
 	fishingGame := handler.NewFishingGameHandler(renderer, fishingService, Version)
@@ -200,12 +183,6 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string, pdfGen handler.PDFGe
 	mux.HandleFunc("GET /{$}", pages.Home)
 	mux.HandleFunc("GET /resume", resume.Index)
 	// See docs/features/resume-export.md's Routes/Handlers table.
-	// /resume/print is not linked from the UI — chromedp is its only
-	// intended caller (internal/handler/pdf_renderer.go) — but is
-	// unauthenticated like /resume itself, since it renders the same
-	// public content with no site chrome, matching CLAUDE.md's
-	// "gradual, direct-URL-only nav rollout" precedent for other routes.
-	mux.HandleFunc("GET /resume/print", resume.Print)
 	mux.HandleFunc("GET /resume/download.pdf", resumeExport.DownloadPDF)
 	mux.HandleFunc("GET /resume/download.docx", resumeExport.DownloadWord)
 	// See docs/features/fishing-game.md's Routes/Handlers table.

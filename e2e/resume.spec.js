@@ -2,6 +2,7 @@
 // (User Flow, UI states, Print support). The backend half of this
 // coverage — that the content is genuinely read from Postgres, not a
 // fixture — lives in cmd/server/e2e_test.go.
+const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 
 test('renders banner, sidebar, summary, and timeline', async ({ page }) => {
@@ -67,7 +68,7 @@ test('print button is present and triggers window.print()', async ({ page }) => 
 
 	const printButton = page.locator('#resume-print-button');
 	await expect(printButton).toBeVisible();
-	await expect(printButton).toContainText('Print / Save as PDF');
+	await expect(printButton).toContainText('Print');
 
 	const printCalled = page.evaluate(
 		() => new Promise((resolve) => {
@@ -76,6 +77,39 @@ test('print button is present and triggers window.print()', async ({ page }) => 
 	);
 	await printButton.click();
 	await expect.poll(async () => printCalled).toBeTruthy();
+});
+
+// docs/features/resume-export.md: the downloads are clicked through the
+// real UI against the real server, in both Chromium and WebKit (Safari's
+// engine) — not requested directly or served by a fake. Each test
+// downloads once: both routes are rate-limited per IP (5/min), and every
+// project in this suite shares localhost's one limiter budget.
+test('Download PDF saves a real PDF file', async ({ page }) => {
+	await page.goto('/resume');
+
+	const [download] = await Promise.all([
+		page.waitForEvent('download'),
+		page.locator('#resume-download-pdf').click(),
+	]);
+
+	expect(download.suggestedFilename()).toBe('vincent-megia-resume.pdf');
+	const file = fs.readFileSync(await download.path());
+	expect(file.subarray(0, 5).toString()).toBe('%PDF-');
+	expect(file.length).toBeGreaterThan(10_000);
+});
+
+test('Download Word saves a real .docx file', async ({ page }) => {
+	await page.goto('/resume');
+
+	const [download] = await Promise.all([
+		page.waitForEvent('download'),
+		page.locator('#resume-download-word').click(),
+	]);
+
+	expect(download.suggestedFilename()).toBe('vincent-megia-resume.docx');
+	const file = fs.readFileSync(await download.path());
+	// .docx is a zip archive: "PK" local-file-header magic.
+	expect(file.subarray(0, 2).toString()).toBe('PK');
 });
 
 test('external contact/project links open in a new tab safely', async ({ page }) => {

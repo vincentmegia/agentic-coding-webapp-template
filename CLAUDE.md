@@ -14,6 +14,13 @@ touching that area rather than expecting this section to carry it:
   `primaryNavItems`); Settings is a separate auth-gated dropdown
   (Profile/Content/Resume/Security/Logout).
 - **Resume** (Postgres-backed `/resume`) — `docs/features/resume.md`.
+- **Resume Export** (`/resume/download.pdf` and `.docx`, plus browser
+  Print) — `docs/features/resume-export.md`. Both files are generated in
+  pure Go (`fpdf`/`go-docx`), deliberately *not* headless Chrome: a
+  chromedp version shipped broken on Render (no Chrome binary) behind
+  tests that only ever used a fake renderer — see that doc's Decision.
+  The PDF's layout is Go code, so resume template changes that should
+  show in the PDF need a matching `resume_pdf.go` change.
 - **Resume Content Authoring** (`/settings/resume`: edit every card on
   `/resume` — banner, sidebar, summary, experience timeline — plus an
   independent font-preset choice per card, without a redeploy) —

@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ledongthuc/pdf"
+
 	"github.com/vincentmegia/vincentmegia/internal/config"
 	"github.com/vincentmegia/vincentmegia/internal/db"
 )
@@ -84,7 +86,7 @@ func TestEndToEnd(t *testing.T) {
 	// LANDING_API_TOKEN set locally, and using a known value lets the
 	// subtests below assert both the authenticated and rejected paths.
 	// It never leaves this process — httptest binds to loopback.
-	mux, err := newMux(conn, conn, testLandingAPIToken, fakePDFGenerator{})
+	mux, err := newMux(conn, conn, testLandingAPIToken)
 	if err != nil {
 		t.Fatalf("newMux: %v", err)
 	}
@@ -149,6 +151,58 @@ func TestEndToEnd(t *testing.T) {
 		}
 		if strings.Contains(body, "internal server error") || strings.Contains(body, "couldn't load this page") {
 			t.Errorf("resume page rendered the error state instead of real content:\n%s", body)
+		}
+	})
+
+	// docs/features/resume-export.md: both downloads go through the real
+	// generators against real seeded data — no fake anywhere. The
+	// chromedp-based PDF export this replaced was only ever tested through
+	// a fake renderer here, which is how it shipped unable to produce a
+	// PDF on the deployed server.
+	t.Run("resume PDF download is a real PDF of the seeded resume", func(t *testing.T) {
+		resp, body := get(t, client, srv.URL+"/resume/download.pdf")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body: %.200s", resp.StatusCode, body)
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != "application/pdf" {
+			t.Errorf("Content-Type = %q, want application/pdf", ct)
+		}
+		if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename="vincent-megia-resume.pdf"` {
+			t.Errorf("Content-Disposition = %q, want the hardcoded resume filename", cd)
+		}
+		if !strings.HasPrefix(body, "%PDF-") {
+			t.Fatalf("body does not start with %%PDF-: %.40q", body)
+		}
+		r, err := pdf.NewReader(strings.NewReader(body), int64(len(body)))
+		if err != nil {
+			t.Fatalf("downloaded PDF does not parse: %v", err)
+		}
+		plain, err := r.GetPlainText()
+		if err != nil {
+			t.Fatalf("extract PDF text: %v", err)
+		}
+		raw, err := io.ReadAll(plain)
+		if err != nil {
+			t.Fatalf("read PDF text: %v", err)
+		}
+		text := strings.Join(strings.Fields(string(raw)), "")
+		for _, want := range []string{"VincentMegia", "Singtel", "Sofgen", "BarclaysWealth", "Current"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("downloaded PDF text missing %q", want)
+			}
+		}
+	})
+
+	t.Run("resume Word download is a real docx", func(t *testing.T) {
+		resp, body := get(t, client, srv.URL+"/resume/download.docx")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body: %.200s", resp.StatusCode, body)
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+			t.Errorf("Content-Type = %q, want the .docx media type", ct)
+		}
+		if !strings.HasPrefix(body, "PK") {
+			t.Errorf("body is not a zip (.docx) archive: %.40q", body)
 		}
 	})
 

@@ -27,7 +27,7 @@ func lazyDB(t *testing.T) *sql.DB {
 func testMux(t *testing.T, token string) *http.ServeMux {
 	t.Helper()
 	chdirRepoRoot(t)
-	mux, err := newMux(lazyDB(t), lazyDB(t), token, fakePDFGenerator{})
+	mux, err := newMux(lazyDB(t), lazyDB(t), token)
 	if err != nil {
 		t.Fatalf("newMux: %v", err)
 	}
