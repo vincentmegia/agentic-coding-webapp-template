@@ -80,3 +80,53 @@ func TestBuildResumeDocx_ValidZipWithExpectedContent(t *testing.T) {
 		t.Errorf("document.xml did not XML-escape raw '&'/'<' in summary text\n--- xml ---\n%s", xmlStr)
 	}
 }
+
+// TestBuildResumeDocx_IncludesContactLinks verifies the banner's
+// contact_links (phone, email, personal site, ...) make it into the
+// .docx as visible text — w:t, not go-docx AddLink's default w:instrText,
+// which Word doesn't display — with each href recorded as a hyperlink
+// relationship.
+func TestBuildResumeDocx_IncludesContactLinks(t *testing.T) {
+	profile := model.Profile{
+		RoleTitle: "Principal Software Engineer",
+		ContactLinks: []model.ContactLink{
+			{Label: "vincent.megia@gmail.com", Href: "mailto:vincent.megia@gmail.com", Icon: "mail"},
+			{Label: "vincentmegia.onrender.com", Href: "https://vincentmegia.onrender.com", Icon: "globe"},
+		},
+	}
+
+	out, err := buildResumeDocx(profile, nil)
+	if err != nil {
+		t.Fatalf("buildResumeDocx: %v", err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("generated docx is not a valid zip: %v", err)
+	}
+	parts := map[string]string{}
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("open %s: %v", f.Name, err)
+		}
+		var buf bytes.Buffer
+		if _, err := buf.ReadFrom(rc); err != nil {
+			t.Fatalf("read %s: %v", f.Name, err)
+		}
+		rc.Close()
+		parts[f.Name] = buf.String()
+	}
+
+	doc, rels := parts["word/document.xml"], parts["word/_rels/document.xml.rels"]
+	for _, c := range profile.ContactLinks {
+		if !strings.Contains(doc, "<w:t>"+c.Label+"</w:t>") {
+			t.Errorf("document.xml missing visible text for %q\n--- xml ---\n%s", c.Label, doc)
+		}
+		if !strings.Contains(rels, c.Href) {
+			t.Errorf("document.xml.rels missing hyperlink target %q\n--- rels ---\n%s", c.Href, rels)
+		}
+	}
+	if strings.Contains(doc, "<w:instrText>") {
+		t.Errorf("document.xml has a w:instrText run; contact labels would be invisible in Word\n--- xml ---\n%s", doc)
+	}
+}
