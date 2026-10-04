@@ -499,8 +499,8 @@ describe('Sanity / Coffee Machine', () => {
     assert.equal(state.sanity, SANITY_MAX);
   });
 
-  test('brewCoffee: good/sloppy/spilled add their partial restore, clamped, with no tip', () => {
-    for (const grade of ['good', 'sloppy', 'spilled']) {
+  test('brewCoffee: good/sloppy add their partial restore, clamped, with no tip', () => {
+    for (const grade of ['good', 'sloppy']) {
       const start = { ...playingState(), sanity: 10 };
       const after = brewCoffee(start, grade);
       assert.equal(after.sanity, 10 + COFFEE_SANITY_RESTORE[grade], grade);
@@ -509,8 +509,14 @@ describe('Sanity / Coffee Machine', () => {
     assert.equal(brewCoffee({ ...playingState(), sanity: 90 }, 'good').sanity, SANITY_MAX);
   });
 
-  test('brewCoffee: every grade restores something (never zero), and an unknown grade counts as sloppy', () => {
-    for (const grade of ['perfect', 'good', 'sloppy', 'spilled']) assert.ok(COFFEE_SANITY_RESTORE[grade] > 0, grade);
+  test('brewCoffee: a spill splashes you and drains 50 Sanity (never below 0)', () => {
+    assert.equal(COFFEE_SANITY_RESTORE.spilled, -50);
+    assert.equal(brewCoffee({ ...playingState(), sanity: 80 }, 'spilled').sanity, 30);
+    assert.equal(brewCoffee({ ...playingState(), sanity: 20 }, 'spilled').sanity, 0);
+  });
+
+  test('brewCoffee: every non-spill grade restores something, and an unknown grade counts as sloppy', () => {
+    for (const grade of ['perfect', 'good', 'sloppy']) assert.ok(COFFEE_SANITY_RESTORE[grade] > 0, grade);
     const start = { ...playingState(), sanity: 10 };
     assert.equal(brewCoffee(start, 'bogus').sanity, 10 + COFFEE_SANITY_RESTORE.sloppy);
   });

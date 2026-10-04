@@ -483,13 +483,13 @@ test.describe('Coffee Machine (Coffee Pour minigame)', () => {
 		await expect.poll(async () => (await getOverlay(page))?.grade).toBe('perfect');
 	});
 
-	test('overfilling spills automatically and still restores some Sanity (never zero)', async ({ page }) => {
+	test('overfilling spills automatically, all over you: −50 Sanity', async ({ page }) => {
 		await page.goto('/library-game');
 		await startShift(page);
 		await openCoffeePour(page);
 		await page.evaluate(() => {
 			const s = window.__libraryGameTestHooks.getShiftState();
-			s.sanity = 10;
+			s.sanity = 80;
 		});
 		await page.keyboard.down(' ');
 		await expect.poll(async () => (await getOverlay(page))?.pouring).toBe(true);
@@ -497,8 +497,9 @@ test.describe('Coffee Machine (Coffee Pour minigame)', () => {
 		await expect.poll(async () => (await getOverlay(page))?.grade).toBe('spilled');
 		await page.keyboard.up(' ');
 		const sanity = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity);
-		expect(sanity).toBeGreaterThan(45); // 10 + 40, minus a little passive drain
-		expect(sanity).toBeLessThan(51);
+		expect(sanity).toBeGreaterThan(25); // 80 − 50, minus a little passive drain
+		expect(sanity).toBeLessThan(31);
+		await expect(page.locator('#library-toast')).toContainText('Ow');
 	});
 });
 

@@ -1959,8 +1959,36 @@ export function init(canvas, elements) {
     perfect: `Perfect pour! Fully refreshed, +${COFFEE_PERFECT_TIP_GARD} Gard tip.`,
     good: 'Nice cup — feeling better.',
     sloppy: 'A bit sloppy, but coffee is coffee.',
-    spilled: 'Spilled some! Still got a few sips in.',
+    spilled: 'Ow! Hot coffee all over you — −50 Sanity.',
   };
+
+  // v2.19: after a spill, Coral wears coffee stains for a few seconds.
+  const COFFEE_SPLASH_SECONDS = 6;
+  let coffeeSplashSeconds = 0;
+
+  function drawCoffeeSplash() {
+    if (coffeeSplashSeconds <= 0) return;
+    const s = LIBRARY_PERSON_SCALE;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, coffeeSplashSeconds / 1.5);
+    ctx.fillStyle = 'rgba(106,74,48,0.85)';
+    for (const [dx, dy, r] of [[-5, -19, 4.2], [3, -14, 3.4], [6, -21, 2.6], [-2, -10, 2.4], [-8, -13, 2], [9, -9, 1.8]]) {
+      ctx.beginPath();
+      ctx.arc(player.x + dx * s, player.y + dy * s, r * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Steam curling off the stain.
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.5;
+    const t = performance.now() / 300;
+    for (const dx of [-6, 4]) {
+      ctx.beginPath();
+      ctx.moveTo(player.x + dx * s, player.y - 24 * s);
+      ctx.quadraticCurveTo(player.x + (dx - 3 + Math.sin(t)) * s, player.y - 30 * s, player.x + dx * s, player.y - 36 * s);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   function openCoffeePourOverlay() {
     overlay = { kind: 'coffee-pour', fill: 0, pouring: false, band: coffeePourTargetBand(random()), grade: null, closeIn: 0 };
@@ -1982,6 +2010,7 @@ export function init(canvas, elements) {
     overlay.grade = gradeCoffeePour(overlay.fill, overlay.band);
     overlay.closeIn = COFFEE_RESULT_SECONDS;
     shiftState = brewCoffee(shiftState, overlay.grade);
+    if (overlay.grade === 'spilled') coffeeSplashSeconds = COFFEE_SPLASH_SECONDS;
     showToast(COFFEE_RESULT_TEXT[overlay.grade]);
   }
 
@@ -2378,6 +2407,7 @@ export function init(canvas, elements) {
 
   function beginShift() {
     waitingAtBossOffice = false;
+    coffeeSplashSeconds = 0;
     resetHallucinations();
     lastSeenBonusGard = 0;
     gardPops = [];
@@ -3176,6 +3206,7 @@ export function init(canvas, elements) {
     const sanity = shiftState ? shiftState.sanity : SANITY_MAX;
     const stress = sanity < HALLUCINATION_START_SANITY ? (HALLUCINATION_START_SANITY - sanity) / HALLUCINATION_START_SANITY : 0;
     drawLibraryPerson(ctx, player.x, player.y, { personalityKey: 'librarian', scale: 1, stress });
+    drawCoffeeSplash();
     drawLabelChip(ctx, player.x, player.y + 24, PLAYER_NAME, 'bold 10px sans-serif');
     const badge = currentPlayerBadge();
     if (badge) {
@@ -3799,8 +3830,14 @@ export function init(canvas, elements) {
       ctx.fill();
     }
 
-    // Spill drips over the rim.
+    // Spill: coffee sloshes over the rim and splashes out at you.
     if (overlay.grade === 'spilled') {
+      ctx.fillStyle = '#6a4a30';
+      for (const [sx, sy, r] of [[-40, -40, 9], [30, -55, 7], [-10, -70, 6], [55, -25, 5], [-62, -18, 5], [12, -88, 4]]) {
+        ctx.beginPath();
+        ctx.arc(cx + sx, cupTop + sy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.fillStyle = '#6a4a30';
       for (const [dx, len] of [[-topHalfW + 4, 30], [-topHalfW + 22, 16], [topHalfW - 10, 24]]) {
         drawRoundRect(ctx, cx + dx, cupTop - 2, 7, len, 3.5, '#6a4a30');
@@ -4052,6 +4089,7 @@ export function init(canvas, elements) {
     }
 
     trackGardPops(deltaSeconds);
+    coffeeSplashSeconds = Math.max(0, coffeeSplashSeconds - deltaSeconds);
     updateHallucinations(deltaSeconds);
 
     if (waitingAtBossOffice && isBossOfficeReady(shiftState) && !overlay) {

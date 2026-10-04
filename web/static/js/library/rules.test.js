@@ -470,9 +470,10 @@ describe('Coffee Pour minigame', () => {
     assert.equal(gradeCoffeePour(NaN, band), 'sloppy');
   });
 
-  test('every grade restores some Sanity, and perfect restores the most', () => {
-    const grades = ['perfect', 'good', 'sloppy', 'spilled'];
+  test('every grade but a spill restores some Sanity, perfect the most; a spill drains it', () => {
+    const grades = ['perfect', 'good', 'sloppy'];
     for (const g of grades) assert.ok(COFFEE_SANITY_RESTORE[g] > 0, g);
+    assert.ok(COFFEE_SANITY_RESTORE.spilled < 0);
     assert.ok(COFFEE_SANITY_RESTORE.perfect > COFFEE_SANITY_RESTORE.good);
     assert.ok(COFFEE_SANITY_RESTORE.good > COFFEE_SANITY_RESTORE.sloppy);
   });

@@ -461,6 +461,14 @@ Coin Hunt/payout test expectations updated for the tip and the docked
 book. The "+N more" cart chip moved down 12px to clear the taller
 covers. Unit 220/220, e2e 68/68 (new shelving-incentives test).
 
+**v2.19 spills burn** — the user: "when it spills it spills onto you and
+drains 50 of your sanity." `COFFEE_SANITY_RESTORE.spilled` changed from
++40 to −50 (clamped at 0). The pour overlay now shows coffee splashing
+out of the mug, the toast says "Ow! Hot coffee all over you — −50
+Sanity", and Coral wears steaming coffee stains for 6 s
+(`drawCoffeeSplash`). Tests that encoded "every grade restores
+something" now cover the spill drain instead. Unit 221/221, e2e 68/68.
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the
@@ -887,9 +895,10 @@ established precedent.
   release inside a gold target band whose position varies per pour
   (62–86% full). Graded by `gradeCoffeePour`: perfect (in the band) adds
   100 Sanity plus a 10 Gard tip, good (within 10% of the band) +70, sloppy
-  +40, and spilled (reaching the brim, which ends the pour automatically)
-  +40. Every grade restores something, per the user's choice of "graded,
-  never zero". Still no cooldown or usage limit. The original instant full
+  +40. Spilled (reaching the brim, which ends the pour automatically)
+  originally gave +40, per the user's first choice of "graded, never
+  zero"; since v2.19 it splashes you for **−50 Sanity** instead, with
+  coffee stains steaming on Coral for 6 s. Still no cooldown or usage limit. The original instant full
   refill matched Kitchen Shift's Coffee Machine rule; the two games now
   differ here on purpose.
 * **Fines are Gard-only**: the Fines Sort minigame's clutter never

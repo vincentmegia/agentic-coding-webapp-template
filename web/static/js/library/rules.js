@@ -580,12 +580,17 @@ export const COFFEE_POUR_GOOD_MARGIN = 0.1;
 /** Gard tip for a perfect pour, added to the shift's bonusGard. */
 export const COFFEE_PERFECT_TIP_GARD = 10;
 
-/** Sanity restored per grade (added to current Sanity, clamped to SANITY_MAX). */
+/**
+ * Sanity change per grade (added to current Sanity, clamped to
+ * [0, SANITY_MAX]). v2.19: a spill now splashes hot coffee all over you
+ * (user: "when it spills it spills onto you and drains 50 of your
+ * sanity") — previously +40, the same as a sloppy pour.
+ */
 export const COFFEE_SANITY_RESTORE = {
   perfect: SANITY_MAX,
   good: 70,
   sloppy: 40,
-  spilled: 40,
+  spilled: -50,
 };
 
 /**
