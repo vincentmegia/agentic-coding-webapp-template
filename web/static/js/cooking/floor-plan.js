@@ -328,6 +328,11 @@ export function buildStations(tableIds, level = FOOD_SERVER_MAX_LEVEL) {
     // (centered around x=650), well to its left.
     { id: 'toilet', kind: 'toilet', room: ROOM_DINING, x: 870, y: 540, size: STATION_BOX_SIZE },
     { id: 'boss-office', kind: 'boss-office', room: ROOM_DINING, x: 480, y: 40, size: STATION_BOX_SIZE },
+    // v4.6 Trash Bins (one per room): throw away food or ingredients you
+    // no longer need — e.g. a late order whose customer already left.
+    // Dining's sits beside the Counter, clear of the guard/door further
+    // right; Kitchen's fills the empty bottom-left corner.
+    { id: 'trash-dining', kind: 'trash-bin', room: ROOM_DINING, x: 300, y: 540, size: STATION_BOX_SIZE },
     // Kitchen room
     { id: 'fridge', kind: 'fridge', room: ROOM_KITCHEN, x: 200, y: 160, size: STATION_BOX_SIZE },
     { id: 'oven', kind: 'oven', room: ROOM_KITCHEN, x: 480, y: 160, size: STATION_BOX_SIZE },
@@ -339,6 +344,7 @@ export function buildStations(tableIds, level = FOOD_SERVER_MAX_LEVEL) {
     // dishes) — bottom-right, under the stove, clear of the dining-door.
     { id: 'rice-station', kind: 'rice-station', room: ROOM_KITCHEN, x: 760, y: 540, size: STATION_BOX_SIZE },
     { id: 'dining-door', kind: 'dining-door', room: ROOM_KITCHEN, x: 480, y: 540, size: STATION_BOX_SIZE },
+    { id: 'trash-kitchen', kind: 'trash-bin', room: ROOM_KITCHEN, x: 200, y: 540, size: STATION_BOX_SIZE },
   ];
 
   const unlockedCount = unlockedTableCount(level);

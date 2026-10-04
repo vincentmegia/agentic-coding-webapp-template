@@ -14,6 +14,11 @@ const { test, expect } = require('@playwright/test');
 
 const STORAGE_KEY = 'cooking-game:v2';
 
+// These tests walk the player around in real time (several station trips
+// each); under a full parallel run WebKit can need more than the default
+// 30 s, so give every test here a minute.
+test.describe.configure({ timeout: 60_000 });
+
 /** Seeds localStorage so the page loads straight into `shift` with the one-time intro already seen. */
 async function seedSave(page, shift, extra = {}) {
 	await page.addInitScript(({ key, save }) => {
@@ -201,6 +206,27 @@ test.describe('serving food', () => {
 		await hooks(page, () => window.__cookingGameTestHooks.setHeldDish('Grilled Cheese'));
 		await walkToStation(page, `table-${tableId}`);
 		await expect(page.locator('#cooking-toast')).toContainText('wanted Garden Salad');
+	});
+
+	test('the Trash Bin throws away a late order (and loose ingredients), but never cookware', async ({ page }) => {
+		await startShift(page);
+		await hooks(page, () => window.__cookingGameTestHooks.setHeldDish('Burger'));
+		await walkToStation(page, 'trash-dining');
+		await expect(page.locator('#cooking-toast')).toContainText('Tossed Burger in the trash');
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getHeld())).heldDish).toBeNull();
+
+		await walkToStation(page, 'cookware-closet');
+		await pickFromPanel(page, 'Pan');
+		await walkToStation(page, 'fridge');
+		await pickFromPanel(page, 'Cheese');
+		await walkToStation(page, 'trash-kitchen');
+		await expect(page.locator('#cooking-toast')).toContainText('Tossed Cheese in the trash');
+		const held = await hooks(page, () => window.__cookingGameTestHooks.getHeld());
+		expect(held.inventory).toEqual([]);
+		expect(held.cookware).toEqual(['Pan']);
+
+		await walkToStation(page, 'trash-kitchen');
+		await expect(page.locator('#cooking-toast')).toContainText('Nothing on your tray');
 	});
 
 	test('a customer who runs out of patience says so, and bringing food afterwards explains why nothing happens', async ({ page }) => {

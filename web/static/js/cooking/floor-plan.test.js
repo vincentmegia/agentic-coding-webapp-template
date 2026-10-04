@@ -28,7 +28,7 @@ describe('buildStations', () => {
   test('includes one entry per fixed station plus one per table id', () => {
     const stations = buildStations(TABLE_IDS);
     const kinds = stations.map((s) => s.kind);
-    for (const kind of ['fridge', 'cabinet', 'toilet', 'cleaning-closet', 'cookware-closet', 'stove', 'oven', 'rice-station', 'counter', 'coffee-machine', 'boss-office', 'kitchen-door', 'dining-door']) {
+    for (const kind of ['fridge', 'cabinet', 'toilet', 'cleaning-closet', 'cookware-closet', 'stove', 'oven', 'rice-station', 'trash-bin', 'counter', 'coffee-machine', 'boss-office', 'kitchen-door', 'dining-door']) {
       assert.ok(kinds.includes(kind), `missing station kind ${kind}`);
     }
     assert.equal(stations.filter((s) => s.kind === 'table').length, TABLE_IDS.length);
@@ -66,7 +66,7 @@ describe('buildStations', () => {
   test('tables, the counter, coffee machine, toilet, boss-office, and kitchen-door are all in the Dining room', () => {
     const stations = buildStations(TABLE_IDS);
     const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
-    for (const id of ['toilet', 'kitchen-door', 'counter', 'coffee-machine', 'boss-office', 'table-1', 'table-30']) {
+    for (const id of ['toilet', 'kitchen-door', 'counter', 'coffee-machine', 'boss-office', 'trash-dining', 'table-1', 'table-30']) {
       assert.equal(byId[id].room, ROOM_DINING, `${id} should be in the Dining room`);
     }
   });
@@ -74,7 +74,7 @@ describe('buildStations', () => {
   test('fridge, cabinet, cookware-closet, stove, oven, rice-station, cleaning-closet, and dining-door are all in the Kitchen room', () => {
     const stations = buildStations(TABLE_IDS);
     const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
-    for (const id of ['fridge', 'cabinet', 'cookware-closet', 'stove', 'oven', 'rice-station', 'cleaning-closet', 'dining-door']) {
+    for (const id of ['fridge', 'cabinet', 'cookware-closet', 'stove', 'oven', 'rice-station', 'cleaning-closet', 'dining-door', 'trash-kitchen']) {
       assert.equal(byId[id].room, ROOM_KITCHEN, `${id} should be in the Kitchen room`);
     }
   });

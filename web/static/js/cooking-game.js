@@ -435,6 +435,7 @@ const STATION_COLORS = {
   stove: '#ede4da',
   oven: '#e9b9a8',
   'rice-station': '#efe0c4',
+  'trash-bin': '#d8dcd6',
   counter: '#f2d98a',
   'coffee-machine': '#e3cdb4',
   'boss-office': '#dcc2ea',
@@ -451,6 +452,7 @@ const STATION_LABELS = {
   stove: 'Stove',
   oven: 'Oven',
   'rice-station': 'Rice Station',
+  'trash-bin': 'Trash Bin',
   counter: 'Counter',
   'coffee-machine': 'Coffee Machine',
   'boss-office': "Duke's Office",
@@ -2100,6 +2102,7 @@ export function init(canvas, elements) {
     orderPad = null;
     orderQueueSignature = null;
     coffeeSplashSeconds = 0;
+    trashLidSeconds = 0;
     resetHallucinations();
     inventory = [];
     cookware = new Set();
@@ -2343,6 +2346,27 @@ export function init(canvas, elements) {
   const COFFEE_RESULT_COLORS = { perfect: '#e0a83a', good: '#7fb0d6', sloppy: '#a08a7a', spilled: '#e06a5b' };
 
   let coffeePour = null; // { fill, pouring, band, grade, closeIn }
+
+  // -- Trash Bin (v4.6) ----------------------------------------------------
+  //
+  // The user: "i want there to be an thrash bin to throw late orders." One
+  // per room (floor-plan.js's trash-dining/trash-kitchen). Arriving throws
+  // away everything on the tray — a finished dish or loose ingredients —
+  // but never cookware, which isn't on the tray. Works in any phase.
+  let trashLidSeconds = 0;
+  const TRASH_LID_SECONDS = 1.2;
+
+  function useTrashBin() {
+    const tossed = heldDish ? [heldDish] : [...inventory];
+    if (tossed.length === 0) {
+      showToast('Nothing on your tray to throw away');
+      return;
+    }
+    heldDish = null;
+    inventory = [];
+    trashLidSeconds = TRASH_LID_SECONDS;
+    showToast(`🗑 Tossed ${tossed.join(', ')} in the trash`, 2.5);
+  }
   let coffeeSplashSeconds = 0;
 
   function openCoffeePour() {
@@ -2372,6 +2396,7 @@ export function init(canvas, elements) {
 
   function updateCoffeePour(deltaSeconds) {
     if (coffeeSplashSeconds > 0) coffeeSplashSeconds = Math.max(0, coffeeSplashSeconds - deltaSeconds);
+    if (trashLidSeconds > 0) trashLidSeconds = Math.max(0, trashLidSeconds - deltaSeconds);
     if (!coffeePour) return;
     if (shiftState.phase !== 'playing' && !coffeePour.grade) {
       coffeePour = null;
@@ -3205,7 +3230,7 @@ export function init(canvas, elements) {
     if (!order) {
       // v4.5: used to do nothing at all, which read as "I can't give the
       // customer their food" when they'd already given up waiting.
-      if (heldDish) showToast(`Nobody at Table ${tableId} is waiting for food — check your order notepad`, 3);
+      if (heldDish) showToast(`Nobody at Table ${tableId} is waiting for food — toss it in the Trash Bin or check your notepad`, 3.5);
       return;
     }
     serveOrRevisit(tableId, order);
@@ -3609,6 +3634,7 @@ export function init(canvas, elements) {
   }
 
   function handleArrival(station) {
+    if (station.kind === 'trash-bin') return useTrashBin();
     if (station.kind === 'kitchen-door') return switchRoom(ROOM_KITCHEN, KITCHEN_ENTRY_POINT);
     if (station.kind === 'dining-door') return switchRoom(ROOM_DINING, DINING_ENTRY_POINT);
     if (shiftState.phase === 'playing') {
@@ -4348,6 +4374,55 @@ export function init(canvas, elements) {
     }
   }
 
+  /**
+   * Trash Bin (v4.6): a steel pedal bin with a recycling mark. Its lid
+   * flips open for a moment after something's thrown away
+   * (trashLidSeconds), with a crumpled scrap visible inside.
+   */
+  function drawTrashBinDetail(half) {
+    const open = trashLidSeconds > 0;
+    // Bin body: tapered, with vertical ribs and a darker base band.
+    ctx.fillStyle = '#9aa3a8';
+    ctx.beginPath();
+    ctx.moveTo(-18, -12);
+    ctx.lineTo(18, -12);
+    ctx.lineTo(15, half - 8);
+    ctx.lineTo(-15, half - 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillRect(-13, -9, 3, half + 0);
+    ctx.fillStyle = 'rgba(40,50,55,0.18)';
+    for (const rx of [-6, 1, 8]) ctx.fillRect(rx, -6, 2, half - 6);
+    drawRoundRect(ctx, -16, half - 12, 32, 5, 2, '#6f787d');
+    // Pedal.
+    drawRoundRect(ctx, -7, half - 8, 14, 3, 1.5, '#4f575b');
+    // Recycling mark: three little chasing arrows in a ring.
+    ctx.strokeStyle = '#6aa37a';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 - Math.PI / 2;
+      ctx.beginPath();
+      ctx.arc(0, 8, 6, a + 0.25, a + 1.75);
+      ctx.stroke();
+    }
+    if (open) {
+      // Lid tipped up and back, a crumpled scrap peeking out.
+      ctx.fillStyle = '#e8b37a';
+      ctx.beginPath();
+      ctx.arc(-4, -13, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.save();
+      ctx.translate(-18, -13);
+      ctx.rotate(-1.1);
+      drawRoundRect(ctx, 0, -3, 38, 5, 2.5, '#7b858a');
+      ctx.restore();
+    } else {
+      drawRoundRect(ctx, -20, -17, 40, 6, 3, '#7b858a');
+      drawRoundRect(ctx, -5, -21, 10, 4, 2, '#5f686c');
+    }
+  }
+
   /** Restroom: a door with a little WC sign and a brass knob. */
   function drawRestroomDetail(half) {
     drawRoundRect(ctx, -half + 10, -half + 6, half * 2 - 20, half * 2 - 6, [6, 6, 0, 0], 'rgba(60,110,130,0.14)');
@@ -4429,6 +4504,7 @@ export function init(canvas, elements) {
     stove: drawStoveDetail,
     oven: drawOvenDetail,
     'rice-station': drawRiceStationDetail,
+    'trash-bin': drawTrashBinDetail,
     toilet: drawRestroomDetail,
     'boss-office': drawBossOfficeDetail,
     'kitchen-door': drawSwingDoorDetail,
@@ -4918,7 +4994,7 @@ export function init(canvas, elements) {
       if ((shiftState.stormOuts ?? 0) === (beforeTick.stormOuts ?? 0)) {
         const left = beforeTick.orders.filter((o) => !shiftState.orders.some((n) => n.tableId === o.tableId));
         if (left.length > 0 && shiftState.phase === 'playing') {
-          showToast(`Table ${left.map((o) => o.tableId).join(', ')} got tired of waiting and left!`, 3.5);
+          showToast(`Table ${left.map((o) => o.tableId).join(', ')} got tired of waiting and left!${heldDish || inventory.length > 0 ? ' Toss their food in the Trash Bin.' : ''}`, 3.5);
         }
       }
       if (karen) {

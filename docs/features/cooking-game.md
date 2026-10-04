@@ -1149,6 +1149,26 @@ Tests: new e2e "serving food" describe (right dish, wrong dish, a
 timed-out customer). Kitchen, Projects and Library suites: 125 passed on
 Chromium + WebKit, plus one random-drop case skipping by design.
 
+**v4.6 Trash Bins** — the user: "i want there to be an thrash bin to
+throw late orders."
+* **Where.** One per room (`floor-plan.js`): `trash-dining` beside the
+  Counter at (300, 540), and `trash-kitchen` in the Kitchen's empty
+  bottom-left corner at (200, 540).
+* **What it does.** Arriving throws away everything on the tray (a
+  finished dish or loose ingredients) but never cookware, which isn't on
+  the tray (`useTrashBin`). It works in any shift phase. An empty tray
+  says so.
+* **Look.** The bin's lid flips open with a scrap inside for 1.2 s after
+  a toss (`drawTrashBinDetail`).
+* **Hints.** The "got tired of waiting and left" and "Nobody at Table N
+  is waiting for food" toasts now point to the Trash Bin.
+* **Tests.**
+  * New e2e test: tosses a held dish, then ingredients while keeping the
+    Pan, then gets the empty-tray message.
+  * The Kitchen spec's per-test timeout is now 60 s, since its real-time
+    walks could exceed 30 s in WebKit under a full parallel run.
+  * Kitchen, Projects and Library suites: 128/128 on Chromium + WebKit.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,
