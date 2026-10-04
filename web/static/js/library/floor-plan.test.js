@@ -81,12 +81,19 @@ describe('buildStations', () => {
     assert.notEqual(`${stairs.x},${stairs.y}`, `${elevator.x},${elevator.y}`);
   });
 
-  test('2nd Floor has no front-desk/fines-counter/coffee-machine/boss-office (bookshelves only, plus stairs/elevator)', () => {
+  test('2nd Floor has no front-desk/fines-counter/coffee-machine/boss-office (bookshelves, stairs/elevator, and the Reading Nook)', () => {
     const stations = buildStations(GENRES);
     const floor2Kinds = new Set(stationsOnFloor(stations, FLOOR_2).map((s) => s.kind));
     for (const kind of ['front-desk', 'return-cart', 'fines-counter', 'coffee-machine', 'boss-office']) {
       assert.ok(!floor2Kinds.has(kind), `2nd Floor should not have ${kind}`);
     }
+  });
+
+  test('the Reading Nook is on the 2nd Floor only', () => {
+    const stations = buildStations(GENRES);
+    const nooks = stations.filter((s) => s.kind === 'reading-nook');
+    assert.equal(nooks.length, 1);
+    assert.equal(nooks[0].floor, FLOOR_2);
   });
 
   test('every station gets a distinct position within its own floor', () => {

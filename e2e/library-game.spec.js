@@ -318,31 +318,6 @@ test.describe('shelving books', () => {
 	});
 });
 
-test.describe('fines', () => {
-	test('accepting a fine and completing the Fines Sort minigame banks it', async ({ page }) => {
-		await page.goto('/library-game');
-		await startShift(page);
-
-		await page.evaluate(() => window.__libraryGameTestHooks.spawnFineNow(50));
-		const slot = await page.evaluate(() => window.__libraryGameTestHooks.getFrontDeskSlots().find((s) => s.kind === 'fine'));
-		await clickQueueItem(page, slot);
-		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().carriedFine !== null)).toBe(true);
-
-		await walkToStation(page, 'fines-counter');
-		const overlay = await waitForOverlay(page, 'fines-sort');
-		const realItems = overlay.items.filter((i) => i.real);
-		expect(realItems.length).toBeGreaterThan(0);
-
-		for (const item of realItems) {
-			await clickCanvasPoint(page, item);
-		}
-
-		await expect.poll(async () => getOverlay(page)).toBe(null);
-		const bonusGard = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().bonusGard);
-		expect(bonusGard).toBe(50);
-	});
-});
-
 test.describe('borrowing', () => {
 	test('fulfilling a borrow request: Find the Book, then the Checkout Skill-Check', async ({ page }) => {
 		await page.goto('/library-game');
@@ -354,11 +329,26 @@ test.describe('borrowing', () => {
 
 		const info = await page.evaluate(() => window.__libraryGameTestHooks.getActiveBorrowInfo());
 		expect(info).not.toBe(null);
+		// The accept toast names the book and its shelf.
+		await expect(page.locator('#library-toast')).toContainText(info.title);
+		// The patron stays at the desk while you search (they used to vanish on accept).
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getFrontDeskSlots().some((s) => s.kind === 'borrow-active'))).toBe(true);
 
 		await walkToStation(page, 'bookshelf', info.genreId);
 		const findOverlay = await waitForOverlay(page, 'find-the-book');
+		// Patience is paused while the minigame is open, so it can't run out mid-search.
+		const patienceAtOpen = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().activeBorrow.patienceRemainingSeconds);
+		await page.waitForTimeout(600);
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().activeBorrow.patienceRemainingSeconds)).toBe(patienceAtOpen);
 		const correct = findOverlay.items.find((i) => i.correct);
 		expect(correct).toBeTruthy();
+		// Regression: decoys used to roll titles independently from a tiny
+		// pool, so one could carry the requested title itself — the player
+		// couldn't tell which book was right.
+		const titles = findOverlay.items.map((i) => i.title);
+		expect(new Set(titles).size).toBe(titles.length);
+		expect(titles.filter((t) => t === info.title)).toHaveLength(1);
+		expect(correct.title).toBe(info.title);
 
 		await clickCanvasPoint(page, correct);
 		await expect.poll(async () => getOverlay(page)).toBe(null);
@@ -373,24 +363,142 @@ test.describe('borrowing', () => {
 	});
 });
 
-test.describe('Coffee Machine', () => {
-	test('visiting the Coffee Machine restores Sanity to full', async ({ page }) => {
+test.describe('fines', () => {
+	/** Clicks one Count the Till denomination button by its value, at its real on-canvas rect (the same click path a player uses). */
+	async function clickTillDenomination(page, value) {
+		const rect = await page.evaluate((v) => window.__libraryGameTestHooks.getTillButtonRects().denominations.find((r) => r.value === v), value);
+		await clickCanvasPoint(page, { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 });
+	}
+
+	/** Spawns a fine patron at the Fines Counter, collects it via Fines Sort, and leaves the player carrying the payment. */
+	async function collectFine(page, amount) {
+		await page.evaluate((a) => window.__libraryGameTestHooks.spawnFineNow(a), amount);
+		const slot = await page.evaluate(() => window.__libraryGameTestHooks.getFinesCounterSlots()[0]);
+		expect(slot.kind).toBe('fine');
+		// Fine patrons queue at the Fines Counter now, never the Front Desk.
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getFrontDeskSlots().some((s) => s.kind === 'fine'))).toBe(false);
+		await clickQueueItem(page, slot);
+		const overlay = await waitForOverlay(page, 'fines-sort');
+		for (const item of overlay.items.filter((i) => i.real)) {
+			await clickCanvasPoint(page, item);
+		}
+		await expect.poll(async () => getOverlay(page)).toBe(null);
+		const state = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState());
+		expect(state.carriedFine?.amountGard).toBe(amount);
+		expect(state.bonusGard).toBe(0); // not banked until it's in the till
+	}
+
+	test('collect at the Fines Counter, carry to the Front Desk, count the exact amount into the till: banked', async ({ page }) => {
 		await page.goto('/library-game');
 		await startShift(page);
+		await collectFine(page, 45);
 
-		// Sanity drains passively every second of play (rules.js's
-		// SANITY_DRAIN_PER_SECOND) — wait long enough for that to be
-		// observable before checking the Coffee Machine actually restores it.
+		await walkToStation(page, 'front-desk');
+		const till = await waitForOverlay(page, 'till-count');
+		expect(till.target).toBe(45);
+		for (const v of [20, 20, 5]) await clickTillDenomination(page, v);
+
+		await expect.poll(async () => getOverlay(page)).toBe(null);
+		const state = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState());
+		expect(state.bonusGard).toBe(45);
+		expect(state.carriedFine).toBe(null);
+		expect(state.mistakeCount).toBe(0);
+	});
+
+	test('going over the amount is a miscount: a mistake, the count resets, and an exact recount (keyboard) still banks it', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await collectFine(page, 30);
+		await walkToStation(page, 'front-desk');
+		await waitForOverlay(page, 'till-count');
+
+		await clickTillDenomination(page, 20);
+		await clickTillDenomination(page, 20); // 40 > 30
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().mistakeCount)).toBe(1);
+		const after = await getOverlay(page);
+		expect(after.kind).toBe('till-count');
+		expect(after.added).toEqual([]);
+
+		// Keys 1-4 map to 1/5/10/20 Gard: 20 + 10.
+		await page.keyboard.press('4');
+		await page.keyboard.press('3');
+		await expect.poll(async () => getOverlay(page)).toBe(null);
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().bonusGard)).toBe(30);
+	});
+
+	test('fines start on a shift rolled between 5 and 8', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		const start = await page.evaluate(() => window.__libraryGameTestHooks.getFinesStartShift());
+		expect(start).toBeGreaterThanOrEqual(5);
+		expect(start).toBeLessThanOrEqual(8);
+	});
+});
+
+test.describe('Coffee Machine (Coffee Pour minigame)', () => {
+	/** Walks to the Coffee Machine and waits for the Coffee Pour overlay to open. */
+	async function openCoffeePour(page) {
+		await walkToStation(page, 'coffee-machine');
+		await expect.poll(async () => (await getOverlay(page))?.kind).toBe('coffee-pour');
+	}
+
+	/** Starts pouring, puts the fill just inside the band via the test hook, then releases — the real press/release input path, only the fill level is pinned. */
+	async function pourIntoBand(page, press, release) {
+		await press();
+		await expect.poll(async () => (await getOverlay(page))?.pouring).toBe(true);
+		const { band } = await getOverlay(page);
+		await page.evaluate((f) => window.__libraryGameTestHooks.setCoffeePourFill(f), band.low + 0.01);
+		await release();
+	}
+
+	test('arriving opens the pour overlay instead of refilling instantly; a perfect pour (mouse) refills Sanity and tips Gard, then closes', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
 		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity)).toBeLessThan(100);
 
-		await walkToStation(page, 'coffee-machine');
-		const after = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity);
-		// restoreSanity() sets it to exactly SANITY_MAX (100) the instant the
-		// player arrives, but the game loop's passive per-second drain keeps
-		// running afterward — a small margin, not an exact 100, avoids this
-		// assertion being racy against however many milliseconds pass between
-		// arrival and this read.
-		expect(after).toBeGreaterThan(99);
+		await openCoffeePour(page);
+		// Nothing restored just by arriving.
+		const atArrival = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState());
+		expect(atArrival.sanity).toBeLessThan(100);
+
+		const center = await canvasToPage(page, { x: 480, y: 300 });
+		await page.mouse.move(center.x, center.y);
+		await pourIntoBand(page, () => page.mouse.down(), () => page.mouse.up());
+
+		await expect.poll(async () => (await getOverlay(page))?.grade).toBe('perfect');
+		const after = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState());
+		// brewCoffee() refills to exactly 100; the passive drain keeps running
+		// afterward, so allow a small margin rather than racing it.
+		expect(after.sanity).toBeGreaterThan(99);
+		expect(after.bonusGard).toBe(atArrival.bonusGard + 10);
+		// The result banner auto-closes.
+		await expect.poll(async () => getOverlay(page), { timeout: 5000 }).toBe(null);
+	});
+
+	test('the keyboard works too: holding and releasing Space pours', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await openCoffeePour(page);
+		await pourIntoBand(page, () => page.keyboard.down(' '), () => page.keyboard.up(' '));
+		await expect.poll(async () => (await getOverlay(page))?.grade).toBe('perfect');
+	});
+
+	test('overfilling spills automatically and still restores some Sanity (never zero)', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await openCoffeePour(page);
+		await page.evaluate(() => {
+			const s = window.__libraryGameTestHooks.getShiftState();
+			s.sanity = 10;
+		});
+		await page.keyboard.down(' ');
+		await expect.poll(async () => (await getOverlay(page))?.pouring).toBe(true);
+		await page.evaluate(() => window.__libraryGameTestHooks.setCoffeePourFill(0.995));
+		await expect.poll(async () => (await getOverlay(page))?.grade).toBe('spilled');
+		await page.keyboard.up(' ');
+		const sanity = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity);
+		expect(sanity).toBeGreaterThan(45); // 10 + 40, minus a little passive drain
+		expect(sanity).toBeLessThan(51);
 	});
 });
 
@@ -455,6 +563,74 @@ test.describe('a full shift and the closing-wait lock', () => {
 		await expect(page.locator('#library-paycheck-month-total')).toHaveText(/Gard/);
 		await expect(page.locator('#library-final-paycheck-block')).toBeHidden();
 		await expect(page.locator('#library-paycheck-next-shift-button')).toBeVisible();
+	});
+});
+
+test.describe("Boss's Office during the closing wait", () => {
+	test('arriving before the wait ends explains it, and you are let in automatically once it does', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await page.evaluate(() => { window.__libraryGameTestHooks.getShiftState().clockSeconds = 0.01; });
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().phase)).toBe('closing-wait');
+		await page.evaluate(() => { window.__libraryGameTestHooks.getShiftState().closingWaitSecondsRemaining = 2; });
+
+		await walkToStation(page, 'boss-office');
+		await expect(page.locator('#library-toast')).toContainText('wait here');
+		await expect(page.locator('#library-paycheck-screen')).toBeHidden();
+
+		// No second click: standing there is enough.
+		await expect(page.locator('#library-paycheck-screen')).toBeVisible({ timeout: 6000 });
+	});
+});
+
+test.describe('star rating', () => {
+	test('a queued patron who waits too long walks out, costs 1.5 stars, and the paycheck shows the rating-scaled pay', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().rating)).toBe(5);
+
+		await page.evaluate(() => window.__libraryGameTestHooks.spawnFineNow(30));
+		const fine = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().finesQueue[0]);
+		expect(fine.waitMaxSeconds).toBeGreaterThan(0); // every queued patron has a wait timer
+		// Fast-forward this patron's wait rather than waiting out ~90 real seconds.
+		await page.evaluate(() => { window.__libraryGameTestHooks.getShiftState().finesQueue[0].waitRemainingSeconds = 0.05; });
+
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().rating)).toBe(3.5);
+		await expect(page.locator('#library-toast')).toContainText('1.5★');
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().finesQueue)).toHaveLength(0);
+
+		await page.evaluate(() => window.__libraryGameTestHooks.skipToClosing());
+		await walkToStation(page, 'boss-office');
+		await expect(page.locator('#library-paycheck-outcome')).toContainText('3.5★ rating (70% pay)');
+	});
+});
+
+test.describe('Reading Nook', () => {
+	test('reading a whole book upstairs restores Mood, then the nook cools down', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await page.evaluate(() => { window.__libraryGameTestHooks.getShiftState().libraryMood = 40; });
+
+		await walkToStation(page, 'reading-nook'); // switches to the 2nd Floor itself
+		await waitForOverlay(page, 'reading');
+
+		// Turning before the page is read does nothing.
+		await page.keyboard.press('Space');
+		expect((await getOverlay(page)).page).toBe(0);
+
+		for (let i = 0; i < 6; i++) {
+			await page.evaluate(() => window.__libraryGameTestHooks.finishReadingPageNow());
+			await page.keyboard.press('Space');
+		}
+		await expect.poll(async () => getOverlay(page)).toBe(null);
+		const state = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState());
+		expect(state.libraryMood).toBe(60);
+		expect(state.readingCooldownSeconds).toBeGreaterThan(40);
+
+		// During the cooldown the nook just says so.
+		await walkToStation(page, 'reading-nook');
+		await expect(page.locator('#library-toast')).toContainText('ready in');
+		expect(await getOverlay(page)).toBe(null);
 	});
 });
 
@@ -576,14 +752,9 @@ test.describe('First Person Mode', () => {
 		expect(Math.hypot(afterKeyMove.x - afterButtonMove.x, afterKeyMove.y - afterButtonMove.y)).toBeGreaterThan(5);
 	});
 
-	test('interacting with the Coffee Machine in First Person (via the Enter key) restores Sanity, same as Top-Down', async ({ page }) => {
+	test('interacting with the Coffee Machine in First Person (via the Enter key) opens the Coffee Pour minigame, same as Top-Down', async ({ page }) => {
 		await page.goto('/library-game');
 		await startShift(page);
-
-		// Sanity drains passively (rules.js's SANITY_DRAIN_PER_SECOND) — wait
-		// for that to be observable before checking the Coffee Machine
-		// actually restores it, same setup as the Top-Down Coffee Machine test.
-		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity)).toBeLessThan(100);
 
 		await page.locator('#library-camera-button').click();
 		const coffee = await getStation(page, 'coffee-machine');
@@ -596,9 +767,17 @@ test.describe('First Person Mode', () => {
 			.toBe('coffee-machine');
 
 		await page.keyboard.press('Enter');
+		await expect.poll(async () => (await getOverlay(page))?.kind).toBe('coffee-pour');
+		// The keyup of that same Enter press must not end the pour at 0%.
+		const overlay = await getOverlay(page);
+		expect(overlay.grade).toBe(null);
+		expect(overlay.fill).toBe(0);
 
-		const after = await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity);
-		expect(after).toBeGreaterThan(99);
+		await page.keyboard.down('Enter');
+		await expect.poll(async () => (await getOverlay(page))?.pouring).toBe(true);
+		await page.evaluate((f) => window.__libraryGameTestHooks.setCoffeePourFill(f), overlay.band.low + 0.01);
+		await page.keyboard.up('Enter');
+		await expect.poll(async () => (await getOverlay(page))?.grade).toBe('perfect');
 	});
 
 	test('interacting with Stairs in First Person (via the on-screen Interact button) switches floors and resets to a sensible facing, same as Top-Down', async ({ page }) => {

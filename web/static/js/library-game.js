@@ -64,6 +64,21 @@ import {
   LIBRARY_MOOD_MAX,
   SANITY_MAX,
   walkSpeedMultiplierForSanity,
+  finesStartShiftForSeed,
+  FIRST_BORROW_ARRIVAL_SECONDS,
+  queueWaitSecondsForShift,
+  RATING_MAX,
+  RATING_PENALTY_PER_WALKOUT,
+  paycheckMultiplierForRating,
+  READING_MOOD_RESTORE,
+  READING_PAGES,
+  READING_SECONDS_PER_PAGE,
+  TILL_DENOMINATIONS,
+  tillCountResult,
+  coffeePourTargetBand,
+  gradeCoffeePour,
+  COFFEE_POUR_SECONDS_TO_BRIM,
+  COFFEE_PERFECT_TIP_GARD,
 } from './library/rules.js';
 import {
   createInitialState,
@@ -74,9 +89,10 @@ import {
   resolveShelfSkillCheck,
   resolveCoinHunt,
   addFineToQueue,
-  acceptFine,
   arriveAtFinesCounter,
   resolveFinesSort,
+  arriveAtFrontDeskWithFine,
+  resolveTillCount,
   addBorrowRequest,
   acceptBorrowRequest,
   resolveFindTheBook,
@@ -86,7 +102,9 @@ import {
   tick,
   isBossOfficeReady,
   enterBossOffice,
-  restoreSanity,
+  brewCoffee,
+  canReadBook,
+  finishReading,
 } from './library/engine-state.js';
 import {
   buildStations,
@@ -102,6 +120,7 @@ import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
 } from './library/floor-plan.js';
+import { READING_STORIES } from './library/stories.js';
 import {
   defaultFacingTowardCenter,
   projectScene,
@@ -269,28 +288,87 @@ export const PERSONALITY_TEMPLATES = {
     label: 'Grumpy Regular',
     bodyColor: '#7d8570', pantsColor: '#5a5f4f', headColor: '#c68642', hairColor: '#5a5248',
     eyeColor: '#3a2a2a', eyeShape: 'narrow', browAngle: -0.8, mouthCurve: -1.4, blush: false,
+    hairStyle: 'receding', outfit: 'cardigan', glasses: true, shoeColor: '#4a3a32',
   },
   shyStudent: {
     label: 'Shy Student',
     bodyColor: '#a7c4d1', pantsColor: '#5c7480', headColor: '#ffdbac', hairColor: '#3a2a20',
     eyeColor: '#2a2a3a', eyeShape: 'roundSmall', browAngle: 0.15, mouthCurve: 0.3, blush: true,
+    hairStyle: 'bangs', outfit: 'collar', glasses: false, shoeColor: '#3a3440',
   },
   cheerfulKid: {
     label: 'Cheerful Kid',
     bodyColor: '#f2b6c6', pantsColor: '#e0899f', headColor: '#8d5524', hairColor: '#2a1a10',
     eyeColor: '#2a2a2a', eyeShape: 'bigRound', browAngle: 0.7, mouthCurve: 1.6, blush: true,
+    hairStyle: 'pigtails', outfit: 'overalls', glasses: false, shoeColor: '#c65f7c',
+  },
+  // v2.12 — more distinct patron designs (user: "make the characters
+  // have different designs"), plus the player's own librarian look.
+  librarian: {
+    label: 'Coral James',
+    bodyColor: '#f3ead8', pantsColor: '#4a4a5a', headColor: '#d9a06b', hairColor: '#7a3b2e', accentColor: '#5f8a6a',
+    eyeColor: '#2a2a2a', eyeShape: 'bigRound', browAngle: 0.3, mouthCurve: 1.1, blush: true,
+    hairStyle: 'bun', outfit: 'vestLanyard', glasses: true, shoeColor: '#5a3a2a',
+  },
+  teen: {
+    label: 'Teen',
+    bodyColor: '#6a7bd0', pantsColor: '#3a3f5a', headColor: '#f1c27d', hairColor: '#1e1e28', accentColor: '#4f5db0',
+    eyeColor: '#2a2a3a', eyeShape: 'narrow', browAngle: 0, mouthCurve: 0.2, blush: false,
+    hairStyle: 'spiky', outfit: 'hoodie', accessory: 'headphones', shoeColor: '#e8e8e8',
+  },
+  grandma: {
+    label: 'Grandma',
+    bodyColor: '#b48ab8', pantsColor: '#6a5a70', headColor: '#f5d6c0', hairColor: '#e6e2dc', accentColor: '#e8b95a',
+    eyeColor: '#3a2a2a', eyeShape: 'roundSmall', browAngle: 0.4, mouthCurve: 1.2, blush: true,
+    hairStyle: 'bun', outfit: 'shawl', glasses: true, shoeColor: '#6a4a3a',
+  },
+  businessman: {
+    label: 'Businessman',
+    bodyColor: '#3f4a5c', pantsColor: '#2e3644', headColor: '#a8754a', hairColor: '#2a2018', accentColor: '#c0392b',
+    eyeColor: '#2a2a2a', eyeShape: 'narrow', browAngle: -0.3, mouthCurve: -0.3, blush: false,
+    hairStyle: 'sidePart', outfit: 'suitTie', shoeColor: '#1e1e1e',
+  },
+  artist: {
+    label: 'Artist',
+    bodyColor: '#e3a45a', pantsColor: '#e3a45a', headColor: '#ffdbac', hairColor: '#c0603a', accentColor: '#2f4858',
+    eyeColor: '#2a3a2a', eyeShape: 'bigRound', browAngle: 0.5, mouthCurve: 0.9, blush: true,
+    hairStyle: 'long', outfit: 'dress', accessory: 'beret', shoeColor: '#2f4858',
+  },
+  bearded: {
+    label: 'Bearded Guy',
+    bodyColor: '#b0453a', pantsColor: '#4a5a6a', headColor: '#e0ac69', hairColor: '#6a4a2a', accentColor: '#3a2a2a',
+    eyeColor: '#2a2a2a', eyeShape: 'roundSmall', browAngle: -0.2, mouthCurve: 0.6, blush: false,
+    hairStyle: 'beanie', outfit: 'flannel', accessory: 'beard', hatColor: '#3f7a6a', shoeColor: '#5a3a22',
+  },
+  curly: {
+    label: 'Curly',
+    bodyColor: '#fdf8ee', pantsColor: '#5a7aa0', headColor: '#6b4226', hairColor: '#1a120c', accentColor: '#e06a5b',
+    eyeColor: '#1a1a1a', eyeShape: 'bigRound', browAngle: 0.4, mouthCurve: 1.4, blush: false,
+    hairStyle: 'curly', outfit: 'stripes', shoeColor: '#e06a5b',
   },
   karen: {
     label: 'Karen',
     bodyColor: '#d94f4f', pantsColor: '#8f2f2f', headColor: '#e0ac69', hairColor: '#d6b23e',
     eyeColor: '#3a2a2a', eyeShape: 'narrow', browAngle: -1.3, mouthCurve: -0.6, blush: false,
+    hairStyle: 'bob', outfit: 'blazer', glasses: false, shoeColor: '#2a2020',
   },
 };
 
-const PERSONALITY_KEYS = ['grumpyRegular', 'shyStudent', 'cheerfulKid'];
+/** Every design a regular patron can have (not Karen, not the player). */
+export const PATRON_PERSONALITY_KEYS = ['grumpyRegular', 'shyStudent', 'cheerfulKid', 'teen', 'grandma', 'businessman', 'artist', 'bearded', 'curly'];
 
-function personalityForIndex(i) {
-  return PERSONALITY_KEYS[i % PERSONALITY_KEYS.length];
+/** The player character's name (v2.12) — shown on a name tag under the sprite. */
+export const PLAYER_NAME = 'Coral James';
+
+/**
+ * Picks a patron's design from their id, so the same patron always looks
+ * the same and different patrons spread across all designs (replacing the
+ * old 3-design cycle by queue position).
+ */
+function personalityForId(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return PATRON_PERSONALITY_KEYS[h % PATRON_PERSONALITY_KEYS.length];
 }
 
 function drawLibraryFace(ctx, x, y, s, personality, angryTint) {
@@ -368,11 +446,392 @@ function drawLibraryFace(ctx, x, y, s, personality, angryTint) {
 }
 
 /**
+ * Mixes a `#rrggbb` color toward black (negative `amount`) or white
+ * (positive), for cheap one-step shading of the flat-color primitives
+ * below without hand-picking a second hex per palette entry.
+ */
+function shadeColor(hex, amount) {
+  const n = parseInt(hex.slice(1), 16);
+  const target = amount < 0 ? 0 : 255;
+  const t = Math.abs(amount);
+  const mix = (c) => Math.round(c + (target - c) * t);
+  const r = mix((n >> 16) & 255);
+  const g = mix((n >> 8) & 255);
+  const b = mix(n & 255);
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+
+/** Hair that sits *behind* the head circle (drawn before it): bob volume, pigtails. */
+function drawBackHair(ctx, x, headY, s, personality) {
+  const color = personality.hairColor;
+  if (personality.hairStyle === 'long') {
+    drawRoundRect(ctx, x - 12 * s, headY - 6 * s, 24 * s, 22 * s, 6 * s, color);
+  } else if (personality.hairStyle === 'curly') {
+    ctx.fillStyle = color;
+    for (let i = 0; i <= 8; i++) {
+      const a = Math.PI * (0.95 + i * 0.1375);
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(a) * 10.5 * s, headY - 1 * s + Math.sin(a) * 10.5 * s, 4.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(x + dir * 11 * s, headY + 3 * s, 4 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (personality.hairStyle === 'bun') {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, headY - 12.5 * s, 4.8 * s, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (personality.hairStyle === 'bob') {
+    drawRoundRect(ctx, x - 12.5 * s, headY - 6 * s, 25 * s, 15 * s, 5 * s, color);
+  } else if (personality.hairStyle === 'pigtails') {
+    ctx.fillStyle = color;
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(x + dir * 12 * s, headY - 1 * s, 4.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#f2d98a';
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(x + dir * 9.6 * s, headY - 3 * s, 1.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+/** Hair that sits *over* the head circle (drawn after it, before the face). */
+function drawFrontHair(ctx, x, headY, s, personality) {
+  const color = personality.hairColor;
+  ctx.fillStyle = color;
+  if (personality.hairStyle === 'receding') {
+    // Thinning on top: side tufts above the ears plus a thin crown band.
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(x + dir * 8.6 * s, headY - 3 * s, 2.6 * s, 4.2 * s, dir * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.arc(x, headY - 1.5 * s, 10.3 * s, Math.PI * 1.08, Math.PI * 1.92);
+    ctx.arc(x, headY + 1 * s, 10.3 * s, Math.PI * 1.85, Math.PI * 1.15, true);
+    ctx.fill();
+    return;
+  }
+
+  if (personality.hairStyle === 'beanie') {
+    // Tufts of hair under a knit beanie with a fold-up band and a pompom.
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(x + dir * 8.8 * s, headY - 0.5 * s, 2.4 * s, 3.4 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const hat = personality.hatColor || '#3f7a6a';
+    ctx.fillStyle = hat;
+    ctx.beginPath();
+    ctx.arc(x, headY - 3 * s, 11 * s, Math.PI, 0);
+    ctx.fill();
+    drawRoundRect(ctx, x - 11.5 * s, headY - 4.5 * s, 23 * s, 4 * s, 1.5 * s, shadeColor(hat, -0.2));
+    ctx.fillStyle = shadeColor(hat, 0.35);
+    ctx.beginPath();
+    ctx.arc(x, headY - 14.5 * s, 2.8 * s, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  // Every other style starts from a full cap over the top of the head.
+  ctx.beginPath();
+  ctx.arc(x, headY - 2.5 * s, 10.6 * s, Math.PI, 0);
+  ctx.fill();
+
+  if (personality.hairStyle === 'bangs') {
+    // A soft fringe of three scallops across the forehead, plus side locks.
+    for (const dx of [-5.5, 0, 5.5]) {
+      ctx.beginPath();
+      ctx.ellipse(x + dx * s, headY - 3.6 * s, 3.6 * s, 2.4 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const dir of [-1, 1]) {
+      drawRoundRect(ctx, x + (dir < 0 ? -10.6 : 7.6) * s, headY - 3 * s, 3 * s, 8 * s, 1.5 * s, color);
+    }
+  } else if (personality.hairStyle === 'bob') {
+    // The asymmetric swoop: a heavy side-part sweeping down over one brow.
+    ctx.beginPath();
+    ctx.moveTo(x - 10.6 * s, headY - 2.5 * s);
+    ctx.quadraticCurveTo(x - 2 * s, headY - 6 * s, x + 9 * s, headY - 1 * s);
+    ctx.lineTo(x + 10.6 * s, headY - 2.5 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = shadeColor(color, -0.25);
+    ctx.lineWidth = Math.max(1, 0.6 * s);
+    ctx.beginPath();
+    ctx.moveTo(x - 3 * s, headY - 12 * s);
+    ctx.quadraticCurveTo(x - 1 * s, headY - 7 * s, x + 6 * s, headY - 4 * s);
+    ctx.stroke();
+  } else if (personality.hairStyle === 'spiky') {
+    for (let i = 0; i < 5; i++) {
+      const bx = x + (i - 2) * 4.4 * s;
+      ctx.beginPath();
+      ctx.moveTo(bx - 3 * s, headY - 9 * s);
+      ctx.lineTo(bx + (i - 2) * 0.8 * s, headY - 16 * s);
+      ctx.lineTo(bx + 3 * s, headY - 9 * s);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (personality.hairStyle === 'sidePart') {
+    ctx.beginPath();
+    ctx.moveTo(x - 10.6 * s, headY - 2.5 * s);
+    ctx.quadraticCurveTo(x - 4 * s, headY - 7 * s, x + 6 * s, headY - 4 * s);
+    ctx.lineTo(x + 10.6 * s, headY - 2.5 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = shadeColor(personality.headColor, -0.15);
+    ctx.lineWidth = Math.max(1, 0.6 * s);
+    ctx.beginPath();
+    ctx.moveTo(x - 4 * s, headY - 12.5 * s);
+    ctx.lineTo(x - 3 * s, headY - 6.5 * s);
+    ctx.stroke();
+  } else if (personality.hairStyle === 'long') {
+    for (const dx of [-5, 0, 5]) {
+      ctx.beginPath();
+      ctx.ellipse(x + dx * s, headY - 4 * s, 4 * s, 2.4 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (personality.hairStyle === 'curly') {
+    for (const dx of [-6, -2, 2, 6]) {
+      ctx.beginPath();
+      ctx.arc(x + dx * s, headY - 6 * s, 3.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (personality.hairStyle === 'bun') {
+    // Hair pulled back: a tidy cap with a center part.
+    ctx.strokeStyle = shadeColor(color, -0.25);
+    ctx.lineWidth = Math.max(1, 0.6 * s);
+    ctx.beginPath();
+    ctx.moveTo(x, headY - 12.5 * s);
+    ctx.lineTo(x, headY - 6 * s);
+    ctx.stroke();
+  } else if (personality.hairStyle === 'pigtails') {
+    // A short center part.
+    ctx.strokeStyle = shadeColor(personality.headColor, -0.1);
+    ctx.lineWidth = Math.max(1, 0.6 * s);
+    ctx.beginPath();
+    ctx.moveTo(x, headY - 12.5 * s);
+    ctx.lineTo(x, headY - 8 * s);
+    ctx.stroke();
+  }
+}
+
+/** Torso-level clothing detail, drawn on top of the plain shirt shape. */
+function drawOutfitDetail(ctx, x, y, s, personality) {
+  const torsoTop = y - 26 * s;
+  if (personality.outfit === 'cardigan') {
+    // Open cardigan over a lighter shirt: a center V of shirt plus buttons.
+    ctx.fillStyle = '#efe6d2';
+    ctx.beginPath();
+    ctx.moveTo(x - 4 * s, torsoTop + 2 * s);
+    ctx.lineTo(x + 4 * s, torsoTop + 2 * s);
+    ctx.lineTo(x + 1.5 * s, y - 5 * s);
+    ctx.lineTo(x - 1.5 * s, y - 5 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = shadeColor(personality.bodyColor, -0.35);
+    for (const dy of [-18, -13, -8]) {
+      ctx.beginPath();
+      ctx.arc(x + 3.4 * s, y + dy * s, 0.9 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (personality.outfit === 'collar') {
+    // A white collar and a backpack strap across one shoulder.
+    ctx.fillStyle = '#fdf8ee';
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(x, torsoTop + 4 * s);
+      ctx.lineTo(x + dir * 5 * s, torsoTop + 1 * s);
+      ctx.lineTo(x + dir * 4 * s, torsoTop + 5.5 * s);
+      ctx.closePath();
+      ctx.fill();
+    }
+    drawRoundRect(ctx, x + 5 * s, torsoTop + 1 * s, 2.6 * s, 19 * s, 1.2 * s, '#c47f4e');
+  } else if (personality.outfit === 'overalls') {
+    // Overall bib + straps in the pants color, with two gold buttons.
+    const bib = personality.pantsColor;
+    drawRoundRect(ctx, x - 6 * s, y - 16 * s, 12 * s, 12 * s, 2.5 * s, bib);
+    for (const dir of [-1, 1]) {
+      drawRoundRect(ctx, x + (dir < 0 ? -7 : 4.6) * s, torsoTop + 1 * s, 2.4 * s, 11 * s, 1 * s, bib);
+    }
+    ctx.fillStyle = '#f2d98a';
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(x + dir * 4.4 * s, y - 14 * s, 1 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawRoundRect(ctx, x - 2.5 * s, y - 12 * s, 5 * s, 3.5 * s, 1 * s, shadeColor(bib, -0.15));
+  } else if (personality.outfit === 'vestLanyard') {
+    // Sweater vest over a cream shirt, plus a lanyard with a name badge.
+    const vest = personality.accentColor;
+    ctx.fillStyle = vest;
+    ctx.beginPath();
+    ctx.moveTo(x - 10 * s, torsoTop + 2 * s);
+    ctx.lineTo(x - 3.5 * s, torsoTop + 2 * s);
+    ctx.lineTo(x, torsoTop + 9 * s);
+    ctx.lineTo(x + 3.5 * s, torsoTop + 2 * s);
+    ctx.lineTo(x + 10 * s, torsoTop + 2 * s);
+    ctx.lineTo(x + 10 * s, y - 6 * s);
+    ctx.lineTo(x - 10 * s, y - 6 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#c0392b';
+    ctx.lineWidth = Math.max(1, 0.7 * s);
+    ctx.beginPath();
+    ctx.moveTo(x - 3.5 * s, torsoTop + 1 * s);
+    ctx.lineTo(x - 1 * s, y - 14 * s);
+    ctx.moveTo(x + 3.5 * s, torsoTop + 1 * s);
+    ctx.lineTo(x + 1 * s, y - 14 * s);
+    ctx.stroke();
+    drawRoundRect(ctx, x - 3 * s, y - 14.5 * s, 6 * s, 7 * s, 1 * s, '#fdf8ee');
+    ctx.fillStyle = '#5b6cc0';
+    ctx.fillRect(x - 2 * s, y - 13.5 * s, 4 * s, 1.4 * s);
+  } else if (personality.outfit === 'hoodie') {
+    // Hood bunched behind the neck, kangaroo pocket, drawstrings.
+    const dark = personality.accentColor;
+    drawRoundRect(ctx, x - 8 * s, torsoTop - 1 * s, 16 * s, 5 * s, 2.5 * s, dark);
+    drawRoundRect(ctx, x - 6.5 * s, y - 13 * s, 13 * s, 6 * s, 2 * s, dark);
+    ctx.strokeStyle = '#fdf8ee';
+    ctx.lineWidth = Math.max(1, 0.6 * s);
+    for (const dx of [-2, 2]) {
+      ctx.beginPath();
+      ctx.moveTo(x + dx * s, torsoTop + 3 * s);
+      ctx.lineTo(x + dx * s, torsoTop + 9 * s);
+      ctx.stroke();
+    }
+  } else if (personality.outfit === 'shawl') {
+    // A knitted shawl draped over the shoulders, pinned with a brooch.
+    ctx.fillStyle = personality.accentColor;
+    ctx.beginPath();
+    ctx.moveTo(x - 12 * s, torsoTop + 1 * s);
+    ctx.lineTo(x + 12 * s, torsoTop + 1 * s);
+    ctx.lineTo(x, y - 9 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#c0392b';
+    ctx.beginPath();
+    ctx.arc(x, torsoTop + 5 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (personality.outfit === 'suitTie') {
+    // Suit jacket with a white shirt V and a tie.
+    ctx.fillStyle = '#fdf8ee';
+    ctx.beginPath();
+    ctx.moveTo(x - 4 * s, torsoTop + 1 * s);
+    ctx.lineTo(x + 4 * s, torsoTop + 1 * s);
+    ctx.lineTo(x, y - 9 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = personality.accentColor;
+    ctx.beginPath();
+    ctx.moveTo(x - 1.4 * s, torsoTop + 2 * s);
+    ctx.lineTo(x + 1.4 * s, torsoTop + 2 * s);
+    ctx.lineTo(x + 1.8 * s, y - 11 * s);
+    ctx.lineTo(x, y - 9 * s);
+    ctx.lineTo(x - 1.8 * s, y - 11 * s);
+    ctx.closePath();
+    ctx.fill();
+  } else if (personality.outfit === 'dress') {
+    // A flared skirt over the upper legs, with a little collar.
+    ctx.fillStyle = shadeColor(personality.bodyColor, -0.08);
+    ctx.beginPath();
+    ctx.moveTo(x - 10 * s, y - 7 * s);
+    ctx.lineTo(x + 10 * s, y - 7 * s);
+    ctx.lineTo(x + 13 * s, y + 1 * s);
+    ctx.lineTo(x - 13 * s, y + 1 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fdf8ee';
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(x + dir * 2.5 * s, torsoTop + 2 * s, 2.5 * s, 0, Math.PI);
+      ctx.fill();
+    }
+  } else if (personality.outfit === 'stripes') {
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x - 11 * s, torsoTop, 22 * s, 21 * s, 6 * s);
+    ctx.clip();
+    ctx.fillStyle = personality.accentColor;
+    for (let i = 0; i < 5; i++) ctx.fillRect(x - 11 * s, torsoTop + 3 * s + i * 4 * s, 22 * s, 1.8 * s);
+    ctx.restore();
+  } else if (personality.outfit === 'flannel') {
+    // Plaid: darker vertical and horizontal bands.
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x - 11 * s, torsoTop, 22 * s, 21 * s, 6 * s);
+    ctx.clip();
+    ctx.fillStyle = 'rgba(40,20,20,0.28)';
+    for (let i = -2; i <= 2; i++) ctx.fillRect(x + i * 5 * s - 0.9 * s, torsoTop, 1.8 * s, 21 * s);
+    for (let j = 0; j < 4; j++) ctx.fillRect(x - 11 * s, torsoTop + 3 * s + j * 5 * s, 22 * s, 1.8 * s);
+    ctx.restore();
+    ctx.fillStyle = '#fdf8ee';
+    for (const dy of [-18, -13, -8]) {
+      ctx.beginPath();
+      ctx.arc(x, y + dy * s, 0.8 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (personality.outfit === 'blazer') {
+    // Sharp lapels over a white blouse, plus a pearl necklace.
+    ctx.fillStyle = '#fdf8ee';
+    ctx.beginPath();
+    ctx.moveTo(x - 4.5 * s, torsoTop + 1 * s);
+    ctx.lineTo(x + 4.5 * s, torsoTop + 1 * s);
+    ctx.lineTo(x, y - 10 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = shadeColor(personality.bodyColor, -0.25);
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(x + dir * 4.5 * s, torsoTop + 1 * s);
+      ctx.lineTo(x + dir * 1 * s, y - 11 * s);
+      ctx.lineTo(x + dir * 7 * s, torsoTop + 6 * s);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = '#fdf8ee';
+    for (const dx of [-3, -1.5, 0, 1.5, 3]) {
+      ctx.beginPath();
+      ctx.arc(x + dx * s, torsoTop + 3 * s + Math.abs(dx) * -0.5 * s + 1.5 * s, 0.8 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function drawGlasses(ctx, x, headY, s) {
+  const eyeY = headY + 1 * s;
+  ctx.strokeStyle = '#3a2a2a';
+  ctx.lineWidth = Math.max(1, 0.7 * s);
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(x + dir * 3.9 * s, eyeY, 3.1 * s, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(x - 0.8 * s, eyeY - 0.5 * s);
+  ctx.lineTo(x + 0.8 * s, eyeY - 0.5 * s);
+  ctx.stroke();
+}
+
+/**
  * The shared big-character draw helper (doc's `drawLibraryPerson`): body +
  * head + hair + a personality-parameterized face. `angryTint` is Karen's
  * "reddish face tint during her scripted outburst" (doc's Visual
  * Direction), passed independently of her base template so it only applies
  * while her event is actually active.
+ *
+ * v2 art pass: proportions follow Kitchen Shift's `drawPixelPerson` (the
+ * user: the library bodies "feel ugly" next to the kitchen's) — a wide,
+ * rounded torso the head sits directly on (no separate neck to read as a
+ * gap), short arms peeking out either side with hands, short legs with
+ * shoes, and a soft ground shadow. Each personality also gets its own
+ * hairstyle and outfit detail instead of differing by palette alone.
  *
  * @param {CanvasRenderingContext2D} ctx
  * @param {number} x
@@ -383,44 +842,89 @@ export function drawLibraryPerson(ctx, x, y, opts = {}) {
   const personality = PERSONALITY_TEMPLATES[opts.personalityKey] || PERSONALITY_TEMPLATES.shyStudent;
   const s = (opts.scale ?? 1) * LIBRARY_PERSON_SCALE;
   const pants = personality.pantsColor || personality.bodyColor;
+  const headY = y - 34 * s;
 
-  // Legs.
-  drawRoundRect(ctx, x - 9 * s, y - 4 * s, 7 * s, 16 * s, 2 * s, pants);
-  drawRoundRect(ctx, x + 2 * s, y - 4 * s, 7 * s, 16 * s, 2 * s, pants);
-
-  // Arms — positioned fully outside the torso's width below (touching its
-  // edge, not underneath it), so they read as distinct limbs instead of
-  // being swallowed by the torso's rounded corners into one blob.
-  drawRoundRect(ctx, x - 15 * s, y - 20 * s, 7 * s, 22 * s, 3 * s, personality.bodyColor);
-  drawRoundRect(ctx, x + 8 * s, y - 20 * s, 7 * s, 22 * s, 3 * s, personality.bodyColor);
-
-  // Torso (shirt) — narrower than the arm span above, on purpose.
-  drawRoundRect(ctx, x - 8 * s, y - 20 * s, 16 * s, 16 * s, 5 * s, personality.bodyColor);
-
-  // Neck — connects the head to the shoulders. Deliberately overlaps
-  // *into* both the head circle (below) and the torso rect (above) by a
-  // couple pixels each, rather than just touching their exact edges —
-  // real user report: a neck sized to only exactly bridge the two
-  // (edge-to-edge, no overlap) rendered as a visibly disconnected
-  // floating head in a real browser, even though it measured out fine in
-  // this session's own Playwright screenshots. Overlapping removes any
-  // dependency on sub-pixel-exact rendering: there's no longer a seam
-  // that could show background through it on any renderer.
-  drawRoundRect(ctx, x - 5 * s, y - 26 * s, 10 * s, 8 * s, 2 * s, personality.headColor);
-
-  ctx.fillStyle = personality.headColor;
+  // Ground shadow.
+  ctx.fillStyle = 'rgba(58,42,42,0.14)';
   ctx.beginPath();
-  ctx.arc(x, y - 34 * s, 10 * s, 0, Math.PI * 2);
+  ctx.ellipse(x, y + 9 * s, 11 * s, 2.6 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  if (personality.hairColor) {
-    ctx.fillStyle = personality.hairColor;
+  // Legs + shoes.
+  drawRoundRect(ctx, x - 7 * s, y - 8 * s, 6 * s, 14 * s, 2 * s, pants);
+  drawRoundRect(ctx, x + 1 * s, y - 8 * s, 6 * s, 14 * s, 2 * s, pants);
+  const shoe = personality.shoeColor || '#4a3a32';
+  drawRoundRect(ctx, x - 8 * s, y + 4 * s, 7.5 * s, 4.5 * s, 2 * s, shoe);
+  drawRoundRect(ctx, x + 0.5 * s, y + 4 * s, 7.5 * s, 4.5 * s, 2 * s, shoe);
+
+  // Arms (sleeves) peek ~3 units out past the torso on each side, with hands.
+  const sleeve = shadeColor(personality.bodyColor, -0.08);
+  drawRoundRect(ctx, x - 14 * s, y - 23 * s, 6 * s, 15 * s, 3 * s, sleeve);
+  drawRoundRect(ctx, x + 8 * s, y - 23 * s, 6 * s, 15 * s, 3 * s, sleeve);
+  ctx.fillStyle = personality.headColor;
+  for (const dir of [-1, 1]) {
     ctx.beginPath();
-    ctx.arc(x, y - 37 * s, 10.5 * s, Math.PI, 0);
+    ctx.arc(x + dir * 11 * s, y - 8 * s, 2.7 * s, 0, Math.PI * 2);
     ctx.fill();
   }
 
+  // Torso — its top tucks up under the head circle, so the head always
+  // reads as attached (v1.5's floating-head report can't recur: there is
+  // no neck seam at all any more).
+  drawRoundRect(ctx, x - 11 * s, y - 26 * s, 22 * s, 21 * s, 6 * s, personality.bodyColor);
+  drawOutfitDetail(ctx, x, y, s, personality);
+
+  drawBackHair(ctx, x, headY, s, personality);
+
+  ctx.fillStyle = personality.headColor;
+  ctx.beginPath();
+  ctx.arc(x, headY, 10 * s, 0, Math.PI * 2);
+  ctx.fill();
+  // Ears.
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(x + dir * 9.8 * s, headY + 1.5 * s, 2 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (personality.hairColor) drawFrontHair(ctx, x, headY, s, personality);
+
   drawLibraryFace(ctx, x, y, s, personality, Boolean(opts.angryTint));
+  if (personality.glasses) drawGlasses(ctx, x, headY, s);
+  if (personality.accessory) drawAccessory(ctx, x, headY, s, personality);
+}
+
+/** Head accessories drawn last, over the face/hair (v2.12). */
+function drawAccessory(ctx, x, headY, s, personality) {
+  if (personality.accessory === 'beard') {
+    // A full beard framing the jaw, with the mouth redrawn on top.
+    ctx.fillStyle = personality.hairColor;
+    ctx.beginPath();
+    ctx.moveTo(x - 9.5 * s, headY + 1 * s);
+    ctx.quadraticCurveTo(x - 9 * s, headY + 12 * s, x, headY + 12.5 * s);
+    ctx.quadraticCurveTo(x + 9 * s, headY + 12 * s, x + 9.5 * s, headY + 1 * s);
+    ctx.quadraticCurveTo(x + 5 * s, headY + 4 * s, x, headY + 3.5 * s);
+    ctx.quadraticCurveTo(x - 5 * s, headY + 4 * s, x - 9.5 * s, headY + 1 * s);
+    ctx.fill();
+    ctx.strokeStyle = '#f5e6d8';
+    ctx.lineWidth = Math.max(1, 0.8 * s);
+    ctx.beginPath();
+    ctx.arc(x, headY + 4.2 * s, 1.8 * s, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+  } else if (personality.accessory === 'headphones') {
+    ctx.strokeStyle = '#2a2a33';
+    ctx.lineWidth = Math.max(1.5, 1.8 * s);
+    ctx.beginPath();
+    ctx.arc(x, headY - 1 * s, 11.5 * s, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.stroke();
+    for (const dir of [-1, 1]) drawRoundRect(ctx, x + (dir < 0 ? -14 : 9.5) * s, headY - 1.5 * s, 4.5 * s, 7 * s, 2 * s, '#e06a5b');
+  } else if (personality.accessory === 'beret') {
+    ctx.fillStyle = personality.accentColor;
+    ctx.beginPath();
+    ctx.ellipse(x + 2 * s, headY - 9.5 * s, 10.5 * s, 4 * s, -0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(x + 1.5 * s, headY - 15 * s, 1.5 * s, 2.5 * s);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -428,11 +932,11 @@ export function drawLibraryPerson(ctx, x, y, opts = {}) {
 // ---------------------------------------------------------------------------
 
 const TITLE_POOLS = {
-  mystery: ['The Silent Clue', 'Midnight Ledger', 'The Locked Room', 'A Quiet Alibi', 'The Missing Hour'],
-  romance: ['Second Chances', 'The Letter Never Sent', 'Sunset in Gard', 'Two Left Umbrellas', 'A Promise Kept'],
-  scifi: ['The Last Signal', 'Orbit Drift', 'Colony Nine', 'The Glass Engine', 'Beyond the Static'],
-  kids: ['The Brave Little Fox', 'Bedtime for Dragons', 'The Cloud Garden', 'A Very Silly Day', 'The Tiny Explorer'],
-  reference: ["The Gardener's Almanac", 'Complete Grammar Guide', 'World Atlas, Revised', 'Field Guide to Birds', 'The Home Repair Book'],
+  mystery: ['The Silent Clue', 'Midnight Ledger', 'The Locked Room', 'A Quiet Alibi', 'The Missing Hour', 'Footprints in Ash', 'The Third Witness', 'Cold Case Coffee'],
+  romance: ['Second Chances', 'The Letter Never Sent', 'Sunset in Gard', 'Two Left Umbrellas', 'A Promise Kept', 'Summer at the Pier', 'Ink and Roses', 'The Last Dance'],
+  scifi: ['The Last Signal', 'Orbit Drift', 'Colony Nine', 'The Glass Engine', 'Beyond the Static', 'Red Dust Rising', 'The Quiet Machine', 'Starlight Archive'],
+  kids: ['The Brave Little Fox', 'Bedtime for Dragons', 'The Cloud Garden', 'A Very Silly Day', 'The Tiny Explorer', 'Pip the Penguin', 'Moon Boots', 'The Lost Balloon'],
+  reference: ["The Gardener's Almanac", 'Complete Grammar Guide', 'World Atlas, Revised', 'Field Guide to Birds', 'The Home Repair Book', 'Kitchen Science', 'A History of Maps', 'Pocket Dictionary'],
 };
 
 function titleForGenre(genreId, random) {
@@ -446,9 +950,67 @@ function titleForGenre(genreId, random) {
 // ---------------------------------------------------------------------------
 
 const SCENE_X = [120, 840];
-const SCENE_Y = [180, 480];
+// v2.14: was [180, 480] — the top of that range overlapped each overlay's
+// header line (a coin sat on the Coin Hunt title) and the bottom the
+// "N / M found" counter at y=470.
+const SCENE_Y = [205, 445];
 
 /** Scatters `count` points inside the scene bounds with a minimum separation, retrying on overlap (bounded attempts, falls back to whatever fits). */
+/**
+ * Greedy word-wraps `title` into at most `maxLines` lines no wider than
+ * `maxWidth`, stepping the font size down from `maxFont` to `minFont`
+ * until it fits. Returns the font size + lines; if even `minFont` can't
+ * fit, returns that size's best effort (callers clip to the book's rect).
+ */
+function fitTitleLines(ctx, title, maxWidth, maxLines, maxFont, minFont) {
+  const words = title.split(' ');
+  let best = null;
+  for (let size = maxFont; size >= minFont; size -= 0.5) {
+    ctx.font = `bold ${size}px sans-serif`;
+    const lines = [];
+    let fits = true;
+    for (const word of words) {
+      if (ctx.measureText(word).width > maxWidth) fits = false;
+      const candidate = lines.length ? `${lines[lines.length - 1]} ${word}` : word;
+      if (lines.length && ctx.measureText(candidate).width <= maxWidth) lines[lines.length - 1] = candidate;
+      else lines.push(word);
+    }
+    if (lines.length > maxLines) fits = false;
+    best = { size, lines: lines.slice(0, maxLines) };
+    if (fits) return best;
+  }
+  return best;
+}
+
+/** Cream text on dark covers, dark text on light ones. */
+function titleInkFor(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return lum > 170 ? '#3a2a2a' : '#fdf8ee';
+}
+
+/**
+ * Draws a book's full title centered on its front cover, wrapped and
+ * shrunk to fit, clipped to the cover rect so it can never bleed into a
+ * neighboring book (v1.4's original overflow bug).
+ */
+function drawCoverTitle(ctx, title, x, y, w, h, coverColor, opts = {}) {
+  const pad = opts.pad ?? 2;
+  const { size, lines } = fitTitleLines(ctx, title, w - pad * 2, opts.maxLines ?? 4, opts.maxFont ?? 8, opts.minFont ?? 5);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.fillStyle = titleInkFor(coverColor);
+  ctx.font = `bold ${size}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const lineH = size * 1.15;
+  const top = y + h / 2 - ((lines.length - 1) * lineH) / 2;
+  lines.forEach((line, i) => ctx.fillText(line, x + w / 2, top + i * lineH));
+  ctx.restore();
+}
+
 function scatterPoints(count, random, minDist = 70) {
   const points = [];
   for (let i = 0; i < count; i++) {
@@ -514,6 +1076,7 @@ export function init(canvas, elements) {
 
   let currentShiftNumber = save.currentShift;
   let karenShiftNumber = karenShiftForSeed(save.karenSeed);
+  let finesStartShiftNumber = finesStartShiftForSeed(save.karenSeed);
   let karenAvailable = false; // true once her scheduled appearance time has passed this shift, until triggered
 
   let shiftState = null;
@@ -592,6 +1155,7 @@ export function init(canvas, elements) {
     'boss-office': "Boss's Office",
     stairs: 'Stairs',
     elevator: 'Elevator',
+    'reading-nook': 'Reading Nook',
     bookshelf: null, // resolved per-station via genreId below
   };
 
@@ -600,8 +1164,14 @@ export function init(canvas, elements) {
       const genre = findGenre(station.genreId);
       return genre ? `${genre.name} Shelf` : 'Bookshelf';
     }
-    if (station.kind === 'boss-office' && shiftState && shiftState.phase !== 'closing-wait' && shiftState.phase !== 'paycheck') {
+    if (station.kind === 'reading-nook' && shiftState && shiftState.readingCooldownSeconds > 0) {
+      return `Reading Nook (${Math.ceil(shiftState.readingCooldownSeconds)}s)`;
+    }
+    if (station.kind === 'boss-office' && shiftState && shiftState.phase === 'playing') {
       return "Boss's Office (locked)";
+    }
+    if (station.kind === 'boss-office' && shiftState && shiftState.phase === 'closing-wait' && !isBossOfficeReady(shiftState)) {
+      return `Boss's Office (${Math.ceil(shiftState.closingWaitSecondsRemaining)}s)`;
     }
     return STATION_LABELS[station.kind] || '';
   }
@@ -610,6 +1180,7 @@ export function init(canvas, elements) {
   function labelForFPTarget(target) {
     if (target.entityKind === 'station') return labelForStation(target.ref);
     if (target.entityKind === 'frontDeskSlot') return labelForStation(stations.find((s) => s.kind === 'front-desk'));
+    if (target.entityKind === 'finesSlot') return labelForStation(stations.find((s) => s.kind === 'fines-counter'));
     if (target.entityKind === 'returnCartBook') return labelForStation(stations.find((s) => s.kind === 'return-cart'));
     return '';
   }
@@ -669,7 +1240,24 @@ export function init(canvas, elements) {
     };
   }
 
+  /** Set when the player arrives at the Boss's Office during the closing wait; the loop lets them in once it ends, as long as they're still there. */
+  let waitingAtBossOffice = false;
+
+  function enterBossOfficeNow() {
+    waitingAtBossOffice = false;
+    shiftState = enterBossOffice(shiftState);
+    endShift();
+  }
+
+  /** Whether the player is standing at the Boss's Office (within the normal arrival distance plus a little slack). */
+  function isPlayerAtBossOffice() {
+    const office = stations.find((st) => st.kind === 'boss-office');
+    if (!office || currentFloor !== office.floor) return false;
+    return Math.hypot(player.x - office.x, player.y - office.y) <= office.size / 2 + PLAYER_STOP_MARGIN + 30;
+  }
+
   function commitStationTarget(station, rawPoint) {
+    if (station?.kind !== 'boss-office') waitingAtBossOffice = false;
     if (station) {
       const standoff = station.size / 2 + PLAYER_STOP_MARGIN;
       const approach = approachPoint(station.x, station.y, player.x, player.y, standoff);
@@ -764,6 +1352,9 @@ export function init(canvas, elements) {
       frontDeskSlots().forEach((slot, i) => {
         entities.push({ id: `fd-${slot.id}`, x: slot.x, y: slot.y, entityKind: 'frontDeskSlot', ref: slot, slotIndex: i });
       });
+      finesCounterSlots().forEach((slot, i) => {
+        entities.push({ id: `fc-${slot.id}`, x: slot.x, y: slot.y, entityKind: 'finesSlot', ref: slot, slotIndex: i });
+      });
       returnCartSlots().forEach((book) => {
         entities.push({ id: `cart-${book.id}`, x: book.x, y: book.y, entityKind: 'returnCartBook', ref: book });
       });
@@ -820,8 +1411,10 @@ export function init(canvas, elements) {
     if (!target) return;
     if (target.entityKind === 'frontDeskSlot') {
       const slot = target.ref;
-      pendingFrontDeskAction = slot.kind === 'karen' ? { kind: 'karen' } : { kind: slot.kind, id: slot.id };
+      pendingFrontDeskAction = slot.kind === 'karen' ? { kind: 'karen' } : (slot.kind === 'borrow-active' ? null : { kind: slot.kind, id: slot.id });
       handleArrival(stations.find((s) => s.kind === 'front-desk'));
+    } else if (target.entityKind === 'finesSlot') {
+      handleArrival(stations.find((s) => s.kind === 'fines-counter'));
     } else if (target.entityKind === 'returnCartBook') {
       if (shiftState && !shiftState.carriedBook) {
         pendingCartPickupId = target.ref.id;
@@ -835,6 +1428,8 @@ export function init(canvas, elements) {
   // -- Front Desk / Return Cart queue slots ---------------------------------
 
   const SLOT_VISIBLE_MAX = 3;
+  /** How far below a station's box its patron queue stands — far enough that patrons' heads clear the station's label chip. */
+  const QUEUE_SLOT_OFFSET_Y = 72;
 
   function frontDeskSlots() {
     if (!shiftState) return [];
@@ -842,18 +1437,70 @@ export function init(canvas, elements) {
     if (karenAvailable && !shiftState.karen.triggered) {
       slots.push({ kind: 'karen', id: 'karen' });
     }
-    shiftState.finesQueue.slice(0, SLOT_VISIBLE_MAX).forEach((f) => slots.push({ kind: 'fine', id: f.id, amountGard: f.amountGard }));
-    shiftState.borrowQueue.slice(0, SLOT_VISIBLE_MAX).forEach((r) => slots.push({ kind: 'borrow', id: r.id, bookId: r.bookId }));
+    // The patron whose request you're fulfilling stays at the desk (with a
+    // patience bar) instead of vanishing on accept — v2.7, user: "the
+    // costermer dissapears and i didnt get the book".
+    if (shiftState.activeBorrow) {
+      const a = shiftState.activeBorrow;
+      slots.push({
+        kind: 'borrow-active', id: a.id, bookId: a.bookId, stage: a.stage,
+        patienceFraction: a.patienceMaxSeconds > 0 ? a.patienceRemainingSeconds / a.patienceMaxSeconds : 1,
+      });
+    }
+    shiftState.borrowQueue.slice(0, SLOT_VISIBLE_MAX).forEach((r) => slots.push({ kind: 'borrow', id: r.id, bookId: r.bookId, waitFraction: waitFractionOf(r) }));
     return slots.map((slot, i) => {
       const desk = stations.find((s) => s.kind === 'front-desk');
       const totalWidth = (slots.length - 1) * 46;
-      return { ...slot, x: desk.x - totalWidth / 2 + i * 46, y: desk.y + desk.size / 2 + 58 };
+      return { ...slot, x: desk.x - totalWidth / 2 + i * 46, y: desk.y + desk.size / 2 + QUEUE_SLOT_OFFSET_Y };
     });
   }
 
   function frontDeskSlotAtPoint(x, y) {
     if (currentFloor !== FLOOR_1) return null;
-    return frontDeskSlots().find((slot) => Math.hypot(slot.x - x, slot.y - y) <= 26) || null;
+    return frontDeskSlots().find((slot) => isPointOnQueuedPatron(slot, x, y)) || null;
+  }
+
+  /**
+   * Hit-tests a queued patron's whole drawn body. Their slot (x, y) is
+   * their *feet*; the old 26px radius around it missed clicks on the
+   * head/torso entirely (user: "how do i take the book from the
+   * costermer?????"). The box spans head-top to shoes and half the 46px
+   * slot pitch on each side, so neighbours never overlap.
+   */
+  /** A queued patron's remaining wait as 0..1, or null if they have no wait timer. */
+  function waitFractionOf(entry) {
+    return entry.waitMaxSeconds ? entry.waitRemainingSeconds / entry.waitMaxSeconds : null;
+  }
+
+  /** Patience bar under a patron's name chip (above their head it collided with the station's label), green -> amber -> red. */
+  function drawPatienceBar(slot, fraction) {
+    if (fraction == null) return;
+    const f = Math.max(0, Math.min(1, fraction));
+    const y = slot.y + 30;
+    drawRoundRect(ctx, slot.x - 18, y, 36, 5, 2.5, 'rgba(58,42,42,0.25)');
+    drawRoundRect(ctx, slot.x - 18, y, 36 * f, 5, 2.5, f > 0.5 ? '#7fd68a' : (f > 0.25 ? '#e0a83a' : '#e06a5b'));
+  }
+
+  function isPointOnQueuedPatron(slot, x, y) {
+    return Math.abs(x - slot.x) <= 22 && y >= slot.y - 50 && y <= slot.y + 26;
+  }
+
+  /** Fine-paying patrons queue under the Fines Counter (v2.4), laid out the same way as the Front Desk's queue. */
+  function finesCounterSlots() {
+    if (!shiftState) return [];
+    const counter = stations.find((s) => s.kind === 'fines-counter');
+    const queue = shiftState.finesQueue.slice(0, SLOT_VISIBLE_MAX);
+    const totalWidth = (queue.length - 1) * 46;
+    return queue.map((f, i) => ({
+      kind: 'fine', id: f.id, amountGard: f.amountGard, waitFraction: waitFractionOf(f),
+      x: counter.x - totalWidth / 2 + i * 46,
+      y: counter.y + counter.size / 2 + QUEUE_SLOT_OFFSET_Y,
+    }));
+  }
+
+  function finesCounterSlotAtPoint(x, y) {
+    if (currentFloor !== FLOOR_1) return null;
+    return finesCounterSlots().find((slot) => isPointOnQueuedPatron(slot, x, y)) || null;
   }
 
   function returnCartSlots() {
@@ -866,9 +1513,17 @@ export function init(canvas, elements) {
     }));
   }
 
+  /** A Return Cart book's cover rect — 30x40, grown from 26x32 to fit full titles (34px slot pitch leaves a 4px gap). */
+  function returnCartCoverRect(book) {
+    return { x: book.x - 14, y: book.y - 16, w: 30, h: 40 };
+  }
+
   function returnCartSlotAtPoint(x, y) {
     if (currentFloor !== FLOOR_1) return null;
-    return returnCartSlots().find((book) => Math.hypot(book.x - x, book.y - y) <= 18) || null;
+    return returnCartSlots().find((book) => {
+      const r = returnCartCoverRect(book);
+      return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    }) || null;
   }
 
   // -- Patron/book spawn scheduling -----------------------------------------
@@ -877,11 +1532,16 @@ export function init(canvas, elements) {
     const total = shiftState.totalClockSeconds;
     const events = [];
     const bookCount = returnVolumeForShift(currentShiftNumber);
-    const fineCount = fineVolumeForShift(currentShiftNumber);
+    const fineCount = fineVolumeForShift(currentShiftNumber, finesStartShiftNumber);
     const borrowCount = borrowVolumeForShift(currentShiftNumber);
     for (let i = 0; i < bookCount; i++) events.push({ type: 'book', at: random() * total * 0.85 });
     for (let i = 0; i < fineCount; i++) events.push({ type: 'fine', at: random() * total * 0.85 });
-    for (let i = 0; i < borrowCount; i++) events.push({ type: 'borrow', at: random() * total * 0.85 });
+    for (let i = 0; i < borrowCount; i++) {
+      // The first borrow patron always shows up within the opening seconds.
+      const [early, late] = FIRST_BORROW_ARRIVAL_SECONDS;
+      const at = i === 0 ? early + random() * (late - early) : random() * total * 0.85;
+      events.push({ type: 'borrow', at });
+    }
     if (currentShiftNumber === karenShiftNumber) {
       events.push({ type: 'karen', at: total * 0.3 });
     }
@@ -905,7 +1565,7 @@ export function init(canvas, elements) {
 
   function spawnFine(forcedAmount) {
     const amountGard = Number.isFinite(forcedAmount) ? forcedAmount : fineAmountForRoll(random());
-    shiftState = addFineToQueue(shiftState, { id: `fine-${fineIdCounter++}`, amountGard });
+    shiftState = addFineToQueue(shiftState, { id: `fine-${fineIdCounter++}`, amountGard, waitSeconds: queueWaitSecondsForShift(currentShiftNumber) });
   }
 
   function spawnBorrow() {
@@ -917,6 +1577,7 @@ export function init(canvas, elements) {
       id: `borrow-${borrowIdCounter}`,
       bookId,
       patienceSeconds: borrowPatienceSeconds(currentShiftNumber),
+      waitSeconds: queueWaitSecondsForShift(currentShiftNumber),
     });
   }
 
@@ -965,22 +1626,220 @@ export function init(canvas, elements) {
     const genre = findGenre(genreId);
     const points = scatterPoints(FIND_THE_BOOK_DECOY_COUNT + 1, random, 80);
     const correctIndex = Math.floor(random() * points.length);
+    // Decoys draw *distinct* titles that never match the requested one —
+    // previously each decoy rolled independently from a 5-title pool, so a
+    // decoy could carry the very title being searched for (bug report: "when
+    // i try to get the book the costermer borrowed i couldnt").
+    const decoyTitles = (TITLE_POOLS[genreId] || []).filter((t) => t !== correctTitle);
+    for (let i = decoyTitles.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [decoyTitles[i], decoyTitles[j]] = [decoyTitles[j], decoyTitles[i]];
+    }
+    let decoyIndex = 0;
+    // Squeeze the scatter's y-range down so no book overlaps the
+    // "Looking for" header line (y≈194).
     const items = points.map((p, i) => ({
       ...p,
+      y: 218 + ((p.y - SCENE_Y[0]) / (SCENE_Y[1] - SCENE_Y[0])) * (SCENE_Y[1] - 218),
       id: i,
-      title: i === correctIndex ? correctTitle : titleForGenre(genreId, random),
+      title: i === correctIndex ? correctTitle : (decoyTitles[decoyIndex++] ?? 'Untitled'),
       correct: i === correctIndex,
       color: genre ? genre.color : '#8a6a4a',
     }));
     overlay = { kind: 'find-the-book', items, genreId };
   }
 
+  // -- Count the Till (v2.4): count a collected fine into the Front Desk till
+  // Tap coin/bill denominations (or press 1-4) to add them, Undo (or
+  // Backspace) to take the last one back. Reaching the exact amount banks
+  // it; going over is a miscount: a mistake, and the count resets.
+
+  function openTillCountOverlay() {
+    overlay = { kind: 'till-count', target: shiftState.carriedFine.amountGard, added: [], flash: null };
+  }
+
+  function tillButtonRects() {
+    const w = 104;
+    const h = 64;
+    const gap = 18;
+    const startX = CANVAS_WIDTH / 2 - (TILL_DENOMINATIONS.length * w + (TILL_DENOMINATIONS.length - 1) * gap) / 2;
+    const denominations = TILL_DENOMINATIONS.map((value, i) => ({ value, x: startX + i * (w + gap), y: 330, w, h }));
+    return { denominations, undo: { x: CANVAS_WIDTH / 2 - 60, y: 420, w: 120, h: 36 } };
+  }
+
+  function tillTotal() {
+    return overlay.added.reduce((sum, v) => sum + v, 0);
+  }
+
+  function addToTill(value) {
+    overlay.added.push(value);
+    const result = tillCountResult(tillTotal(), overlay.target);
+    if (result === 'exact') {
+      shiftState = resolveTillCount(shiftState, true);
+      showToast(`Counted ${overlay.target} Gard into the till — fine banked!`);
+      overlay = null;
+    } else if (result === 'over') {
+      shiftState = resolveTillCount(shiftState, false);
+      showToast(`Miscounted (${tillTotal()} Gard) — start over.`);
+      overlay.added = [];
+      overlay.flash = { text: 'Over! Recount', seconds: 1 };
+    }
+  }
+
+  function undoTill() {
+    overlay.added.pop();
+  }
+
+  function handleTillCountClick(x, y) {
+    const inside = (r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    const rects = tillButtonRects();
+    const hit = rects.denominations.find(inside);
+    if (hit) addToTill(hit.value);
+    else if (inside(rects.undo)) undoTill();
+  }
+
+  /** The active borrow request's title, and where its shelf is (with "upstairs" for 2nd-floor genres). */
+  function borrowTitle() {
+    return bookCatalog.get(shiftState?.activeBorrow?.bookId)?.title ?? 'the book';
+  }
+
+  function borrowShelfLabel() {
+    const entry = bookCatalog.get(shiftState?.activeBorrow?.bookId);
+    const shelf = entry && stations.find((st) => st.kind === 'bookshelf' && st.genreId === entry.genreId);
+    if (!shelf) return 'shelves';
+    return `${labelForStation(shelf)}${shelf.floor === FLOOR_2 ? ' (upstairs)' : ''}`;
+  }
+
   function openKarenOverlay() {
     overlay = { kind: 'karen' };
   }
 
+  // -- Reading (v2.10): turn the pages of a short book to restore Mood -----
+  // Each page "reads" itself over READING_SECONDS_PER_PAGE (a bar fills);
+  // click/tap or Space/Enter turns it once full. Turning early just nudges
+  // you to finish the page. The last page turn finishes the book. The ×
+  // button puts the book down early: no Mood, no cooldown.
+
+  function openReadingOverlay() {
+    const storyIndex = Math.floor(random() * READING_STORIES.length);
+    overlay = {
+      kind: 'reading',
+      storyIndex,
+      title: READING_STORIES[storyIndex].title,
+      page: 0,
+      progress: 0,
+      nudge: 0,
+    };
+  }
+
+  /** Back one spread (← key) to re-read; already-read spreads can be turned again at once. */
+  function previousReadingPage() {
+    if (overlay?.kind !== 'reading' || overlay.page === 0) return;
+    overlay.page -= 1;
+    overlay.progress = 1;
+  }
+
+  function turnReadingPage() {
+    if (overlay?.kind !== 'reading') return;
+    if (overlay.progress < 1) {
+      overlay.nudge = 0.6;
+      return;
+    }
+    overlay.page += 1;
+    overlay.progress = 0;
+    if (overlay.page >= READING_PAGES) {
+      const before = shiftState;
+      shiftState = finishReading(shiftState);
+      overlay = null;
+      if (shiftState !== before) showToast(`What a lovely read — +${READING_MOOD_RESTORE} Mood.`);
+    }
+  }
+
+  function readingCloseRect() {
+    return { x: CANVAS_WIDTH / 2 + 288, y: 104, w: 30, h: 30 };
+  }
+
+  function handleReadingClick(x, y) {
+    const r = readingCloseRect();
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+      overlay = null;
+      return;
+    }
+    turnReadingPage();
+  }
+
+  // -- Coffee Pour (v2.2): hold to pour, release inside the gold band -------
+  // Held input, unlike every other overlay's click: pointerdown on the
+  // canvas or a Space/Enter keydown starts pouring, the matching
+  // pointerup/keyup stops it and grades the pour (rules.js's
+  // gradeCoffeePour). Reaching the brim spills and ends it automatically.
+  // The result stays on screen for COFFEE_RESULT_SECONDS, then closes.
+
+  const COFFEE_RESULT_SECONDS = 1.2;
+  const COFFEE_RESULT_TEXT = {
+    perfect: `Perfect pour! Fully refreshed, +${COFFEE_PERFECT_TIP_GARD} Gard tip.`,
+    good: 'Nice cup — feeling better.',
+    sloppy: 'A bit sloppy, but coffee is coffee.',
+    spilled: 'Spilled some! Still got a few sips in.',
+  };
+
+  function openCoffeePourOverlay() {
+    overlay = { kind: 'coffee-pour', fill: 0, pouring: false, band: coffeePourTargetBand(random()), grade: null, closeIn: 0 };
+  }
+
+  function startCoffeePour() {
+    if (overlay?.kind === 'coffee-pour' && !overlay.grade) overlay.pouring = true;
+  }
+
+  function stopCoffeePour() {
+    // Only a release that follows a press grades the pour — the keyup of
+    // the very Enter press that *opened* the overlay (First Person's
+    // interact key) must not end it at 0%.
+    if (overlay?.kind === 'coffee-pour' && overlay.pouring && !overlay.grade) finishCoffeePour();
+  }
+
+  function finishCoffeePour() {
+    overlay.pouring = false;
+    overlay.grade = gradeCoffeePour(overlay.fill, overlay.band);
+    overlay.closeIn = COFFEE_RESULT_SECONDS;
+    shiftState = brewCoffee(shiftState, overlay.grade);
+    showToast(COFFEE_RESULT_TEXT[overlay.grade]);
+  }
+
+  function onCanvasPointerDown(e) {
+    if (!running || overlay?.kind !== 'coffee-pour') return;
+    e.preventDefault();
+    startCoffeePour();
+  }
+
+  function onWindowPointerUp() {
+    stopCoffeePour();
+  }
+
   function updateOverlay(deltaSeconds) {
     if (!overlay) return;
+    if (overlay.kind === 'reading') {
+      overlay.progress = Math.min(1, overlay.progress + deltaSeconds / READING_SECONDS_PER_PAGE);
+      overlay.nudge = Math.max(0, overlay.nudge - deltaSeconds);
+      return;
+    }
+    if (overlay.kind === 'till-count') {
+      if (overlay.flash) {
+        overlay.flash.seconds -= deltaSeconds;
+        if (overlay.flash.seconds <= 0) overlay.flash = null;
+      }
+      return;
+    }
+    if (overlay.kind === 'coffee-pour') {
+      if (overlay.grade) {
+        overlay.closeIn -= deltaSeconds;
+        if (overlay.closeIn <= 0) overlay = null;
+      } else if (overlay.pouring) {
+        overlay.fill = Math.min(1, overlay.fill + deltaSeconds / COFFEE_POUR_SECONDS_TO_BRIM);
+        if (overlay.fill >= 1) finishCoffeePour();
+      }
+      return;
+    }
     if (overlay.kind === 'skill-check') {
       const speed = skillCheckSweepSpeed(currentShiftNumber);
       overlay.gaugePosition += overlay.direction * speed * deltaSeconds;
@@ -1003,17 +1862,21 @@ export function init(canvas, elements) {
         openSkillCheckOverlay('checkout');
         return;
       }
+      // A collected fine payment goes into the till first (Count the Till);
+      // any queued desk action waits for the next visit.
+      if (shiftState.carriedFine) {
+        const before = shiftState;
+        shiftState = arriveAtFrontDeskWithFine(shiftState);
+        if (shiftState !== before) openTillCountOverlay();
+        return;
+      }
       if (pendingFrontDeskAction) {
         const action = pendingFrontDeskAction;
         pendingFrontDeskAction = null;
-        if (action.kind === 'fine') {
-          const before = shiftState;
-          shiftState = acceptFine(shiftState, action.id);
-          if (shiftState !== before) showToast('Accepted a fine payment — take it to the Fines Counter.');
-        } else if (action.kind === 'borrow') {
+        if (action.kind === 'borrow') {
           const before = shiftState;
           shiftState = acceptBorrowRequest(shiftState, action.id);
-          if (shiftState !== before) showToast('Took a borrow request — find the book on the shelves.');
+          if (shiftState !== before) showToast(`Borrow request: “${borrowTitle()}” — find it on the ${borrowShelfLabel()}.`);
         } else if (action.kind === 'karen') {
           const before = shiftState;
           shiftState = startKarenEvent(shiftState);
@@ -1046,10 +1909,12 @@ export function init(canvas, elements) {
           showToast(`Wrong shelf — this book belongs on the ${genre ? genre.name : ''} shelf.`);
         }
       }
-      if (shiftState.activeBorrow?.stage === 'searching') {
+      if (shiftState.activeBorrow?.stage === 'searching' && !overlay) {
         const entry = bookCatalog.get(shiftState.activeBorrow.bookId);
         if (entry && entry.genreId === station.genreId) {
           openFindTheBookOverlay(station.genreId, entry.title);
+        } else if (entry && !shiftState.carriedBook) {
+          showToast(`Not here — “${entry.title}” is on the ${borrowShelfLabel()}.`);
         }
       }
       return;
@@ -1057,26 +1922,40 @@ export function init(canvas, elements) {
 
     if (station.kind === 'fines-counter') {
       if (shiftState.carriedFine) {
-        const before = shiftState;
-        shiftState = arriveAtFinesCounter(shiftState);
-        if (shiftState !== before && shiftState.finesSortActive) openFinesSortOverlay();
+        showToast("Take the payment you're holding to the Front Desk till first.");
+        return;
       }
+      const before = shiftState;
+      shiftState = arriveAtFinesCounter(shiftState);
+      if (shiftState !== before && shiftState.finesSortActive) openFinesSortOverlay();
+      return;
+    }
+
+    if (station.kind === 'reading-nook') {
+      if (shiftState.phase !== 'playing') return;
+      if (!canReadBook(shiftState)) {
+        showToast(`Still savoring the last book — ready in ${Math.ceil(shiftState.readingCooldownSeconds)}s.`);
+        return;
+      }
+      openReadingOverlay();
       return;
     }
 
     if (station.kind === 'coffee-machine') {
-      const before = shiftState;
-      shiftState = restoreSanity(shiftState);
-      if (shiftState !== before) showToast('Coffee! Feeling sharper.');
+      if (shiftState.phase === 'playing') openCoffeePourOverlay();
       return;
     }
 
     if (station.kind === 'boss-office') {
       if (isBossOfficeReady(shiftState)) {
-        shiftState = enterBossOffice(shiftState);
-        endShift();
+        enterBossOfficeNow();
+      } else if (shiftState.phase === 'closing-wait') {
+        // Wait right here: the loop lets you in the moment the wait ends.
+        waitingAtBossOffice = true;
+        showToast(`The boss is finishing up — wait here ${Math.ceil(shiftState.closingWaitSecondsRemaining)}s and you'll be let in.`);
       } else if (shiftState.phase === 'playing') {
-        showToast('The boss will let you in after closing.');
+        const left = Math.ceil(shiftState.clockSeconds);
+        showToast(`The boss will let you in after closing — the shift ends in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}.`);
       }
     }
   }
@@ -1118,7 +1997,7 @@ export function init(canvas, elements) {
     const remainingReal = overlay.items.some((it) => it.real && !it.found);
     if (!remainingReal) {
       shiftState = resolveFinesSort(shiftState, true);
-      showToast('Fine banked!');
+      showToast('Payment collected — count it into the Front Desk till.');
       overlay = null;
     }
   }
@@ -1128,7 +2007,7 @@ export function init(canvas, elements) {
     if (!item) return;
     if (item.correct) {
       shiftState = resolveFindTheBook(shiftState, true);
-      showToast('Found it!');
+      showToast('Found it! Bring it to the Front Desk to check it out.');
       overlay = null;
     } else {
       showToast('Not the one…');
@@ -1165,6 +2044,8 @@ export function init(canvas, elements) {
     else if (overlay.kind === 'fines-sort') handleFinesSortClick(x, y);
     else if (overlay.kind === 'find-the-book') handleFindTheBookClick(x, y);
     else if (overlay.kind === 'karen') handleKarenClick(x, y);
+    else if (overlay.kind === 'till-count') handleTillCountClick(x, y);
+    else if (overlay.kind === 'reading') handleReadingClick(x, y);
   }
 
   // -- Canvas input -----------------------------------------------------------
@@ -1191,9 +2072,16 @@ export function init(canvas, elements) {
       const slot = frontDeskSlotAtPoint(x, y);
       if (slot) {
         if (slot.kind === 'karen') pendingFrontDeskAction = { kind: 'karen' };
+        else if (slot.kind === 'borrow-active') pendingFrontDeskAction = null;
         else pendingFrontDeskAction = { kind: slot.kind, id: slot.id };
         const desk = stations.find((s) => s.kind === 'front-desk');
         commitStationTarget(desk, null);
+        return;
+      }
+
+      const finePatron = finesCounterSlotAtPoint(x, y);
+      if (finePatron) {
+        commitStationTarget(stations.find((s) => s.kind === 'fines-counter'), null);
         return;
       }
 
@@ -1213,9 +2101,13 @@ export function init(canvas, elements) {
   }
 
   function onCanvasMouseMove(e) {
-    if (overlay || cameraMode === 'first-person') return;
+    if (overlay || cameraMode === 'first-person') { canvas.style.cursor = ''; return; }
     const { x, y } = canvasCoordsFromEvent(e);
     hoverStation = stationAtPoint(x, y, stationsOnFloor(stations, currentFloor));
+    // A hand cursor over anything clickable (stations, queued patrons,
+    // Return Cart books), so it's clear patrons can be clicked.
+    const clickable = hoverStation || frontDeskSlotAtPoint(x, y) || finesCounterSlotAtPoint(x, y) || returnCartSlotAtPoint(x, y);
+    canvas.style.cursor = clickable ? 'pointer' : '';
   }
 
   function onCanvasMouseLeave() {
@@ -1226,8 +2118,38 @@ export function init(canvas, elements) {
   const FP_MOVE_KEYS = { ArrowUp: 'forward', ArrowDown: 'back' };
 
   function onKeyDown(e) {
+    if (overlay?.kind === 'till-count') {
+      const index = Number(e.key) - 1;
+      if (Number.isInteger(index) && index >= 0 && index < TILL_DENOMINATIONS.length) {
+        e.preventDefault();
+        addToTill(TILL_DENOMINATIONS[index]);
+        return;
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        undoTill();
+        return;
+      }
+    }
+    // Reading: ←/→ page back/forward.
+    if (overlay?.kind === 'reading' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      e.preventDefault();
+      if (!e.repeat) {
+        if (e.key === 'ArrowRight') turnReadingPage();
+        else previousReadingPage();
+      }
+      return;
+    }
     if (overlay && (e.key === ' ' || e.key === 'Enter')) {
       e.preventDefault();
+      if (overlay.kind === 'coffee-pour') {
+        if (!e.repeat) startCoffeePour();
+        return;
+      }
+      if (overlay.kind === 'reading') {
+        if (!e.repeat) turnReadingPage();
+        return;
+      }
       // Sample at the overlay's center — a keyboard-reachable equivalent to
       // clicking, satisfying this game's accessibility requirement for a
       // non-pointer alternative to the timing-bar minigame specifically
@@ -1264,6 +2186,7 @@ export function init(canvas, elements) {
   }
 
   function onKeyUp(e) {
+    if (e.key === ' ' || e.key === 'Enter') stopCoffeePour();
     if (e.key in FP_TURN_KEYS) heldFP[FP_TURN_KEYS[e.key]] = false;
     else if (e.key in FP_MOVE_KEYS) heldFP[FP_MOVE_KEYS[e.key]] = false;
   }
@@ -1271,8 +2194,10 @@ export function init(canvas, elements) {
   // -- Shift lifecycle ----------------------------------------------------
 
   function beginShift() {
+    waitingAtBossOffice = false;
     currentShiftNumber = save.currentShift;
     karenShiftNumber = karenShiftForSeed(save.karenSeed);
+    finesStartShiftNumber = finesStartShiftForSeed(save.karenSeed);
     shiftState = startShiftState(createInitialState(currentShiftNumber, karenShiftNumber));
     player = { ...PLAYER_START };
     playerFacing = defaultFacingTowardCenter(player.x, player.y, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -1322,9 +2247,12 @@ export function init(canvas, elements) {
     elements.paycheckScreen.root.dataset.outcome = shiftState.mistakeCount > 0 ? 'upset' : 'ok';
     elements.paycheckScreen.root.dataset.final = isFinalShift ? 'true' : 'false';
     elements.paycheckScreen.title.textContent = isFinalShift ? 'Final Paycheck' : 'Closing up';
-    elements.paycheckScreen.outcome.textContent = shiftState.mistakeCount > 0
+    const mistakesText = shiftState.mistakeCount > 0
       ? `${shiftState.mistakeCount} mistake${shiftState.mistakeCount === 1 ? '' : 's'} this shift`
       : 'Went well';
+    // v2.9: the star rating scales the payout — say so on the paycheck.
+    const payPercent = Math.round(paycheckMultiplierForRating(shiftState.rating) * 100);
+    elements.paycheckScreen.outcome.textContent = `${mistakesText} · ${shiftState.rating}★ rating (${payPercent}% pay)`;
     elements.paycheckScreen.shiftTotal.textContent = `${payout} Gard`;
     elements.paycheckScreen.monthTotal.textContent = `${save.monthToDateGard} Gard`;
     elements.paycheckScreen.nextShiftButton.classList.toggle('hidden', isFinalShift);
@@ -1354,29 +2282,44 @@ export function init(canvas, elements) {
     'front-desk': '#f2d98a',
     'return-cart': '#d9bfa3',
     'fines-counter': '#f7c6b0',
-    'coffee-machine': '#e6cbe8',
+    'coffee-machine': '#e3cdb4',
+    'reading-nook': '#d9e4cc',
     'boss-office': '#dcc2ea',
     stairs: '#b8cde0',
     elevator: '#c9a7d1',
   };
 
+  // Wooden plank floor (v2 art pass — replaces the original graph-paper
+  // grid): staggered planks with a slight per-plank tone variation, fixed
+  // per position so it doesn't shimmer between frames.
+  const PLANK_HEIGHT = 30;
+  const PLANK_LENGTH = 160;
+  const PLANK_TONES = ['#efdfc4', '#ecdabd', '#f1e3ca', '#e9d6b8'];
+
   function drawFloor() {
-    ctx.fillStyle = '#f4ead9';
+    ctx.fillStyle = PLANK_TONES[0];
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    ctx.strokeStyle = 'rgba(120,90,60,0.08)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= CANVAS_WIDTH; x += 40) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, CANVAS_HEIGHT);
-      ctx.stroke();
+    for (let row = 0; row * PLANK_HEIGHT < CANVAS_HEIGHT; row++) {
+      const y = row * PLANK_HEIGHT;
+      const offset = (row % 3) * (PLANK_LENGTH / 3);
+      for (let x = -offset, i = 0; x < CANVAS_WIDTH; x += PLANK_LENGTH, i++) {
+        ctx.fillStyle = PLANK_TONES[(row * 7 + i * 3) % PLANK_TONES.length];
+        ctx.fillRect(x, y, PLANK_LENGTH, PLANK_HEIGHT);
+        ctx.fillStyle = 'rgba(120,85,50,0.16)';
+        ctx.fillRect(x, y, 1.5, PLANK_HEIGHT);
+        // A faint grain streak.
+        ctx.fillStyle = 'rgba(120,85,50,0.06)';
+        ctx.fillRect(x + 24 + ((row * 37 + i * 53) % 90), y + 9 + ((row + i) % 3) * 5, 40, 1.5);
+      }
+      ctx.fillStyle = 'rgba(120,85,50,0.18)';
+      ctx.fillRect(0, y, CANVAS_WIDTH, 1.5);
     }
-    for (let y = 0; y <= CANVAS_HEIGHT; y += 40) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(CANVAS_WIDTH, y);
-      ctx.stroke();
-    }
+    // A soft vignette toward the walls.
+    const vignette = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 200, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 620);
+    vignette.addColorStop(0, 'rgba(120,85,50,0)');
+    vignette.addColorStop(1, 'rgba(120,85,50,0.12)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     ctx.fillStyle = '#8a6a4a';
     ctx.font = 'bold 13px sans-serif';
@@ -1452,6 +2395,389 @@ export function init(canvas, elements) {
     ctx.restore();
   }
 
+  // -- Station detail art (v2 art pass) -------------------------------------
+  // The user compared these against Kitchen Shift's stations ("the coffee
+  // machine isnt well done like the kitchen") — every library station used
+  // to be a flat colored box with at most one stripe. Each drawer below
+  // paints recognizable fixture art in the station's own local coordinate
+  // space (origin = box center, already translated/scaled by drawStation,
+  // so First Person's billboards get it for free), canvas primitives only.
+
+  /** Small deterministic PRNG so a shelf's book spines are stable across frames. */
+  function seededRandom(seedText) {
+    let h = 2166136261;
+    for (let i = 0; i < seedText.length; i++) h = Math.imul(h ^ seedText.charCodeAt(i), 16777619);
+    return () => {
+      h = Math.imul(h ^ (h >>> 15), 2246822507);
+      h = Math.imul(h ^ (h >>> 13), 3266489909);
+      return ((h ^= h >>> 16) >>> 0) / 4294967296;
+    };
+  }
+
+  function drawBookshelfDetail(half, station, baseColor) {
+    const inset = 7;
+    const inner = half - inset;
+    drawRoundRect(ctx, -inner, -inner, inner * 2, inner * 2, 4, shadeColor(baseColor, -0.5));
+    // Two rows of tall spines (not three short ones) so each spine is long
+    // enough to carry a readable title from this genre's pool.
+    const rows = 2;
+    const rowH = (inner * 2) / rows;
+    const random = seededRandom(station.id);
+    const titles = TITLE_POOLS[station.genreId] || ['Untitled'];
+    let titleIndex = Math.floor(random() * titles.length);
+    const spinePalette = [
+      shadeColor(baseColor, 0.45), shadeColor(baseColor, 0.2), '#fdf1dc',
+      shadeColor(baseColor, -0.2), '#e8b95a', shadeColor(baseColor, 0.65),
+    ];
+    for (let r = 0; r < rows; r++) {
+      const shelfY = -inner + (r + 1) * rowH;
+      let x = -inner + 2;
+      while (x < inner - 4) {
+        const w = Math.min(11 + Math.floor(random() * 3), inner - 2 - x);
+        if (w < 8) break;
+        const h = rowH - 4 - Math.floor(random() * 3);
+        const color = spinePalette[Math.floor(random() * spinePalette.length)];
+        const top = shelfY - 3 - h;
+        drawRoundRect(ctx, x, top, w, h, 1.5, color);
+        ctx.fillStyle = 'rgba(58,42,42,0.22)';
+        ctx.fillRect(x, top + 1.5, w, 1);
+        ctx.fillRect(x, top + h - 2.5, w, 1);
+        // Title running up the spine (rotated -90°). A whole title can't be
+        // legible on a ~30px spine, so this shows the full title when it
+        // fits and otherwise one of the title's main words, at the largest size
+        // (6.5 → 5px) that fits.
+        const title = titles[titleIndex++ % titles.length];
+        const avail = h - 6;
+        // Each genre pool has only five titles, so the second row picks the
+        // title's next-longest word instead of repeating the first row's.
+        const words = title.split(' ').filter((wd) => wd.length > 2).sort((p, q) => q.length - p.length);
+        let text = words.length ? words[r % words.length] : title;
+        let size = 6.5;
+        ctx.font = `bold ${size}px sans-serif`;
+        if (ctx.measureText(title).width <= avail) text = title;
+        while (size > 5 && ctx.measureText(text).width > avail) {
+          size -= 0.5;
+          ctx.font = `bold ${size}px sans-serif`;
+        }
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, top + 3, w, h - 6);
+        ctx.clip();
+        ctx.translate(x + w / 2, top + h / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillStyle = titleInkFor(color);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, 0, 0.3);
+        ctx.restore();
+        x += w + 0.8;
+      }
+      drawRoundRect(ctx, -inner, shelfY - 3, inner * 2, 3, 1, shadeColor(baseColor, 0.3));
+    }
+  }
+
+  function drawReturnCartDetail(half) {
+    // "RETURNS" sign.
+    drawRoundRect(ctx, -22, -half + 6, 44, 13, 4, '#fdf8ee');
+    ctx.fillStyle = '#8a5a3a';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('RETURNS', 0, -half + 12.5);
+    const metal = '#8a6a4a';
+    // Upright posts + push handle.
+    drawRoundRect(ctx, -28, -16, 4, 40, 2, metal);
+    drawRoundRect(ctx, 24, -16, 4, 40, 2, metal);
+    drawRoundRect(ctx, 24, -22, 12, 4, 2, metal);
+    // Two trays.
+    for (const ty of [-2, 20]) drawRoundRect(ctx, -30, ty, 60, 5, 2, '#a57a52');
+    // Books on each tray: upright spines, one leaning.
+    const books = [['#5b6cc0', 14], ['#d65a6a', 17], ['#e8b95a', 12], ['#6aa37a', 16], ['#8a5aa0', 13]];
+    books.forEach(([color, h], i) => drawRoundRect(ctx, -24 + i * 9, -2 - h, 7, h, 1, color));
+    ctx.save();
+    ctx.translate(20, -2);
+    ctx.rotate(0.35);
+    drawRoundRect(ctx, -7, -14, 7, 14, 1, '#c47f4e');
+    ctx.restore();
+    [['#e8b95a', 13], ['#5b6cc0', 15], ['#6aa37a', 11]].forEach(([color, h], i) => drawRoundRect(ctx, -22 + i * 9, 20 - h, 7, h, 1, color));
+    drawRoundRect(ctx, 6, 13, 18, 7, 1.5, '#d65a6a'); // a book lying flat
+    // Wheels.
+    for (const wx of [-22, 22]) {
+      ctx.fillStyle = '#3a2a2a';
+      ctx.beginPath();
+      ctx.arc(wx, 30, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#c9b29a';
+      ctx.beginPath();
+      ctx.arc(wx, 30, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawFrontDeskDetail(half) {
+    // Desk: a wood front panel with a lighter countertop lip.
+    drawRoundRect(ctx, -half + 4, -2, half * 2 - 8, half - 2, 6, '#b9824f');
+    drawRoundRect(ctx, -half + 2, -6, half * 2 - 4, 7, 3, '#d9a66b');
+    for (const px of [-half + 12, 6]) {
+      ctx.strokeStyle = 'rgba(90,55,30,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(px, 7, half - 18, half - 18);
+    }
+    // Computer monitor on the desk.
+    drawRoundRect(ctx, -28, -half + 8, 30, 22, 3, '#4a4a55');
+    drawRoundRect(ctx, -25.5, -half + 10.5, 25, 16, 2, '#bcdcf2');
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillRect(-23, -half + 13, 10, 2);
+    ctx.fillRect(-23, -half + 17, 15, 2);
+    drawRoundRect(ctx, -16, -half + 30, 6, 6, 1, '#4a4a55');
+    // A stack of books and a service bell.
+    [['#5b6cc0', 0], ['#d65a6a', 1], ['#6aa37a', 2]].forEach(([color, i]) => drawRoundRect(ctx, 10 - i, -12 - i * 6, 20, 5.5, 1.5, color));
+    ctx.fillStyle = '#e0a83a';
+    ctx.beginPath();
+    ctx.arc(-half + 14, -6, 6, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(-half + 13, -14, 2, 3);
+    drawRoundRect(ctx, -half + 6, -7, 16, 2.5, 1, '#8a6a4a');
+    // A little potted plant on the desk's right corner.
+    drawRoundRect(ctx, 30, -14, 8, 8, 2, '#c47f4e');
+    ctx.fillStyle = '#6aa37a';
+    for (const [dx, dy, r] of [[34, -18, 4], [31, -21, 3], [37, -22, 3]]) {
+      ctx.beginPath();
+      ctx.arc(dx, dy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawFinesCounterDetail(half) {
+    // "FINES" plaque.
+    drawRoundRect(ctx, -18, -half + 6, 36, 13, 4, '#fdf8ee');
+    ctx.fillStyle = '#a0503a';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('FINES', 0, -half + 12.5);
+    // Counter top.
+    drawRoundRect(ctx, -half + 4, 14, half * 2 - 8, half - 18, 5, '#c98a6a');
+    drawRoundRect(ctx, -half + 2, 11, half * 2 - 4, 6, 3, '#e3a98a');
+    // Cash register: angled display, body, keypad, cash drawer.
+    drawRoundRect(ctx, -10, -18, 30, 8, 2, '#5a4a4a');
+    drawRoundRect(ctx, -7, -16.5, 16, 5, 1, '#9fe0a8');
+    drawRoundRect(ctx, -14, -10, 38, 21, 4, '#7a6a6a');
+    ctx.fillStyle = '#fdf8ee';
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 4; c++) ctx.fillRect(-9 + c * 6, -6 + r * 4.5, 4, 3);
+    }
+    drawRoundRect(ctx, -16, 6, 42, 6, 2, '#5a4a4a');
+    // Coin stacks.
+    for (const [cx, n] of [[-28, 4], [-21, 2]]) {
+      for (let i = 0; i < n; i++) {
+        ctx.fillStyle = i % 2 ? '#e8b95a' : '#f2d98a';
+        ctx.beginPath();
+        ctx.ellipse(cx, 8 - i * 3.5, 5, 2.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(138,90,40,0.6)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+    }
+  }
+
+  function drawCoffeeMachineDetail(half) {
+    // Bean hopper on top: a clear trapezoid full of beans.
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath();
+    ctx.moveTo(-12, -half + 4);
+    ctx.lineTo(12, -half + 4);
+    ctx.lineTo(7, -half + 16);
+    ctx.lineTo(-7, -half + 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#6a4a30';
+    for (const [bx, by] of [[-6, -half + 9], [0, -half + 8], [6, -half + 9], [-3, -half + 12], [3, -half + 12], [0, -half + 14.5]]) {
+      ctx.beginPath();
+      ctx.ellipse(bx, by, 2.1, 1.4, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Machine body (a slightly lighter top band for a metallic read).
+    drawRoundRect(ctx, -half + 9, -half + 16, half * 2 - 18, half * 2 - 24, 7, '#7a5a42');
+    drawRoundRect(ctx, -half + 9, -half + 16, half * 2 - 18, 10, [7, 7, 0, 0], '#8f6c50');
+    // Display + buttons.
+    drawRoundRect(ctx, -10, -half + 19, 20, 5, 1.5, '#9fe0a8');
+    for (const [bx, color] of [[-half + 17, '#e8b95a'], [half - 17, '#e06a5b']]) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(bx, -half + 21.5, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Recessed brewing bay.
+    drawRoundRect(ctx, -half + 15, -half + 30, half * 2 - 30, half + 4, 5, '#4a3424');
+    // Group head + spouts.
+    drawRoundRect(ctx, -9, -half + 30, 18, 6, 2, '#b0a090');
+    ctx.fillStyle = '#b0a090';
+    ctx.fillRect(-5, -half + 35, 3, 5);
+    ctx.fillRect(2, -half + 35, 3, 5);
+    // A coffee drip.
+    ctx.fillStyle = '#c47f4e';
+    ctx.fillRect(-0.75, -half + 40, 1.5, 4);
+    // Cup with coffee + handle.
+    drawRoundRect(ctx, -8, half - 25, 16, 12, [1, 1, 4, 4], '#fdf8ee');
+    drawRoundRect(ctx, -6.5, half - 24, 13, 2.5, 1, '#6a4a30');
+    ctx.strokeStyle = '#fdf8ee';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(9, half - 19.5, 3.2, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+    // Drip tray grate.
+    drawRoundRect(ctx, -half + 13, half - 13, half * 2 - 26, 5, 2, '#b0a090');
+    ctx.fillStyle = 'rgba(58,42,42,0.4)';
+    for (let gx = -half + 17; gx < half - 15; gx += 5) ctx.fillRect(gx, half - 12, 1.5, 3);
+    // Steam wisps curling out of the bay.
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1.5;
+    for (const dx of [-14, 14]) {
+      ctx.beginPath();
+      ctx.moveTo(dx, half - 26);
+      ctx.quadraticCurveTo(dx - 4, half - 32, dx, half - 38);
+      ctx.quadraticCurveTo(dx + 4, half - 43, dx, half - 48);
+      ctx.stroke();
+    }
+  }
+
+  function drawBossOfficeDetail(half) {
+    // A paneled office door with a brass name plaque and knob.
+    drawRoundRect(ctx, -half + 12, -half + 8, half * 2 - 24, half * 2 - 8, [6, 6, 0, 0], 'rgba(90,60,90,0.18)');
+    ctx.strokeStyle = 'rgba(90,60,90,0.28)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-half + 18, -half + 26, half * 2 - 36, 22);
+    ctx.strokeRect(-half + 18, 10, half * 2 - 36, 22);
+    drawRoundRect(ctx, -16, -half + 12, 32, 10, 2, '#e8cf8a');
+    ctx.fillStyle = '#8a6a3a';
+    ctx.font = 'bold 7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('BOSS', 0, -half + 17.5);
+    ctx.fillStyle = '#c9a24a';
+    ctx.beginPath();
+    ctx.arc(half - 20, 4, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawReadingNookDetail(half) {
+    // A round rug, a cozy armchair, a floor lamp, and an open book.
+    ctx.fillStyle = '#c9a7d1';
+    ctx.beginPath();
+    ctx.ellipse(0, half - 14, half - 8, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    drawRoundRect(ctx, -24, -14, 36, 26, 9, '#c47f4e');
+    drawRoundRect(ctx, -22, 4, 32, 14, 5, '#d99a6a');
+    drawRoundRect(ctx, -30, -2, 10, 24, 5, '#b06e42');
+    drawRoundRect(ctx, 8, -2, 10, 24, 5, '#b06e42');
+    ctx.fillStyle = '#7a4a2a';
+    ctx.fillRect(-26, 21, 3, 6);
+    ctx.fillRect(13, 21, 3, 6);
+    const glow = ctx.createRadialGradient(28, -26, 2, 28, -26, 22);
+    glow.addColorStop(0, 'rgba(255,230,150,0.75)');
+    glow.addColorStop(1, 'rgba(255,230,150,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(28, -26, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#5a4a3a';
+    ctx.fillRect(27, -24, 2.5, 46);
+    drawRoundRect(ctx, 22, 21, 13, 3, 1.5, '#5a4a3a');
+    ctx.fillStyle = '#f2d98a';
+    ctx.beginPath();
+    ctx.moveTo(20, -24);
+    ctx.lineTo(36, -24);
+    ctx.lineTo(32, -36);
+    ctx.lineTo(24, -36);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fdf8ee';
+    ctx.beginPath();
+    ctx.moveTo(-8, -6);
+    ctx.quadraticCurveTo(-3, -9, 0, -6);
+    ctx.quadraticCurveTo(3, -9, 8, -6);
+    ctx.lineTo(8, 1);
+    ctx.quadraticCurveTo(3, -2, 0, 1);
+    ctx.quadraticCurveTo(-3, -2, -8, 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(58,42,42,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, -6);
+    ctx.lineTo(0, 1);
+    ctx.stroke();
+  }
+
+  function drawStairsDetail(half, station) {
+    // Steps rising toward the top of the box, each a lighter tread with a
+    // darker riser, plus a handrail and an up/down direction badge.
+    const steps = 5;
+    const stepH = (half * 2 - 16) / steps;
+    for (let i = 0; i < steps; i++) {
+      const y = half - 8 - (i + 1) * stepH;
+      const inset = 8 + i * 2.5;
+      drawRoundRect(ctx, -half + inset, y, half * 2 - inset * 2, stepH, 2, shadeColor('#b8cde0', 0.15 + i * 0.1));
+      ctx.fillStyle = 'rgba(58,70,90,0.28)';
+      ctx.fillRect(-half + inset, y + stepH - 3, half * 2 - inset * 2, 3);
+    }
+    ctx.strokeStyle = '#8a6a4a';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-half + 7, half - 10);
+    ctx.lineTo(-half + 17, -half + 10);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    const goingUp = (station.targetFloor ?? 0) > (station.floor ?? 0);
+    drawRoundRect(ctx, half - 22, -half + 5, 17, 17, 8.5, '#fdf8ee');
+    ctx.fillStyle = '#5a6a80';
+    ctx.beginPath();
+    const ay = -half + 13.5;
+    const dir = goingUp ? -1 : 1;
+    ctx.moveTo(half - 13.5, ay + dir * 5);
+    ctx.lineTo(half - 18.5, ay - dir * 3);
+    ctx.lineTo(half - 8.5, ay - dir * 3);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawElevatorDetail(half, station) {
+    // Floor indicator over the doorway.
+    drawRoundRect(ctx, -14, -half + 5, 28, 11, 4, '#3a3440');
+    ctx.fillStyle = '#f2d98a';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const goingUp = (station.targetFloor ?? 0) > (station.floor ?? 0);
+    ctx.fillText(`${goingUp ? '▲' : '▼'} ${station.targetFloor ?? ''}`, 0, -half + 11);
+    // Steel door frame + two sliding doors with a center seam.
+    drawRoundRect(ctx, -26, -half + 19, 52, half * 2 - 25, 4, '#d8dde3');
+    drawRoundRect(ctx, -23, -half + 22, 22.5, half * 2 - 28, 2, '#aab4bf');
+    drawRoundRect(ctx, 0.5, -half + 22, 22.5, half * 2 - 28, 2, '#aab4bf');
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(-20, -half + 24, 3, half * 2 - 34);
+    ctx.fillRect(3.5, -half + 24, 3, half * 2 - 34);
+    // Call-button panel.
+    drawRoundRect(ctx, 29, -6, 8, 16, 3, '#d8dde3');
+    ctx.fillStyle = '#e0a83a';
+    ctx.beginPath();
+    ctx.arc(33, 2, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const STATION_DETAIL_DRAWERS = {
+    bookshelf: drawBookshelfDetail,
+    'return-cart': drawReturnCartDetail,
+    'front-desk': drawFrontDeskDetail,
+    'fines-counter': drawFinesCounterDetail,
+    'coffee-machine': drawCoffeeMachineDetail,
+    'boss-office': drawBossOfficeDetail,
+    'reading-nook': drawReadingNookDetail,
+  };
+
   /**
    * Draws one station's box. `opts` is First Person's billboard hook (doc's
    * "draw it via the *same* existing drawing functions... whatever
@@ -1475,8 +2801,11 @@ export function init(canvas, elements) {
     const half = station.size / 2;
     const genre = station.kind === 'bookshelf' ? findGenre(station.genreId) : null;
     const baseColor = genre ? genre.color : (STATION_COLORS[station.kind] || '#8a6a4a');
+    // Locked all shift and through the closing wait — v2.13: it used to
+    // *look* unlocked during the 20 s closing wait while arriving did
+    // nothing (user: "when i want to get into the bosses office i cannot").
     const locked = station.kind === 'boss-office' && shiftState
-      && shiftState.phase !== 'closing-wait' && shiftState.phase !== 'paycheck';
+      && (shiftState.phase === 'playing' || (shiftState.phase === 'closing-wait' && !isBossOfficeReady(shiftState)));
     const cx = opts.centerX ?? station.x;
     const cy = opts.centerY ?? station.y;
 
@@ -1489,38 +2818,23 @@ export function init(canvas, elements) {
       // "doors" down the middle, reading as a different fixture at a
       // glance (doc's "so they read as two different fixtures").
       drawRoundRect(ctx, -half, -half, station.size, station.size, 16, baseColor);
-      ctx.fillStyle = 'rgba(255,251,246,0.85)';
-      ctx.fillRect(-2, -half + 8, 4, station.size - 16);
+      drawElevatorDetail(half, station);
     } else if (station.kind === 'stairs') {
       drawRoundRect(ctx, -half, -half, station.size, station.size, 6, baseColor);
-      ctx.fillStyle = 'rgba(90,70,50,0.35)';
-      for (let i = 0; i < 4; i++) {
-        ctx.fillRect(-half + 8, -half + 10 + i * 14, station.size - 16, 6);
-      }
+      drawStairsDetail(half, station);
     } else {
       drawRoundRect(ctx, -half, -half, station.size, station.size, 10, locked ? '#b8b0b8' : baseColor);
+      const detail = STATION_DETAIL_DRAWERS[station.kind];
+      if (detail) detail(half, station, baseColor);
       if (locked) {
+        // A padlock badge over the (greyed) office door.
+        drawRoundRect(ctx, -14, -12, 28, 28, 14, 'rgba(255,251,246,0.92)');
         ctx.strokeStyle = '#5a5060';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(0, -6, 6, Math.PI, 0);
+        ctx.arc(0, -2, 5.5, Math.PI, 0);
         ctx.stroke();
-        ctx.fillStyle = '#5a5060';
-        ctx.beginPath();
-        ctx.roundRect(-8, -2, 16, 12, 3);
-        ctx.fill();
-      }
-      if (station.kind === 'bookshelf') {
-        ctx.fillStyle = 'rgba(255,251,246,0.6)';
-        for (let i = -1; i <= 1; i++) ctx.fillRect(i * 12 - 3, -half + 8, 6, station.size - 16);
-      }
-      if (station.kind === 'coffee-machine') {
-        ctx.fillStyle = '#5a3a22';
-        ctx.fillRect(-half + 12, -half + 10, station.size - 24, station.size * 0.45);
-      }
-      if (station.kind === 'fines-counter') {
-        ctx.fillStyle = 'rgba(255,251,246,0.7)';
-        ctx.fillRect(-half + 8, half - 20, station.size - 16, 12);
+        drawRoundRect(ctx, -7.5, 1, 15, 11, 3, '#5a5060');
       }
     }
 
@@ -1545,34 +2859,16 @@ export function init(canvas, elements) {
     if (currentFloor !== FLOOR_1) return;
     for (const book of returnCartSlots()) {
       const genre = findGenre(book.genreId);
-      const coverX = book.x - 12;
-      const coverY = book.y - 16;
-      const coverW = 26;
-      const coverH = 32;
-      drawRoundRect(ctx, coverX, coverY, coverW, coverH, 2, genre ? genre.color : '#8a6a4a');
+      const color = genre ? genre.color : '#8a6a4a';
+      const { x: coverX, y: coverY, w: coverW, h: coverH } = returnCartCoverRect(book);
+      drawRoundRect(ctx, coverX, coverY, coverW, coverH, 2, color);
       ctx.fillStyle = 'rgba(255,251,246,0.5)';
       ctx.fillRect(coverX, coverY, 3, coverH);
-      // Title on the front cover — user feedback: "i dunno what book it
-      // is" when choosing among the cart's covers. Clipped strictly to
-      // this book's own cover rect (real bug found in manual review:
-      // without a clip, a title wider than the ~26px-wide cover bled
-      // visibly into the neighboring book 34px away, making both
-      // unreadable) — so a long title is cleanly cropped, never
-      // overlapping the book next to it.
-      if (book.title) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(coverX, coverY, coverW, coverH);
-        ctx.clip();
-        ctx.fillStyle = '#fdf8ee';
-        ctx.font = 'bold 7px sans-serif';
-        ctx.textAlign = 'center';
-        const words = book.title.split(' ');
-        ctx.fillText(words.slice(0, 2).join(' '), book.x + 1, book.y - 3);
-        if (words.length > 2) ctx.fillText(words.slice(2, 4).join(' '), book.x + 1, book.y + 6);
-        ctx.restore();
-      }
-      if (book.isCoinHunt) drawStar(ctx, book.x + 11, book.y - 18, 5, 2, '#f2d98a');
+      // Full title on the front cover (user: "add the title names on each
+      // books") — wrapped and shrunk to fit rather than v1.4's first-four-
+      // words-then-crop, which cut titles off at the cover's edges.
+      if (book.title) drawCoverTitle(ctx, book.title, coverX + 3, coverY, coverW - 3, coverH, color, { maxFont: 7.5, minFont: 5 });
+      if (book.isCoinHunt) drawStar(ctx, coverX + coverW - 2, coverY + 1, 5, 2, '#f2d98a');
     }
     const cart = stations.find((s) => s.kind === 'return-cart');
     if (shiftState && shiftState.returnCart.length > 5) {
@@ -1583,8 +2879,23 @@ export function init(canvas, elements) {
   const SLOT_PERSONALITY_CACHE = new Map();
   function personalityForSlot(slot, index) {
     if (slot.kind === 'karen') return 'karen';
-    if (!SLOT_PERSONALITY_CACHE.has(slot.id)) SLOT_PERSONALITY_CACHE.set(slot.id, personalityForIndex(index));
+    if (!SLOT_PERSONALITY_CACHE.has(slot.id)) SLOT_PERSONALITY_CACHE.set(slot.id, personalityForId(slot.id));
     return SLOT_PERSONALITY_CACHE.get(slot.id);
+  }
+
+  function drawFinesCounterSlots() {
+    if (currentFloor !== FLOOR_1) return;
+    finesCounterSlots().forEach((slot, i) => {
+      drawLibraryPerson(ctx, slot.x, slot.y, { personalityKey: personalityForSlot(slot, i), scale: 0.62 });
+      drawStar(ctx, slot.x + 15, slot.y - 44, 6, 2.5, '#f2d98a');
+      drawPatienceBar(slot, slot.waitFraction);
+      drawLabelChip(ctx, slot.x, slot.y + 20, `${slot.amountGard}g`, 'bold 9px sans-serif');
+    });
+    const waiting = shiftState?.finesQueue.length || 0;
+    if (waiting > SLOT_VISIBLE_MAX) {
+      const counter = stations.find((s) => s.kind === 'fines-counter');
+      drawLabelChip(ctx, counter.x, counter.y + counter.size / 2 + QUEUE_SLOT_OFFSET_Y + 50, `+${waiting - SLOT_VISIBLE_MAX} waiting`, 'bold 10px sans-serif');
+    }
   }
 
   function drawFrontDeskSlots() {
@@ -1593,13 +2904,19 @@ export function init(canvas, elements) {
     slots.forEach((slot, i) => {
       const personality = personalityForSlot(slot, i);
       drawLibraryPerson(ctx, slot.x, slot.y, { personalityKey: personality, scale: 0.62, angryTint: slot.kind === 'karen' });
-      if (slot.kind === 'fine') {
-        drawStar(ctx, slot.x + 14, slot.y - 60, 6, 2.5, '#f2d98a');
-        drawLabelChip(ctx, slot.x, slot.y + 20, `${slot.amountGard}g`, 'bold 9px sans-serif');
+      if (slot.kind === 'borrow-active') {
+        if (slot.stage === 'searching') {
+          // Patience bar over their head, green -> amber -> red.
+          drawPatienceBar(slot, slot.patienceFraction);
+          drawLabelChip(ctx, slot.x, slot.y + 20, 'Waiting', 'bold 9px sans-serif');
+        } else {
+          drawLabelChip(ctx, slot.x, slot.y + 20, 'Check out!', 'bold 9px sans-serif');
+        }
       } else if (slot.kind === 'borrow') {
+        drawPatienceBar(slot, slot.waitFraction);
         const entry = bookCatalog.get(slot.bookId);
         const genre = entry ? findGenre(entry.genreId) : null;
-        drawRoundRect(ctx, slot.x + 8, slot.y - 66, 10, 14, 1, genre ? genre.color : '#8a6a4a');
+        drawRoundRect(ctx, slot.x + 11, slot.y - 52, 10, 14, 1, genre ? genre.color : '#8a6a4a');
         // Front-desk slots sit only 46px apart (frontDeskSlots) — a full
         // title's label chip (drawLabelChip auto-sizes to text width, no
         // wrapping) can run wider than that and spill into the
@@ -1611,11 +2928,11 @@ export function init(canvas, elements) {
         drawLabelChip(ctx, slot.x, slot.y + 20, 'Karen!', 'bold 10px sans-serif');
       }
     });
-    const total = (shiftState?.finesQueue.length || 0) + (shiftState?.borrowQueue.length || 0);
-    const shown = Math.min(shiftState?.finesQueue.length || 0, SLOT_VISIBLE_MAX) + Math.min(shiftState?.borrowQueue.length || 0, SLOT_VISIBLE_MAX);
+    const total = shiftState?.borrowQueue.length || 0;
+    const shown = Math.min(total, SLOT_VISIBLE_MAX);
     if (total > shown) {
       const desk = stations.find((s) => s.kind === 'front-desk');
-      drawLabelChip(ctx, desk.x, desk.y + desk.size / 2 + 92, `+${total - shown} waiting`, 'bold 10px sans-serif');
+      drawLabelChip(ctx, desk.x, desk.y + desk.size / 2 + QUEUE_SLOT_OFFSET_Y + 50, `+${total - shown} waiting`, 'bold 10px sans-serif');
     }
   }
 
@@ -1625,6 +2942,11 @@ export function init(canvas, elements) {
       return { color: genre ? genre.color : '#8a6a4a', kind: 'book' };
     }
     if (shiftState?.carriedFine) return { color: '#f2d98a', kind: 'coin' };
+    if (shiftState?.activeBorrow?.stage === 'checkout') {
+      const entry = bookCatalog.get(shiftState.activeBorrow.bookId);
+      const genre = entry ? findGenre(entry.genreId) : null;
+      return { color: genre ? genre.color : '#8a6a4a', kind: 'book' };
+    }
     return null;
   }
 
@@ -1637,7 +2959,8 @@ export function init(canvas, elements) {
 
   function drawPlayer() {
     lastFrameDrewPlayerSprite = true;
-    drawLibraryPerson(ctx, player.x, player.y, { personalityKey: 'shyStudent', scale: 1 });
+    drawLibraryPerson(ctx, player.x, player.y, { personalityKey: 'librarian', scale: 1 });
+    drawLabelChip(ctx, player.x, player.y + 24, PLAYER_NAME, 'bold 10px sans-serif');
     const badge = currentPlayerBadge();
     if (badge) {
       if (badge.kind === 'book') drawRoundRect(ctx, player.x + 16, player.y - 86, 12, 16, 2, badge.color);
@@ -1676,6 +2999,27 @@ export function init(canvas, elements) {
     ctx.textBaseline = 'middle';
     ctx.fillText(`Sanity ${sanityPercent}%`, x + width / 2, y + height / 2 + 0.5);
     ctx.restore();
+  }
+
+  /** v2.9 star rating, drawn to the right of the Sanity/Mood bars: five stars with half-star fills. */
+  function drawRatingStars() {
+    const rating = shiftState ? shiftState.rating : RATING_MAX;
+    const x0 = 152;
+    const cy = 25;
+    drawRoundRect(ctx, x0 - 4, cy - 11, 5 * 20 + 8, 22, 11, 'rgba(255,251,246,0.85)');
+    for (let i = 0; i < RATING_MAX; i++) {
+      const cx = x0 + 10 + i * 20;
+      drawStar(ctx, cx, cy, 8, 3.6, 'rgba(58,42,42,0.18)');
+      const fill = Math.max(0, Math.min(1, rating - i));
+      if (fill > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cx - 9, cy - 9, 18 * fill, 18);
+        ctx.clip();
+        drawStar(ctx, cx, cy, 8, 3.6, '#e8b95a');
+        ctx.restore();
+      }
+    }
   }
 
   function drawLibraryMoodBar() {
@@ -1743,21 +3087,88 @@ export function init(canvas, elements) {
     ctx.fill();
   }
 
-  function drawCoinIcon(x, y, isBill) {
+  /**
+   * A Gard coin or Gard bill (v2.14 redesign — user: "i want the designs to
+   * be better for the coins and gard"). Coins: a gold disc with a raised
+   * rim, an inner ring, an embossed "G" and a shine. Bills: a green banknote
+   * with an inner border, a "G" seal and corner denominations, tilted a
+   * little per item so a scatter doesn't look stamped. Both cast a soft
+   * shadow. Shared by Coin Hunt and Fines Sort.
+   */
+  function drawCoinIcon(x, y, isBill, seed = 0) {
+    ctx.save();
     if (isBill) {
-      drawRoundRect(ctx, x - 12, y - 7, 24, 14, 2, '#7fb06a');
-      ctx.strokeStyle = '#4a6a3a';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x - 9, y - 4, 18, 8);
-    } else {
-      ctx.fillStyle = '#f2d98a';
-      ctx.beginPath();
-      ctx.arc(x, y, 10, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#c9a13a';
+      const tilt = (((seed * 37) % 11) - 5) * 0.045;
+      ctx.translate(x, y);
+      ctx.rotate(tilt);
+      const w = 38;
+      const h = 20;
+      drawRoundRect(ctx, -w / 2 + 2, -h / 2 + 3, w, h, 3, 'rgba(58,42,42,0.18)');
+      drawRoundRect(ctx, -w / 2, -h / 2, w, h, 3, '#8cc48a');
+      ctx.strokeStyle = '#4f8a52';
       ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(-w / 2, -h / 2, w, h, 3);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(240,250,232,0.85)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(-w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 2);
+      ctx.stroke();
+      // Center seal.
+      ctx.fillStyle = '#e8f4dc';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 6.5, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#4f8a52';
+      ctx.stroke();
+      ctx.fillStyle = '#3f7a46';
+      ctx.font = 'bold 8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('G', 0, 0.5);
+      // Corner denominations.
+      ctx.font = 'bold 5.5px sans-serif';
+      ctx.fillText('10', -w / 2 + 7, -h / 2 + 6);
+      ctx.fillText('10', w / 2 - 7, h / 2 - 5.5);
+    } else {
+      const r = 12;
+      ctx.fillStyle = 'rgba(58,42,42,0.2)';
+      ctx.beginPath();
+      ctx.ellipse(x + 1.5, y + 3, r, r * 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Rim, then a gradient face.
+      ctx.fillStyle = '#c28a2c';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      const face = ctx.createRadialGradient(x - 3, y - 4, 1, x, y, r - 1.5);
+      face.addColorStop(0, '#fff2bf');
+      face.addColorStop(0.55, '#f2cf6a');
+      face.addColorStop(1, '#dca842');
+      ctx.fillStyle = face;
+      ctx.beginPath();
+      ctx.arc(x, y, r - 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(160,110,30,0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, r - 4.2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#a8741e';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('G', x, y + 0.5);
+      // Shine.
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(x, y, r - 3, Math.PI * 1.1, Math.PI * 1.45);
       ctx.stroke();
     }
+    ctx.restore();
   }
 
   function drawDecoyIcon(x, y, kind) {
@@ -1803,7 +3214,7 @@ export function init(canvas, elements) {
     );
     for (const item of overlay.items) {
       if (item.found) continue;
-      drawCoinIcon(item.x, item.y, item.isBill);
+      drawCoinIcon(item.x, item.y, item.isBill, item.id);
     }
     const foundCount = overlay.items.filter((i) => i.found).length;
     ctx.font = '14px sans-serif';
@@ -1819,7 +3230,7 @@ export function init(canvas, elements) {
     ctx.fillText('Fines Sort — find every coin and Gard bill', CANVAS_WIDTH / 2, 170);
     for (const item of overlay.items) {
       if (item.found) continue;
-      if (item.real) drawCoinIcon(item.x, item.y, item.isBill);
+      if (item.real) drawCoinIcon(item.x, item.y, item.isBill, item.id);
       else drawDecoyIcon(item.x, item.y, item.decoyKind);
     }
     const foundReal = overlay.items.filter((i) => i.real && i.found).length;
@@ -1836,14 +3247,309 @@ export function init(canvas, elements) {
     ctx.textAlign = 'center';
     const genre = findGenre(overlay.genreId);
     ctx.fillText(`Find the requested book (${genre ? genre.name : ''})`, CANVAS_WIDTH / 2, 170);
+    const wanted = overlay.items.find((it) => it.correct)?.title;
+    if (wanted) {
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillStyle = '#c65f7c';
+      ctx.fillText(`Looking for: “${wanted}”`, CANVAS_WIDTH / 2, 194);
+    }
     for (const item of overlay.items) {
       drawRoundRect(ctx, item.x - 20, item.y - 14, 40, 28, 3, item.color);
+      drawCoverTitle(ctx, item.title, item.x - 20, item.y - 14, 40, 28, item.color, { maxLines: 3, maxFont: 9, minFont: 6 });
+    }
+  }
+
+  /** Greedy word-wrap of `text` into lines no wider than `maxWidth` at the current ctx.font. */
+  function wrapLines(text, maxWidth) {
+    const lines = [];
+    let line = '';
+    for (const word of text.split(' ')) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(candidate).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function drawReadingOverlay() {
+    drawOverlayBackdrop();
+    const cx = CANVAS_WIDTH / 2;
+    drawRoundRect(ctx, cx - 330, 94, 660, 440, 18, '#f2e9da');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText(`“${overlay.title}”`, cx, 126);
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Read at your own pace. → / Space / Enter / click turns the page, ← goes back.', cx, 146);
+
+    const close = readingCloseRect();
+    drawRoundRect(ctx, close.x, close.y, close.w, close.h, 15, 'rgba(58,42,42,0.12)');
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('×', close.x + close.w / 2, close.y + 21);
+
+    // Open book: two cream pages with a spine shadow and the story's text.
+    const bookY = 160;
+    const pageW = 290;
+    const pageH = 300;
+    drawRoundRect(ctx, cx - pageW - 10, bookY - 6, pageW * 2 + 20, pageH + 12, 10, '#8a5a3a');
+    drawRoundRect(ctx, cx - pageW, bookY, pageW, pageH, [8, 2, 2, 8], '#fdf8ee');
+    drawRoundRect(ctx, cx, bookY, pageW, pageH, [2, 8, 8, 2], '#fdf8ee');
+    const spine = ctx.createLinearGradient(cx - 14, 0, cx + 14, 0);
+    spine.addColorStop(0, 'rgba(58,42,42,0)');
+    spine.addColorStop(0.5, 'rgba(58,42,42,0.22)');
+    spine.addColorStop(1, 'rgba(58,42,42,0)');
+    ctx.fillStyle = spine;
+    ctx.fillRect(cx - 14, bookY, 28, pageH);
+
+    const story = READING_STORIES[overlay.storyIndex];
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#3a2a2a';
+    ctx.font = '17px Georgia, "Times New Roman", serif';
+    for (const side of [0, 1]) {
+      const pageIndex = overlay.page * 2 + side;
+      const text = story.pages[pageIndex] ?? '';
+      const x0 = side === 0 ? cx - pageW + 24 : cx + 24;
+      wrapLines(text, pageW - 48).forEach((line, i) => ctx.fillText(line, x0, bookY + 42 + i * 25));
+    }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(58,42,42,0.5)';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(String(overlay.page * 2 + 1), cx - pageW / 2, bookY + pageH - 12);
+    ctx.fillText(String(overlay.page * 2 + 2), cx + pageW / 2, bookY + pageH - 12);
+
+    // A slim bar fills over the minimum time per spread; then you may turn.
+    const barY = bookY + pageH + 20;
+    drawRoundRect(ctx, cx - 120, barY, 240, 6, 3, 'rgba(58,42,42,0.15)');
+    drawRoundRect(ctx, cx - 120, barY, 240 * overlay.progress, 6, 3, overlay.progress >= 1 ? '#7fd68a' : '#7fb0d6');
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.font = 'bold 13px sans-serif';
+    const isLast = overlay.page >= READING_PAGES - 1;
+    const ready = isLast ? 'Close the book when you\'re done →' : 'Turn the page when you\'re ready →';
+    const status = overlay.progress >= 1 ? ready : (overlay.nudge > 0 ? 'Take your time — keep reading…' : 'Reading…');
+    ctx.fillText(`${status}   (${overlay.page + 1}/${READING_PAGES})`, cx, barY + 26);
+  }
+
+  function drawTillCountOverlay() {
+    drawOverlayBackdrop();
+    const cx = CANVAS_WIDTH / 2;
+    drawRoundRect(ctx, 120, 130, CANVAS_WIDTH - 240, 360, 16, '#efe6d8');
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('Count the Till', cx, 165);
+    ctx.font = '13px sans-serif';
+    ctx.fillText(`Count exactly ${overlay.target} Gard into the till. Tap coins/bills or press 1-4; Undo or Backspace takes one back.`, cx, 187);
+
+    // Running total vs. the fine owed, with a progress bar.
+    const total = tillTotal();
+    drawRoundRect(ctx, cx - 160, 205, 320, 64, 12, '#3a3440');
+    ctx.fillStyle = '#9fe0a8';
+    ctx.font = 'bold 30px sans-serif';
+    ctx.fillText(`${total} / ${overlay.target}g`, cx, 248);
+    drawRoundRect(ctx, cx - 150, 278, 300, 10, 5, 'rgba(58,42,42,0.15)');
+    drawRoundRect(ctx, cx - 150, 278, 300 * Math.min(1, total / overlay.target), 10, 5, '#e0a83a');
+
+    // What's been counted so far, as little coin/bill tokens.
+    overlay.added.slice(-16).forEach((v, i, arr) => {
+      const tx = cx - ((arr.length - 1) * 14) / 2 + i * 14;
+      if (v >= 10) drawRoundRect(ctx, tx - 6, 298, 12, 18, 2, v === 20 ? '#7fb08a' : '#9fc4d6');
+      else {
+        ctx.fillStyle = v === 5 ? '#e0a83a' : '#c9a24a';
+        ctx.beginPath();
+        ctx.arc(tx, 307, v === 5 ? 6.5 : 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
+    const rects = tillButtonRects();
+    rects.denominations.forEach((r, i) => {
+      drawRoundRect(ctx, r.x, r.y, r.w, r.h, 12, '#fdf8ee');
+      ctx.strokeStyle = 'rgba(58,42,42,0.25)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(r.x, r.y, r.w, r.h, 12);
+      ctx.stroke();
+      const mx = r.x + r.w / 2;
+      const my = r.y + 26;
+      if (r.value >= 10) {
+        drawRoundRect(ctx, mx - 22, my - 12, 44, 24, 3, r.value === 20 ? '#7fb08a' : '#9fc4d6');
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(mx - 18, my - 8, 36, 16);
+      } else {
+        ctx.fillStyle = r.value === 5 ? '#e0a83a' : '#c9a24a';
+        ctx.beginPath();
+        ctx.arc(mx, my, r.value === 5 ? 14 : 11, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(138,90,40,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.fillStyle = LABEL_TEXT_COLOR;
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(`${r.value}g`, mx, my + 4);
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = 'rgba(58,42,42,0.6)';
+      ctx.fillText(`[${i + 1}]`, mx, r.y + r.h - 6);
+    });
+
+    const u = rects.undo;
+    drawRoundRect(ctx, u.x, u.y, u.w, u.h, 10, overlay.added.length ? '#a08a7a' : 'rgba(160,138,122,0.4)');
+    ctx.fillStyle = '#fdf8ee';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText('Undo', u.x + u.w / 2, u.y + u.h / 2 + 4);
+
+    if (overlay.flash) {
+      drawRoundRect(ctx, cx - 90, 468, 180, 28, 14, '#e06a5b');
       ctx.fillStyle = '#fdf8ee';
-      ctx.font = '9px sans-serif';
-      ctx.textAlign = 'center';
-      const words = item.title.split(' ');
-      ctx.fillText(words.slice(0, 2).join(' '), item.x, item.y - 1);
-      if (words.length > 2) ctx.fillText(words.slice(2, 4).join(' '), item.x, item.y + 9);
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText(overlay.flash.text, cx, 487);
+    }
+  }
+
+  function drawCoffeePourOverlay() {
+    drawOverlayBackdrop();
+    const cx = CANVAS_WIDTH / 2;
+    drawRoundRect(ctx, cx - 210, 110, 420, 400, 18, '#f2e9da');
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('Pour a Coffee', cx, 145);
+    ctx.font = '13px sans-serif';
+    ctx.fillText('Hold mouse/tap or Space/Enter to pour. Let go in the gold band.', cx, 167);
+
+    // Machine head + spout above the cup.
+    drawRoundRect(ctx, cx - 70, 180, 140, 34, 8, '#7a5a42');
+    drawRoundRect(ctx, cx - 24, 214, 48, 12, 3, '#b0a090');
+    ctx.fillStyle = '#9fe0a8';
+    ctx.fillRect(cx - 40, 190, 26, 8);
+    ctx.fillStyle = overlay.pouring ? '#e06a5b' : '#e8b95a';
+    ctx.beginPath();
+    ctx.arc(cx + 44, 197, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cup geometry: a slightly tapered mug, fill measured bottom -> brim.
+    const cupTop = 268;
+    const cupBottom = 450;
+    const cupH = cupBottom - cupTop;
+    const topHalfW = 78;
+    const bottomHalfW = 64;
+    const halfWAt = (y) => bottomHalfW + (topHalfW - bottomHalfW) * ((cupBottom - y) / cupH);
+    const yForFill = (f) => cupBottom - f * cupH;
+
+    // Stream while pouring.
+    if (overlay.pouring) {
+      ctx.fillStyle = '#6a4a30';
+      const surfaceY = yForFill(overlay.fill);
+      ctx.fillRect(cx - 3, 226, 6, surfaceY - 226);
+    }
+
+    // Saucer, mug body (cream), handle.
+    drawRoundRect(ctx, cx - 110, cupBottom + 4, 220, 14, 7, '#e3d6c2');
+    ctx.strokeStyle = '#fdf8ee';
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(cx + topHalfW + 6, cupTop + 70, 30, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+    ctx.fillStyle = '#fdf8ee';
+    ctx.beginPath();
+    ctx.moveTo(cx - topHalfW, cupTop);
+    ctx.lineTo(cx + topHalfW, cupTop);
+    ctx.lineTo(cx + bottomHalfW, cupBottom);
+    ctx.quadraticCurveTo(cx, cupBottom + 10, cx - bottomHalfW, cupBottom);
+    ctx.closePath();
+    ctx.fill();
+
+    // Coffee inside the cup, clipped to the mug's inner shape.
+    ctx.save();
+    ctx.beginPath();
+    const inset = 8;
+    ctx.moveTo(cx - topHalfW + inset, cupTop + 2);
+    ctx.lineTo(cx + topHalfW - inset, cupTop + 2);
+    ctx.lineTo(cx + bottomHalfW - inset, cupBottom - inset);
+    ctx.lineTo(cx - bottomHalfW + inset, cupBottom - inset);
+    ctx.closePath();
+    ctx.clip();
+    ctx.fillStyle = '#efe4d2';
+    ctx.fillRect(cx - topHalfW, cupTop, topHalfW * 2, cupH);
+    const surfaceY = yForFill(overlay.fill);
+    ctx.fillStyle = '#6a4a30';
+    ctx.fillRect(cx - topHalfW, surfaceY, topHalfW * 2, cupBottom - surfaceY);
+    ctx.fillStyle = '#c49a6c'; // crema on top
+    ctx.fillRect(cx - topHalfW, surfaceY, topHalfW * 2, Math.min(6, cupBottom - surfaceY));
+
+    // Target band.
+    const bandTop = yForFill(overlay.band.high);
+    const bandBottom = yForFill(overlay.band.low);
+    ctx.fillStyle = 'rgba(242,217,138,0.45)';
+    ctx.fillRect(cx - topHalfW, bandTop, topHalfW * 2, bandBottom - bandTop);
+    ctx.strokeStyle = '#e0a83a';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    for (const y of [bandTop, bandBottom]) {
+      ctx.beginPath();
+      ctx.moveTo(cx - topHalfW, y);
+      ctx.lineTo(cx + topHalfW, y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // Side markers so the band reads even when the coffee covers it.
+    ctx.fillStyle = '#e0a83a';
+    for (const dir of [-1, 1]) {
+      const bx = cx + dir * (halfWAt(bandTop) + 12);
+      ctx.beginPath();
+      ctx.moveTo(bx - dir * 8, (bandTop + bandBottom) / 2);
+      ctx.lineTo(bx, bandTop);
+      ctx.lineTo(bx, bandBottom);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Spill drips over the rim.
+    if (overlay.grade === 'spilled') {
+      ctx.fillStyle = '#6a4a30';
+      for (const [dx, len] of [[-topHalfW + 4, 30], [-topHalfW + 22, 16], [topHalfW - 10, 24]]) {
+        drawRoundRect(ctx, cx + dx, cupTop - 2, 7, len, 3.5, '#6a4a30');
+      }
+      ctx.beginPath();
+      ctx.ellipse(cx - 30, cupBottom + 12, 34, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Steam once it's done.
+    if (overlay.grade && overlay.grade !== 'spilled') {
+      ctx.strokeStyle = 'rgba(120,100,80,0.45)';
+      ctx.lineWidth = 3;
+      for (const dx of [-24, 0, 24]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + dx, cupTop - 6);
+        ctx.quadraticCurveTo(cx + dx - 8, cupTop - 18, cx + dx, cupTop - 30);
+        ctx.quadraticCurveTo(cx + dx + 8, cupTop - 40, cx + dx, cupTop - 50);
+        ctx.stroke();
+      }
+    }
+
+    // Result banner.
+    if (overlay.grade) {
+      const label = { perfect: 'Perfect!', good: 'Good', sloppy: 'Sloppy', spilled: 'Spilled!' }[overlay.grade];
+      const color = { perfect: '#e0a83a', good: '#7fb0d6', sloppy: '#a08a7a', spilled: '#e06a5b' }[overlay.grade];
+      drawRoundRect(ctx, cx - 70, 474, 140, 30, 15, color);
+      ctx.fillStyle = '#fdf8ee';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, cx, 489);
+      ctx.textBaseline = 'alphabetic';
     }
   }
 
@@ -1891,6 +3597,9 @@ export function init(canvas, elements) {
     else if (overlay.kind === 'fines-sort') drawFinesSortOverlay();
     else if (overlay.kind === 'find-the-book') drawFindTheBookOverlay();
     else if (overlay.kind === 'karen') drawKarenOverlay();
+    else if (overlay.kind === 'coffee-pour') drawCoffeePourOverlay();
+    else if (overlay.kind === 'till-count') drawTillCountOverlay();
+    else if (overlay.kind === 'reading') drawReadingOverlay();
   }
 
   // -- First Person rendering --------------------------------------------
@@ -1941,7 +3650,7 @@ export function init(canvas, elements) {
    * to the station/player's own y.
    */
   function drawFirstPersonEntity(entity) {
-    if (entity.entityKind === 'frontDeskSlot') {
+    if (entity.entityKind === 'frontDeskSlot' || entity.entityKind === 'finesSlot') {
       const slot = entity.ref;
       const personality = personalityForSlot(slot, entity.slotIndex ?? 0);
       drawLibraryPerson(ctx, entity.screenX, entity.groundY, {
@@ -2012,6 +3721,7 @@ export function init(canvas, elements) {
       stationsOnFloor(stations, currentFloor).forEach((station) => drawStation(station));
       drawReturnCartBooks();
       drawFrontDeskSlots();
+      drawFinesCounterSlots();
       drawPlayer();
     }
     // Doc's Scope: "Sanity/Mood bars, the HUD clock, and all five minigame
@@ -2020,6 +3730,7 @@ export function init(canvas, elements) {
     // above, same as every other frame.
     drawSanityBar();
     drawLibraryMoodBar();
+    drawRatingStars();
     drawOverlay();
   }
 
@@ -2038,7 +3749,8 @@ export function init(canvas, elements) {
 
     const beforeBorrowStage = shiftState.activeBorrow?.stage;
     const beforeKarenActive = shiftState.karen.active;
-    shiftState = tick(shiftState, deltaSeconds);
+    const beforeWalkouts = shiftState.walkouts;
+    shiftState = tick(shiftState, deltaSeconds, { pauseBorrowPatience: overlay?.kind === 'find-the-book' });
 
     if (beforeBorrowStage === 'searching' && !shiftState.activeBorrow && overlay?.kind === 'find-the-book') {
       overlay = null;
@@ -2047,6 +3759,18 @@ export function init(canvas, elements) {
     if (beforeKarenActive && !shiftState.karen.active && overlay?.kind === 'karen') {
       overlay = null;
       showToast('Karen stormed off without paying.');
+    }
+
+    if (waitingAtBossOffice && isBossOfficeReady(shiftState) && !overlay) {
+      if (isPlayerAtBossOffice()) {
+        enterBossOfficeNow();
+        return;
+      }
+      waitingAtBossOffice = false;
+    }
+
+    if (shiftState.walkouts > beforeWalkouts) {
+      showToast(`A patron got tired of waiting and left — −${RATING_PENALTY_PER_WALKOUT}★`);
     }
 
     if (shiftState.phase === 'playing') processScheduledEvents();
@@ -2088,6 +3812,9 @@ export function init(canvas, elements) {
   // -- Event wiring ---------------------------------------------------------
 
   canvas.addEventListener('click', onCanvasClick);
+  canvas.addEventListener('pointerdown', onCanvasPointerDown);
+  window.addEventListener('pointerup', onWindowPointerUp);
+  window.addEventListener('pointercancel', onWindowPointerUp);
   canvas.addEventListener('mousemove', onCanvasMouseMove);
   canvas.addEventListener('mouseleave', onCanvasMouseLeave);
   document.addEventListener('keydown', onKeyDown);
@@ -2140,6 +3867,9 @@ export function init(canvas, elements) {
     }
     if (toastTimeoutHandle) window.clearTimeout(toastTimeoutHandle);
     canvas.removeEventListener('click', onCanvasClick);
+    canvas.removeEventListener('pointerdown', onCanvasPointerDown);
+    window.removeEventListener('pointerup', onWindowPointerUp);
+    window.removeEventListener('pointercancel', onWindowPointerUp);
     canvas.removeEventListener('mousemove', onCanvasMouseMove);
     canvas.removeEventListener('mouseleave', onCanvasMouseLeave);
     document.removeEventListener('keydown', onKeyDown);
@@ -2173,6 +3903,9 @@ export function init(canvas, elements) {
       getCurrentFloor: () => currentFloor,
       getStations: () => stations.map((s) => ({ ...s })),
       getFrontDeskSlots: () => frontDeskSlots(),
+      getFinesCounterSlots: () => finesCounterSlots(),
+      getFinesStartShift: () => finesStartShiftNumber,
+      getTillButtonRects: () => tillButtonRects(),
       getReturnCartSlots: () => returnCartSlots(),
       getOverlay: () => (overlay ? JSON.parse(JSON.stringify(overlay)) : null),
       // First Person Mode hooks — same "expose exact state, drive the real
@@ -2208,6 +3941,8 @@ export function init(canvas, elements) {
         const bookId = shiftState?.activeBorrow?.bookId;
         return bookId ? { bookId, ...bookCatalog.get(bookId) } : null;
       },
+      finishReadingPageNow() { if (overlay?.kind === 'reading') overlay.progress = 1; },
+      setCoffeePourFill(fill) { if (overlay?.kind === 'coffee-pour' && !overlay.grade) overlay.fill = fill; },
       setSkillCheckGauge(pos) { if (overlay?.kind === 'skill-check') overlay.gaugePosition = pos; },
       skipToClosing() {
         if (!running || !shiftState || shiftState.phase !== 'playing') return;

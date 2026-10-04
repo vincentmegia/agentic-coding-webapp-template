@@ -68,11 +68,14 @@ export const ROUND_TIER_CLOCK_SECONDS = [600, 480, 360];
  */
 export const ROUND_TIER_RETURN_VOLUME = [6, 10, 16];
 
-/** Fine-paying patrons arriving at the Front Desk over one shift, per tier. */
-export const ROUND_TIER_FINE_VOLUME = [2, 4, 6];
+/** Fine-paying patrons arriving at the Fines Counter over one shift, per tier (once fines have started — see finesStartShiftForSeed). v2.8: raised from [2, 4, 6] — early shifts felt empty (user: "when doe sthe costermers come??? i cant see them"). */
+export const ROUND_TIER_FINE_VOLUME = [4, 6, 9];
 
-/** Borrow-request patrons arriving at the Front Desk over one shift, per tier. */
-export const ROUND_TIER_BORROW_VOLUME = [2, 4, 6];
+/** Borrow-request patrons arriving at the Front Desk over one shift, per tier. v2.8: raised from [2, 4, 6], same reason. */
+export const ROUND_TIER_BORROW_VOLUME = [5, 8, 12];
+
+/** The first borrow patron of every shift arrives within this window (seconds after the shift starts), so there's always someone early instead of a multi-minute wait. */
+export const FIRST_BORROW_ARRIVAL_SECONDS = [5, 20];
 
 /**
  * Which difficulty tier a given shift number falls in.
@@ -107,12 +110,17 @@ export function returnVolumeForShift(shiftNumber) {
 }
 
 /**
- * How many fine-paying patrons arrive this shift.
+ * How many fine-paying patrons arrive this shift: the tier's volume, or 0
+ * before this month's `finesStartShift` (see `finesStartShiftForSeed` —
+ * since v2.4 fines don't begin until a shift rolled in 5–8). Omitting
+ * `finesStartShift` means no gate (shift 1 onward).
  *
  * @param {number} shiftNumber
+ * @param {number} [finesStartShift=1]
  * @returns {number}
  */
-export function fineVolumeForShift(shiftNumber) {
+export function fineVolumeForShift(shiftNumber, finesStartShift = 1) {
+  if (clampShift(shiftNumber) < finesStartShift) return 0;
   return ROUND_TIER_FINE_VOLUME[roundTier(shiftNumber) - 1];
 }
 
@@ -216,6 +224,25 @@ export function karenShiftForSeed(seed) {
   const roll = mulberry32(value)();
   const span = KAREN_SHIFT_MAX - KAREN_SHIFT_MIN + 1;
   return KAREN_SHIFT_MIN + Math.min(span - 1, Math.floor(roll * span));
+}
+
+/** Earliest/latest shift fine-paying patrons can start arriving (v2.4: "let fines customers come in around shift 5-8"). */
+export const FINES_START_SHIFT_MIN = 5;
+export const FINES_START_SHIFT_MAX = 8;
+
+/**
+ * Deterministically derives the shift fines start on for a save seed, the
+ * same shape as `karenShiftForSeed` (and from the same per-month seed), but
+ * from an independent stream, so the two rolls aren't correlated.
+ *
+ * @param {number} seed - the save's month seed (non-finite treated as 0).
+ * @returns {number} an integer in [FINES_START_SHIFT_MIN, FINES_START_SHIFT_MAX].
+ */
+export function finesStartShiftForSeed(seed) {
+  const value = Number.isFinite(seed) ? Math.floor(seed) : 0;
+  const roll = mulberry32((value ^ 0x9e3779b9) >>> 0)();
+  const span = FINES_START_SHIFT_MAX - FINES_START_SHIFT_MIN + 1;
+  return FINES_START_SHIFT_MIN + Math.min(span - 1, Math.floor(roll * span));
 }
 
 /** How long the player has to respond to Karen's scripted event before it auto-resolves as mishandled (engine-state.js's startKarenEvent/tickKarenEvent). Short — she's not here to wait — but long enough to walk over from wherever the player is. */
@@ -418,8 +445,11 @@ export function skillCheckSweepSpeed(shiftNumber) {
 //    customerPatienceSeconds.
 // ---------------------------------------------------------------------------
 
-const BORROW_PATIENCE_BASE_SECONDS = 40;
-const BORROW_PATIENCE_MIN_SECONDS = 18;
+// v2.7: raised from 40/18 — the old floor (~11 s at low mood) wasn't
+// enough to walk upstairs and back (user: the patron "dissapears and i
+// didnt get the book").
+export const BORROW_PATIENCE_BASE_SECONDS = 60;
+export const BORROW_PATIENCE_MIN_SECONDS = 30;
 const BORROW_PATIENCE_SHIFT_SATURATION = 10;
 
 /**
@@ -487,8 +517,9 @@ export function patienceMultiplierForLibraryMood(mood) {
 //     mistake. Ported from Kitchen Shift verbatim — same constants, same
 //     shape, same "low sanity slows the player down, never anything
 //     harsher" posture — since the doc asks for the identical mechanic, not
-//     a reinvented one. A Coffee Machine station restores it to full on the
-//     spot (engine-state.js's restoreSanity).
+//     a reinvented one. The Coffee Machine restores it — since v2.2 by a
+//     graded amount via the Coffee Pour minigame (section 11 below,
+//     engine-state.js's brewCoffee), originally an instant full refill.
 // ---------------------------------------------------------------------------
 
 /** Sanity starts here every shift. */
@@ -526,3 +557,166 @@ export function walkSpeedMultiplierForSanity(sanity) {
   const fraction = clampSanity(sanity) / SANITY_MAX;
   return SANITY_MIN_WALK_MULTIPLIER + (1 - SANITY_MIN_WALK_MULTIPLIER) * fraction;
 }
+
+// ---------------------------------------------------------------------------
+// 11. Coffee Pour minigame (doc's v2.2 addition) — the Coffee Machine no
+//     longer restores Sanity instantly: the player holds to pour coffee
+//     into a cup and releases inside a target band. The result is graded,
+//     and every grade still restores *some* Sanity (the user picked
+//     "graded, never zero"), so a sloppy pour is a smaller reward, never a
+//     punishment. Overfilling past the brim spills and ends the pour
+//     automatically.
+// ---------------------------------------------------------------------------
+
+/** Seconds of holding it takes to fill the cup from empty (0) to the brim (1). */
+export const COFFEE_POUR_SECONDS_TO_BRIM = 2.2;
+
+/** Width of the target band, as a fraction of the cup's height. */
+export const COFFEE_POUR_BAND_WIDTH = 0.12;
+
+/** How far outside the band (either side) a release still counts as 'good'. */
+export const COFFEE_POUR_GOOD_MARGIN = 0.1;
+
+/** Gard tip for a perfect pour, added to the shift's bonusGard. */
+export const COFFEE_PERFECT_TIP_GARD = 10;
+
+/** Sanity restored per grade (added to current Sanity, clamped to SANITY_MAX). */
+export const COFFEE_SANITY_RESTORE = {
+  perfect: SANITY_MAX,
+  good: 70,
+  sloppy: 40,
+  spilled: 40,
+};
+
+/**
+ * The target band for one pour. `roll` in [0, 1) slides the band's center
+ * between 62% and 86% full so it isn't the same line every visit.
+ *
+ * @param {number} roll
+ * @returns {{low: number, high: number}}
+ */
+export function coffeePourTargetBand(roll) {
+  const r = clamp(Number.isFinite(roll) ? roll : 0, 0, 1);
+  const center = 0.62 + r * 0.24;
+  return { low: center - COFFEE_POUR_BAND_WIDTH / 2, high: center + COFFEE_POUR_BAND_WIDTH / 2 };
+}
+
+/**
+ * Grades a finished pour: 'spilled' at or past the brim, 'perfect' inside
+ * the band, 'good' within COFFEE_POUR_GOOD_MARGIN of it, else 'sloppy'.
+ *
+ * @param {number} fill - 0 (empty) .. 1 (brim).
+ * @param {{low: number, high: number}} band
+ * @returns {'perfect' | 'good' | 'sloppy' | 'spilled'}
+ */
+export function gradeCoffeePour(fill, band) {
+  const f = Number.isFinite(fill) ? fill : 0;
+  if (f >= 1) return 'spilled';
+  if (f >= band.low && f <= band.high) return 'perfect';
+  if (f >= band.low - COFFEE_POUR_GOOD_MARGIN && f <= band.high + COFFEE_POUR_GOOD_MARGIN) return 'good';
+  return 'sloppy';
+}
+
+// ---------------------------------------------------------------------------
+// 12. Count the Till minigame (v2.4) — fine payments are collected at the
+//     Fines Counter (Fines Sort) and carried to the Front Desk, where the
+//     player counts the exact amount into the till by tapping coin/bill
+//     denominations. Going over the amount is a miscount (a mistake; the
+//     count resets and the player keeps carrying the payment to retry).
+// ---------------------------------------------------------------------------
+
+/** Coin/bill denominations offered in the till, in Gard. Every whole amount in [FINE_AMOUNT_MIN_GARD, FINE_AMOUNT_MAX_GARD] is reachable. */
+export const TILL_DENOMINATIONS = [1, 5, 10, 20];
+
+/**
+ * Compares a running till count against the fine owed.
+ *
+ * @param {number} total
+ * @param {number} target
+ * @returns {'exact' | 'under' | 'over'}
+ */
+export function tillCountResult(total, target) {
+  if (total === target) return 'exact';
+  return total < target ? 'under' : 'over';
+}
+
+// ---------------------------------------------------------------------------
+// 13. Star rating (v2.9) — "a rating bar when a costumer is left waiting
+//     too long you lose 1 and half stars". Every queued patron (borrow or
+//     fine) has a wait timer; one that runs out walks out, as does a borrow
+//     patron whose search-phase patience runs out. Each walk-out costs
+//     RATING_PENALTY_PER_WALKOUT stars. The shift's rating (starts at
+//     RATING_MAX) scales the whole paycheck at payout. Separate from Library
+//     Mood, which still tracks mistakes and scales patience.
+// ---------------------------------------------------------------------------
+
+/** Stars at the start of every shift. */
+export const RATING_MAX = 5;
+
+/** Stars lost each time a patron walks out after waiting too long. */
+export const RATING_PENALTY_PER_WALKOUT = 1.5;
+
+/**
+ * Clamps a rating into `[0, RATING_MAX]`.
+ *
+ * @param {number} rating
+ * @returns {number}
+ */
+export function clampRating(rating) {
+  return clamp(Number.isFinite(rating) ? rating : 0, 0, RATING_MAX);
+}
+
+/**
+ * The paycheck multiplier for a shift's final rating: rating ÷ RATING_MAX
+ * (5★ = full pay, 3.5★ = 70%, 0★ = nothing).
+ *
+ * @param {number} rating
+ * @returns {number}
+ */
+export function paycheckMultiplierForRating(rating) {
+  return clampRating(rating) / RATING_MAX;
+}
+
+const QUEUE_WAIT_BASE_SECONDS = 90;
+const QUEUE_WAIT_MIN_SECONDS = 45;
+const QUEUE_WAIT_SHIFT_SATURATION = 10;
+
+/**
+ * Seconds a patron will wait *in line* (Front Desk borrow queue or Fines
+ * Counter queue) before walking out — before anyone starts helping them.
+ * Decreases with shift number, same shape as borrowPatienceSeconds;
+ * engine-state.js also scales it by Library Mood at arrival.
+ *
+ * @param {number} shiftNumber
+ * @returns {number}
+ */
+export function queueWaitSecondsForShift(shiftNumber) {
+  const shift = clampShift(shiftNumber) - 1;
+  const headroom = QUEUE_WAIT_BASE_SECONDS - QUEUE_WAIT_MIN_SECONDS;
+  const ramp = 1 - Math.exp(-shift / QUEUE_WAIT_SHIFT_SATURATION);
+  return clamp(QUEUE_WAIT_BASE_SECONDS - headroom * ramp, QUEUE_WAIT_MIN_SECONDS, QUEUE_WAIT_BASE_SECONDS);
+}
+
+// ---------------------------------------------------------------------------
+// 14. Reading Nook (v2.10) — "a reading a book system to increase your
+//     mood". Reading a short book (a page-turning minigame) at the 2nd
+//     Floor's Reading Nook restores Library Mood, then the nook cools down.
+//     The shift clock and patron timers keep running while you read, so
+//     it's a trade-off against patrons waiting.
+// ---------------------------------------------------------------------------
+
+/** Library Mood restored by finishing a book (clamped to LIBRARY_MOOD_MAX). */
+export const READING_MOOD_RESTORE = 20;
+
+/** Seconds after a finished book before the nook can be used again. */
+export const READING_COOLDOWN_SECONDS = 45;
+
+/** Two-page spreads in one reading session (each story in stories.js has 2 × this many pages). */
+export const READING_PAGES = 6;
+
+/**
+ * Minimum seconds on each spread before it can be turned. v2.11: the
+ * pages hold real story text now, read at the player's own pace, so this
+ * is only an anti-skip floor (was 1.4 s of auto-"reading" faux lines).
+ */
+export const READING_SECONDS_PER_PAGE = 2.5;

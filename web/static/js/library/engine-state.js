@@ -19,9 +19,16 @@
 //     carriedBook: Book | null,     // the one book currently being carried
 //     shelfCheck: { kind: 'skill-check' | 'coin-hunt' } | null, // active once arriveAtShelf starts one
 //
-//     finesQueue: Fine[],           // fine-paying patrons waiting at the Front Desk
-//     carriedFine: Fine | null,     // the payment currently being carried to the Fines Counter
+//     rating: number,               // v2.9: 0..RATING_MAX stars; −RATING_PENALTY_PER_WALKOUT per patron who walks out; scales the payout
+//     readingCooldownSeconds: number, // v2.10: seconds until the Reading Nook can be used again (0 = ready)
+//     walkouts: number,             // v2.9: patrons who left after waiting too long this shift
+//     (queued Fine/BorrowRequest entries carry waitRemainingSeconds/waitMaxSeconds — null = no wait timer)
+//
+//     finesQueue: Fine[],           // fine-paying patrons waiting at the Fines Counter (v2.4; previously the Front Desk)
+//     activeFine: Fine | null,      // the patron whose payment is being collected in the Fines Sort minigame
 //     finesSortActive: boolean,     // true once arriveAtFinesCounter starts the Fines Sort minigame
+//     carriedFine: Fine | null,     // a collected payment being carried to the Front Desk till
+//     tillCountActive: boolean,     // true once arriveAtFrontDeskWithFine starts the Count the Till minigame
 //
 //     borrowQueue: BorrowRequest[], // borrow-request patrons waiting at the Front Desk
 //     activeBorrow: BorrowRequest | null, // the one being fulfilled ('searching' | 'checkout' stage)
@@ -74,6 +81,7 @@ import {
   LIBRARY_MOOD_MAX,
   LIBRARY_MOOD_DRAIN_PER_MISTAKE,
   clampLibraryMood,
+  patienceMultiplierForLibraryMood,
   SANITY_MAX,
   SANITY_DRAIN_PER_SECOND,
   SANITY_DRAIN_PER_UPSET,
@@ -82,9 +90,17 @@ import {
   KAREN_FINE_AMOUNT_GARD,
   KAREN_MOOD_PENALTY,
   CLOSING_WAIT_SECONDS,
+  COFFEE_SANITY_RESTORE,
+  COFFEE_PERFECT_TIP_GARD,
+  RATING_MAX,
+  RATING_PENALTY_PER_WALKOUT,
+  clampRating,
+  paycheckMultiplierForRating,
+  READING_MOOD_RESTORE,
+  READING_COOLDOWN_SECONDS,
 } from './rules.js';
 
-export { LIBRARY_MOOD_MAX, SANITY_MAX };
+export { LIBRARY_MOOD_MAX, SANITY_MAX, RATING_MAX };
 
 /**
  * Builds a fresh shift-start state.
@@ -107,9 +123,15 @@ export function createInitialState(shiftNumber, karenShiftNumber, overrides = {}
     carriedBook: null,
     shelfCheck: null,
 
+    rating: RATING_MAX,
+    walkouts: 0,
+    readingCooldownSeconds: 0,
+
     finesQueue: [],
-    carriedFine: null,
+    activeFine: null,
     finesSortActive: false,
+    carriedFine: null,
+    tillCountActive: false,
 
     borrowQueue: [],
     activeBorrow: null,
@@ -206,6 +228,34 @@ export function arriveAtShelf(state, genreId) {
   };
 }
 
+/** A patron walked out after waiting too long (v2.9): costs stars. */
+function applyWalkout(state) {
+  return {
+    rating: clampRating(state.rating - RATING_PENALTY_PER_WALKOUT),
+    walkouts: state.walkouts + 1,
+  };
+}
+
+/** Wait-timer fields for a newly queued patron: `waitSeconds` scaled by Library Mood at arrival, or no timer when omitted. */
+function initialWait(state, waitSeconds) {
+  if (!Number.isFinite(waitSeconds) || waitSeconds <= 0) return { waitRemainingSeconds: null, waitMaxSeconds: null };
+  const seconds = waitSeconds * patienceMultiplierForLibraryMood(state.libraryMood);
+  return { waitRemainingSeconds: seconds, waitMaxSeconds: seconds };
+}
+
+/** Counts down every queued patron's wait timer; returns the survivors and how many walked out. */
+function tickQueue(queue, delta) {
+  let walkedOut = 0;
+  const kept = [];
+  for (const entry of queue) {
+    if (entry.waitRemainingSeconds == null) { kept.push(entry); continue; }
+    const remaining = entry.waitRemainingSeconds - delta;
+    if (remaining <= 0) walkedOut++;
+    else kept.push({ ...entry, waitRemainingSeconds: remaining });
+  }
+  return { kept, walkedOut };
+}
+
 function applyMistake(state) {
   return {
     mistakeCount: state.mistakeCount + 1,
@@ -265,57 +315,39 @@ export function resolveCoinHunt(state, foundGard) {
 // ---------------------------------------------------------------------------
 
 /**
- * A fine-paying patron arrives at the Front Desk. A no-op unless the shift
- * is 'playing'.
+ * A fine-paying patron arrives and queues at the Fines Counter (v2.4 — they
+ * used to queue at the Front Desk). A no-op unless the shift is 'playing'.
  *
  * @param {ShiftState} state
- * @param {{id: string, amountGard: number}} fine
+ * @param {{id: string, amountGard: number, waitSeconds?: number}} fine - `waitSeconds`: how long they'll wait in line (rules.js's queueWaitSecondsForShift), scaled by mood; omitted = no wait timer.
  * @returns {ShiftState}
  */
 export function addFineToQueue(state, fine) {
   if (state.phase !== 'playing') return state;
-  return { ...state, finesQueue: [...state.finesQueue, fine] };
+  const { waitSeconds, ...rest } = fine;
+  return { ...state, finesQueue: [...state.finesQueue, { ...rest, ...initialWait(state, waitSeconds) }] };
 }
 
 /**
- * Accepts one fine payment to carry to the Fines Counter. A no-op if the
- * shift isn't 'playing', a fine is already being carried, or no fine with
- * that id is queued.
- *
- * @param {ShiftState} state
- * @param {string} fineId
- * @returns {ShiftState}
- */
-export function acceptFine(state, fineId) {
-  if (state.phase !== 'playing' || state.carriedFine) return state;
-  const fine = state.finesQueue.find((f) => f.id === fineId);
-  if (!fine) return state;
-
-  return {
-    ...state,
-    finesQueue: state.finesQueue.filter((f) => f !== fine),
-    carriedFine: fine,
-  };
-}
-
-/**
- * Arriving at the Fines Counter with a carried payment starts the Fines
- * Sort minigame. A no-op if there's no carried fine, one is already active,
- * or the shift isn't 'playing'.
+ * Arriving at the Fines Counter starts collecting the first queued
+ * patron's payment (the Fines Sort minigame). A no-op if the shift isn't
+ * 'playing', a sort is already active, the player is still carrying an
+ * earlier payment (it has to reach the till first), or nobody is queued.
  *
  * @param {ShiftState} state
  * @returns {ShiftState}
  */
 export function arriveAtFinesCounter(state) {
-  if (state.phase !== 'playing' || !state.carriedFine || state.finesSortActive) return state;
-  return { ...state, finesSortActive: true };
+  if (state.phase !== 'playing' || state.finesSortActive || state.carriedFine || state.finesQueue.length === 0) return state;
+  const [fine, ...rest] = state.finesQueue;
+  return { ...state, finesQueue: rest, activeFine: fine, finesSortActive: true };
 }
 
 /**
- * Resolves an active Fines Sort. A no-op unless `finesSortActive`. On
- * success, the carried fine's amount is banked into `bonusGard` and the
- * payment clears. On failure, it counts as a mistake but the player keeps
- * carrying the payment (retry-on-failure, same as resolveShelfSkillCheck).
+ * Resolves an active Fines Sort. On success the player now carries the
+ * patron's payment (to take to the Front Desk till) and the patron leaves.
+ * On failure it counts as a mistake and the patron steps back to the front
+ * of the queue to try again.
  *
  * @param {ShiftState} state
  * @param {boolean} success
@@ -323,16 +355,52 @@ export function arriveAtFinesCounter(state) {
  */
 export function resolveFinesSort(state, success) {
   if (state.phase !== 'playing' || !state.finesSortActive) return state;
+  if (success) {
+    return { ...state, carriedFine: state.activeFine, activeFine: null, finesSortActive: false };
+  }
+  return {
+    ...state,
+    finesQueue: [state.activeFine, ...state.finesQueue],
+    activeFine: null,
+    finesSortActive: false,
+    ...applyMistake(state),
+  };
+}
 
+/**
+ * Arriving at the Front Desk while carrying a collected payment starts the
+ * Count the Till minigame. A no-op without a carried fine, if one is
+ * already being counted, or if the shift isn't 'playing'.
+ *
+ * @param {ShiftState} state
+ * @returns {ShiftState}
+ */
+export function arriveAtFrontDeskWithFine(state) {
+  if (state.phase !== 'playing' || !state.carriedFine || state.tillCountActive) return state;
+  return { ...state, tillCountActive: true };
+}
+
+/**
+ * Resolves a Count the Till attempt. An exact count banks the payment into
+ * `bonusGard`, ending the flow. A miscount (over the amount) counts as a
+ * mistake, but the till stays open with the payment still in hand, for an
+ * immediate recount (retry-on-failure, same as resolveShelfSkillCheck).
+ *
+ * @param {ShiftState} state
+ * @param {boolean} success
+ * @returns {ShiftState}
+ */
+export function resolveTillCount(state, success) {
+  if (state.phase !== 'playing' || !state.tillCountActive) return state;
   if (success) {
     return {
       ...state,
       bonusGard: state.bonusGard + state.carriedFine.amountGard,
       carriedFine: null,
-      finesSortActive: false,
+      tillCountActive: false,
     };
   }
-  return { ...state, finesSortActive: false, ...applyMistake(state) };
+  return { ...state, ...applyMistake(state) };
 }
 
 // ---------------------------------------------------------------------------
@@ -343,15 +411,21 @@ export function resolveFinesSort(state, success) {
 
 /**
  * A borrow-request patron arrives at the Front Desk. A no-op unless the
- * shift is 'playing'.
+ * shift is 'playing'. Their patience is `request.patienceSeconds` scaled by
+ * `patienceMultiplierForLibraryMood(state.libraryMood)` *at arrival*: a
+ * tense library (low mood, from earlier mistakes) means less patient
+ * patrons. Patrons already queued keep the patience they arrived with, the
+ * same fold-in-at-spawn shape as Kitchen Shift's
+ * patienceMultiplierForReputation.
  *
  * @param {ShiftState} state
- * @param {{id: string, bookId: string, patienceSeconds: number}} request
+ * @param {{id: string, bookId: string, patienceSeconds: number, waitSeconds?: number}} request - `waitSeconds`: how long they'll wait in line before being accepted (scaled by mood; omitted = no timer); `patienceSeconds`: the search phase after accepting.
  * @returns {ShiftState}
  */
 export function addBorrowRequest(state, request) {
   if (state.phase !== 'playing') return state;
-  const patience = Number.isFinite(request.patienceSeconds) && request.patienceSeconds > 0 ? request.patienceSeconds : 0;
+  const base = Number.isFinite(request.patienceSeconds) && request.patienceSeconds > 0 ? request.patienceSeconds : 0;
+  const patience = base * patienceMultiplierForLibraryMood(state.libraryMood);
 
   return {
     ...state,
@@ -360,6 +434,7 @@ export function addBorrowRequest(state, request) {
       bookId: request.bookId,
       patienceRemainingSeconds: patience,
       patienceMaxSeconds: patience,
+      ...initialWait(state, request.waitSeconds),
     }],
   };
 }
@@ -542,9 +617,10 @@ export function resolveKarenEvent(state, outcome) {
  *
  * @param {ShiftState} state
  * @param {number} deltaSeconds - non-negative; negative/non-finite treated as 0.
+ * @param {{pauseBorrowPatience?: boolean}} [options] - pause a searching borrow request's patience (while Find the Book is open).
  * @returns {ShiftState}
  */
-export function tick(state, deltaSeconds) {
+export function tick(state, deltaSeconds, { pauseBorrowPatience = false } = {}) {
   if (state.phase !== 'playing' && state.phase !== 'closing-wait') return state;
 
   const delta = Number.isFinite(deltaSeconds) && deltaSeconds > 0 ? deltaSeconds : 0;
@@ -553,16 +629,30 @@ export function tick(state, deltaSeconds) {
     return { ...state, closingWaitSecondsRemaining: Math.max(0, state.closingWaitSecondsRemaining - delta) };
   }
 
-  let next = { ...state, sanity: clampSanity(state.sanity - SANITY_DRAIN_PER_SECOND * delta) };
+  let next = {
+    ...state,
+    sanity: clampSanity(state.sanity - SANITY_DRAIN_PER_SECOND * delta),
+    readingCooldownSeconds: Math.max(0, (state.readingCooldownSeconds ?? 0) - delta),
+  };
 
-  if (next.activeBorrow?.stage === 'searching') {
+  // `pauseBorrowPatience`: the caller passes true while the Find the Book
+  // minigame is open (v2.7), so the patron's patience never runs out
+  // mid-search and closes the minigame with nothing to show for it.
+  if (next.activeBorrow?.stage === 'searching' && !pauseBorrowPatience) {
     const remaining = next.activeBorrow.patienceRemainingSeconds - delta;
     if (remaining <= 0) {
       next = { ...next, activeBorrow: null, ...applyMistake(next) };
+      next = { ...next, ...applyWalkout(next) };
     } else {
       next = { ...next, activeBorrow: { ...next.activeBorrow, patienceRemainingSeconds: remaining } };
     }
   }
+
+  // Queued patrons (not yet being helped) walk out when their wait runs out.
+  const borrows = tickQueue(next.borrowQueue, delta);
+  const fines = tickQueue(next.finesQueue, delta);
+  next = { ...next, borrowQueue: borrows.kept, finesQueue: fines.kept };
+  for (let i = 0; i < borrows.walkedOut + fines.walkedOut; i++) next = { ...next, ...applyWalkout(next) };
 
   if (next.karen.active) {
     const remaining = next.karen.timerSecondsRemaining - delta;
@@ -606,19 +696,58 @@ export function isBossOfficeReady(state) {
  */
 export function enterBossOffice(state) {
   if (!isBossOfficeReady(state)) return state;
-  return { ...state, phase: 'paycheck', payout: shiftPaycheck(state.mistakeCount) + state.bonusGard };
+  // v2.9: the star rating scales the whole payout (5★ = 100%).
+  const gross = shiftPaycheck(state.mistakeCount) + state.bonusGard;
+  return { ...state, phase: 'paycheck', payout: Math.round(gross * paycheckMultiplierForRating(state.rating)) };
 }
 
 /**
- * Restores sanity to `SANITY_MAX` — the Coffee Machine's effect. A no-op
- * unless the shift is 'playing' (matching every other station action in
- * this module; there's nothing to restore during closing). No cooldown or
- * usage limit — mirrors Kitchen Shift's restoreSanity exactly.
+ * Applies a finished Coffee Pour (rules.js's `gradeCoffeePour` grade) —
+ * the Coffee Machine's effect since v2.2. Adds that grade's
+ * `COFFEE_SANITY_RESTORE` amount to Sanity (clamped; a perfect pour always
+ * refills to full), and a perfect pour also banks a
+ * `COFFEE_PERFECT_TIP_GARD` tip into `bonusGard`. An unknown grade is
+ * treated as 'sloppy'. A no-op unless the shift is 'playing'. Still no
+ * cooldown or usage limit, same as the original instant refill.
+ *
+ * @param {ShiftState} state
+ * @param {'perfect' | 'good' | 'sloppy' | 'spilled'} grade
+ * @returns {ShiftState}
+ */
+export function brewCoffee(state, grade) {
+  if (state.phase !== 'playing') return state;
+  const restore = COFFEE_SANITY_RESTORE[grade] ?? COFFEE_SANITY_RESTORE.sloppy;
+  return {
+    ...state,
+    sanity: clampSanity(state.sanity + restore),
+    bonusGard: state.bonusGard + (grade === 'perfect' ? COFFEE_PERFECT_TIP_GARD : 0),
+  };
+}
+
+/**
+ * Whether the Reading Nook is usable right now: the shift is 'playing'
+ * and its cooldown has elapsed.
+ *
+ * @param {ShiftState} state
+ * @returns {boolean}
+ */
+export function canReadBook(state) {
+  return state.phase === 'playing' && (state.readingCooldownSeconds ?? 0) <= 0;
+}
+
+/**
+ * Finishing a book at the Reading Nook (v2.10): restores
+ * READING_MOOD_RESTORE Library Mood (clamped) and starts the nook's
+ * READING_COOLDOWN_SECONDS cooldown. A no-op unless `canReadBook`.
  *
  * @param {ShiftState} state
  * @returns {ShiftState}
  */
-export function restoreSanity(state) {
-  if (state.phase !== 'playing') return state;
-  return { ...state, sanity: SANITY_MAX };
+export function finishReading(state) {
+  if (!canReadBook(state)) return state;
+  return {
+    ...state,
+    libraryMood: clampLibraryMood(state.libraryMood + READING_MOOD_RESTORE),
+    readingCooldownSeconds: READING_COOLDOWN_SECONDS,
+  };
 }

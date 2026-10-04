@@ -191,6 +191,231 @@ reads as a solid, unambiguous column between head and shoulders. `node
 `e2e/library-game.spec.js` (23/23, both Chromium and WebKit) unaffected —
 pure-rendering change, no logic touched.
 
+**v2.0 art pass (characters, stations, floor)** — the user compared the
+game against Kitchen Shift: "the art style isnt great like the kitchen the
+body shapes just feel ugly the coffee machine isnt well done like the
+kitchen." Three changes, all rendering-only in `library-game.js`:
+
+1. `drawLibraryPerson` now follows Kitchen Shift's `drawPixelPerson`
+   proportions (a wide rounded torso the head sits directly on, short arms
+   peeking ~3 units past it with hands, short legs with shoes, a ground
+   shadow) instead of v1.1's narrow torso/stick-limb/neck build. The
+   separate neck from v1.1/v1.5 is gone entirely: the torso tucks under the
+   head circle, so there is no seam for the floating-head issue to recur
+   on. Each personality template also gained `hairStyle`/`outfit`/`glasses`/
+   `shoeColor`, so they differ in silhouette, not just palette: Grumpy
+   Regular (receding hair, glasses, cardigan), Shy Student/the player
+   (bangs, collar, backpack strap), Cheerful Kid (pigtails, overalls),
+   Karen (blonde asymmetric bob, blazer, pearls).
+2. Every station kind except the bare box now has a detail drawer
+   (`STATION_DETAIL_DRAWERS`, plus `drawStairsDetail`/`drawElevatorDetail`),
+   the same pattern as Kitchen Shift's `draw*Detail` functions. Bookshelves
+   are filled with deterministic per-shelf book spines in the genre's
+   colors. The coffee machine has a bean hopper, display, brewing bay, cup
+   and steam. The front desk has a monitor, bell, book stack and plant. The
+   return cart has trays, books and wheels. The fines counter has a
+   register and coin stacks. The boss's office is a paneled door, with the
+   lock drawn as a badge over it while locked. The stairs show an up/down
+   badge, and the elevator shows its target floor. Drawn in each station's
+   local space, so First Person billboards pick it up unchanged.
+3. The graph-paper grid floor became staggered wooden planks with a soft
+   vignette.
+
+Verified with Playwright screenshots of the full floor and of all four
+personalities at both player scale and the front desk's 0.62 scale.
+`node --test web/static/js/library/*.test.js` and
+`e2e/library-game.spec.js` (46/46, Chromium + WebKit) pass. The
+`/projects` screenshot was recaptured.
+
+**v2.1 titles on every book** — the user: "add the title names on each
+books." Three places, sharing new `fitTitleLines`/`drawCoverTitle` helpers
+that wrap a title by word, shrink its font until it fits, and pick cream or
+dark ink by cover brightness:
+
+1. Return Cart covers grew from 26x32 to 30x40 (the 34px slot pitch still
+   leaves a 4px gap) and show the **full** title, replacing v1.4's
+   first-four-words-then-crop that cut titles off mid-word ("he Las…").
+   Click hit-testing moved from an 18px radius to the cover rect
+   (`returnCartCoverRect`), so the whole taller cover is clickable.
+2. Find the Book overlay covers use the same fitted full-title rendering.
+3. Bookshelf spines show titles from that genre's `TITLE_POOLS`, rotated up
+   the spine. Shelves now have two rows of taller, wider spines instead of
+   three short ones. A whole title can't be legible on a ~30px spine, so
+   each spine shows one of the title's main words (row 1 the longest, row 2
+   the next-longest), so the two rows don't repeat each other.
+
+The front desk's tiny borrow-request book icon is unchanged; its title is
+still the truncated chip below the patron. Verified via Playwright
+screenshots with spawned cart books/patrons; `node --test` (175/175) and
+`e2e/library-game.spec.js` (46/46) pass. The Find the Book overlay was not
+screenshotted.
+
+**v2.2 Coffee Pour minigame** — the user: "i want to add a little
+minigame when brewing coffee." Asked to choose, they picked hold-to-pour
+(over a barista button sequence or latte-art tracing) with graded,
+never-zero rewards; see Business Rules' Sanity/Coffee Machine for the
+numbers. Logic lives in the DOM-free modules like every other minigame:
+`rules.js` section 11 (`coffeePourTargetBand`, `gradeCoffeePour`, the
+`COFFEE_*` constants) and `engine-state.js`'s `brewCoffee`, which replaces
+`restoreSanity`. `library-game.js` adds the `coffee-pour` overlay. It is
+this game's only *held* input: canvas `pointerdown` / window
+`pointerup`/`pointercancel`, plus Space/Enter keydown/keyup (key repeat
+ignored). Only a release that follows a press grades the pour, so in First
+Person the keyup of the same Enter press that opened the overlay can't end
+it at 0%. The result banner shows for 1.2 s, then the overlay closes.
+New test hook: `setCoffeePourFill`. Tests: `node --test` 180/180 (new
+rules and `brewCoffee` cases replace the `restoreSanity` ones);
+`e2e/library-game.spec.js` 50/50 on Chromium and WebKit. The e2e cases
+cover a mouse pour, a keyboard pour, an automatic spill, and First Person
+via Enter. Manually played in a real browser with zero console errors.
+
+**v2.3 Mood actually affects patience** — the user asked "what does mood
+do". The answer was: nothing but the bar and HUD status text. Despite the
+state comment "scales patron patience", `patienceMultiplierForLibraryMood`
+existed in `rules.js` with its own tests but was never called. Now wired
+into `engine-state.js`'s `addBorrowRequest`; see Business Rules' Library
+Mood. New unit test for it (181/181); `e2e/library-game.spec.js` 50/50.
+
+**v2.4 fines reversed + Count the Till minigame + late start** — the
+user: fine patrons pay at the fines register and the player carries the
+Gard to the Front Desk; fines start "around shift 5-8"; "add a minigame".
+Fine patrons now queue under the Fines Counter (`finesCounterSlots`),
+not the Front Desk. Arriving there runs Fines Sort for the first in line
+(`arriveAtFinesCounter`; a failure is a mistake and the patron steps back
+to the front of the queue). Success hands the player the payment
+(`carriedFine`). Arriving at the Front Desk with it opens the new **Count
+the Till** minigame (`arriveAtFrontDeskWithFine`/`resolveTillCount`): tap
+1/5/10/20 Gard coins/bills (or keys 1-4, Undo/Backspace) to reach the
+fine exactly. Going over is a miscount: a mistake, the count resets, and
+the till stays open. An exact count banks it into `bonusGard`.
+`acceptFine` was removed. Fines start on a per-month shift rolled in 5–8
+(`finesStartShiftForSeed`, from the same month seed as Karen's roll but
+an independent stream); `fineVolumeForShift(shift, start)` is 0 before
+it. Patron queues moved 14px lower (`QUEUE_SLOT_OFFSET_Y`) so heads,
+stars and book icons no longer cover station labels. New hooks:
+`getFinesCounterSlots`, `getFinesStartShift`, `getTillButtonRects`.
+`node --test` 186/186, `e2e/library-game.spec.js` 52/52.
+
+**v2.5 borrow requests were unfindable** — the user: "when i try to get
+the book the costermer borrowed i couldnt." Three causes. (1) Find the
+Book never showed which title was wanted; the only hint was a truncated
+desk chip. (2) Its 5 decoys each rolled a title independently from a
+5-title genre pool, so a decoy could carry the requested title itself,
+and clicking it said "Not the one…". (3) Visiting a wrong shelf was
+silent. Fixes: `TITLE_POOLS` grew to 8 titles per genre; decoys draw
+shuffled distinct titles that exclude the requested one; the overlay
+shows "Looking for: “…”" with books kept below that line. The accept
+toast names the book and its shelf (noting "upstairs" for 2nd-floor
+genres), and a wrong shelf while searching says where it actually is.
+Also: v2.4's fines test rewrite had accidentally deleted the `borrowing`
+e2e test (it sat between the replaced sections), so v2.4's "52/52" was
+missing it. It is restored, with regression assertions for unique
+titles and the toast. `e2e/library-game.spec.js` 54/54,
+`node --test` 186/186.
+
+**v2.6 queued patrons are clickable anywhere on their body** — the user:
+"how do i take the book from the costermer?????". A queued patron's slot
+(x, y) is their feet, and the hit test was a 26px radius around that
+point, so clicks on the head/torso missed and were treated as a floor
+click. Now `isPointOnQueuedPatron` tests the whole drawn body (±22px, head
+top to below the shoes) for both the Front Desk and Fines Counter
+queues. The canvas also shows a pointer cursor over anything clickable.
+Verified by clicking a patron's face in a real browser; 54/54 e2e,
+186/186 unit.
+
+**v2.7 borrow patrons no longer give up mid-search** — the user: "when i
+get the book the costermer dissapears and i didnt get the book." The
+search-phase patience (40 s, floor 18 s, times the Mood multiplier, so
+as low as ~11 s) kept ticking *inside* the Find the Book minigame.
+Running out closed it with "They gave up waiting…". The patron also
+vanished from the desk on accept, with no visible timer. Fixes: `tick`
+takes `{ pauseBorrowPatience }`, and the game passes true while Find the
+Book is open. `BORROW_PATIENCE_BASE_SECONDS`/`MIN` were raised to 60/30.
+The active patron stays at the desk as a `borrow-active` slot with a
+green→amber→red patience bar ("Waiting", then "Check out!"). The player
+shows a carried-book badge once the book is found. Unit 187/187 (new
+pause test); e2e 54/54, with the borrow test now also asserting the
+patron stays and patience pauses.
+
+**v2.8 busier shifts** — the user: "when doe sthe costermers come??? i
+cant see them." Shifts 1–10 had only 2 borrow patrons at random times
+across a 10-minute shift, and no fines before shift 5–8. Raised
+`ROUND_TIER_BORROW_VOLUME` to [5, 8, 12] and `ROUND_TIER_FINE_VOLUME` to
+[4, 6, 9] (fines still gated by `finesStartShiftForSeed`). The first
+borrow patron of every shift now arrives 5–20 s in
+(`FIRST_BORROW_ARRIVAL_SECONDS`, applied in `scheduleShiftEvents`).
+
+**v2.9 star rating** — the user: "add a rating bar when a costermer is
+left waiting too long you lose 1 and half stars". Asked to choose, they
+picked: everyone in line has a timer, the rating scales the paycheck,
+and Mood is kept. See Business Rules' Star rating. `rules.js` section 13
+(`RATING_*`, `clampRating`, `paycheckMultiplierForRating`,
+`queueWaitSecondsForShift`). `engine-state.js`: `rating`/`walkouts`
+state; `waitSeconds` on `addFineToQueue`/`addBorrowRequest` (omitted =
+no timer, so older callers/tests are unaffected); `tick` walks out
+expired queue entries; `enterBossOffice` scales the payout. Patience
+bars now sit under name chips (above heads they covered the station
+labels), and the "+N waiting" chips moved down to match. Unit 195/195;
+e2e 56/56 (new star-rating test).
+
+**v2.10 Reading Nook** — the user: "add on a reading a book system to
+increase your mood". Asked to choose, they picked: a new Reading Nook
+station, a page-turn minigame, and +20 Mood with a 45 s cooldown. See
+Business Rules' Reading Nook. `floor-plan.js` adds the station;
+`rules.js` section 14 holds the `READING_*` constants; `engine-state.js`
+adds `readingCooldownSeconds` (ticked down in `tick`), `canReadBook`
+and `finishReading`. `library-game.js` adds `drawReadingNookDetail`
+(armchair, lamp, rug, open book), the `reading` overlay, and the
+`finishReadingPageNow` test hook. Unit 200/200, e2e 58/58 (new Reading Nook test).
+
+**v2.11 real stories in the Reading Nook** — the user: "add real words
+and let me read". The faux text lines became five original short stories
+(`web/static/js/library/stories.js`, 12 pages each, ≤260 chars/page),
+drawn word-wrapped in 17px Georgia in a wider book (two 290px pages).
+The per-spread timer is now a 2.5 s anti-skip minimum (was 1.4 s of auto
+"reading"), and ←/→ page back and forward. New `stories.test.js`
+enforces page count and length.
+
+**v2.12 more character designs + the player is Coral James** — the
+user: "make the characters have different designs" and "i want the
+player's name to be coral james". Six new `PERSONALITY_TEMPLATES`, each
+with its own hairstyle, outfit and accessory rather than a recolor:
+Teen (spiky hair, hoodie, headphones), Grandma (grey bun, shawl,
+glasses), Businessman (side part, suit and tie), Artist (long hair,
+beret, dress), Bearded Guy (beanie, flannel, beard) and Curly (curly
+hair, striped tee). With the original three that gives 9 patron designs
+(`PATRON_PERSONALITY_KEYS`). Patrons now get a design hashed from their
+id (`personalityForId`), replacing the 3-design cycle by queue position,
+so each patron keeps one look. The player uses a new `librarian`
+template (hair bun, glasses, sweater vest, lanyard badge) instead of
+sharing Shy Student's, and draws a "Coral James" name chip
+(`PLAYER_NAME`). The start screen's stale "Coming soon" copy now
+introduces Coral. New template fields: `accentColor`, `accessory`,
+`hatColor`. Rendering-only; unit 203/203, e2e 58/58.
+
+**v2.13 Boss's Office during the closing wait** — the user: "when i want
+to get into the bosses office i cannot." During the 20 s closing wait
+the office *looked* unlocked (padlock hidden, plain label), but arriving
+before the wait ended did nothing and showed no message. Standing there
+until it ended didn't help either; you had to walk away and back. Now
+the padlock and a "Boss's Office (Ns)" countdown label stay up through
+the wait. Arriving mid-wait toasts "wait here Ns" and sets
+`waitingAtBossOffice`; the loop lets the player in automatically the
+moment the wait ends, as long as they're still at the door
+(`isPlayerAtBossOffice`). Arriving mid-shift now says how long the
+shift has left. New e2e test; unit 203/203, e2e 60/60.
+
+**v2.14 better coin and Gard bill art** — the user (with a Coin Hunt
+screenshot): "i want the designs to be better for the coins and gard."
+`drawCoinIcon` (shared by Coin Hunt and Fines Sort) now draws coins as a
+gold disc with a raised rim, a radial-gradient face, an inner ring, an
+embossed "G" and a shine, and bills as a 38×20 green banknote with an
+inner border, a "G" seal and corner "10"s. Both cast a soft shadow, and
+bills get a small per-item tilt (seeded by item id). `SCENE_Y` narrowed
+from [180, 480] to [205, 445], so scattered items no longer overlap an
+overlay's header line or its "N / M found" counter. Unit 203/203,
+e2e 60/60.
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the
@@ -536,11 +761,52 @@ established precedent.
   walking in immediately triggers the paycheck (no further confirmation
   step) — "the boss will let you inside" once the wait is over, not
   before.
+* **Library Mood**: `libraryMood` starts each shift at 100 and only
+  moves down: −25 per mistake (`LIBRARY_MOOD_DRAIN_PER_MISTAKE`), −50 for
+  letting Karen's fine slide (`KAREN_MOOD_PENALTY`). It never recovers
+  within a shift. Since v2.3 it scales patron patience: each borrow
+  request's patience is `borrowPatienceSeconds(shift) ×
+  patienceMultiplierForLibraryMood(mood)` (1.0 at 100 mood, down to 0.6 at
+  0), fixed when the patron arrives (`addBorrowRequest`), the same
+  fold-in-at-spawn shape as Kitchen Shift's Reputation. It also drives the
+  HUD status text (Calm > 70, Tense > 30, else Frustrated patrons). It does
+  not affect the paycheck, which depends on `mistakeCount` only.
+* **Star rating** (v2.9): every shift starts at 5★ (`RATING_MAX`). Every
+  queued patron, borrow and fine alike, has a wait timer:
+  `queueWaitSecondsForShift` (90 s, shrinking to a 45 s floor), scaled by
+  Library Mood at arrival. It shows as a bar under their name chip. A
+  patron whose wait runs out walks out and costs 1.5★
+  (`RATING_PENALTY_PER_WALKOUT`, toast "−1.5★"). So does a borrow patron
+  whose search-phase patience runs out, on top of that case's existing
+  mistake. Queue walk-outs are *not* mistakes. The rating, never below
+  0★, multiplies the whole payout (base + bonuses): `rating ÷ 5`, so
+  3.5★ = 70%. The paycheck screen shows "N★ rating (P% pay)". Shown on
+  canvas as five half-fillable stars beside the Sanity/Mood bars. Mood is
+  unchanged and separate.
+* **Reading Nook** (v2.10): a 2nd-Floor station (480, 480). Arriving opens
+  a page-turning minigame. Since v2.11 it shows a real short story (one
+  of five in `library/stories.js`, 12 pages shown as 6 two-page spreads,
+  `READING_PAGES`), read at your own pace. Each spread has a 2.5 s
+  minimum (`READING_SECONDS_PER_PAGE`, an anti-skip floor shown as a slim
+  bar). →/Space/Enter/click turns a page, and ← goes back a spread.
+  Turning before the minimum only nudges.
+  Finishing restores +20 Library Mood (`READING_MOOD_RESTORE`, clamped)
+  and starts a 45 s cooldown (`READING_COOLDOWN_SECONDS`), shown in the
+  station label ("Reading Nook (32s)"). The × button puts the book down
+  with no reward and no cooldown. The shift clock and patron timers keep
+  running while you read, which is the intended trade-off.
 * **Sanity/Coffee Machine**: Sanity drains passively and per-mistake
-  exactly as Kitchen Shift's does (same constants, reused); visiting the
-  Coffee Machine station restores it to full, with no cooldown or limit
-  on how often it can be used per shift, matching Kitchen Shift's own
-  Coffee Machine rule.
+  exactly as Kitchen Shift's does (same constants, reused). Since v2.2,
+  visiting the Coffee Machine opens the **Coffee Pour** minigame instead of
+  refilling instantly: hold (mouse/touch, or Space/Enter) to pour and
+  release inside a gold target band whose position varies per pour
+  (62–86% full). Graded by `gradeCoffeePour`: perfect (in the band) adds
+  100 Sanity plus a 10 Gard tip, good (within 10% of the band) +70, sloppy
+  +40, and spilled (reaching the brim, which ends the pour automatically)
+  +40. Every grade restores something, per the user's choice of "graded,
+  never zero". Still no cooldown or usage limit. The original instant full
+  refill matched Kitchen Shift's Coffee Machine rule; the two games now
+  differ here on purpose.
 * **Fines are Gard-only**: the Fines Sort minigame's clutter never
   includes any other currency type as a "correct" pick — only coins and
   Gard bills count; other clutter items are decoys that do nothing if
@@ -615,7 +881,7 @@ established precedent.
   magnitudes ("illustrative/tunable... nothing in that tuning blocks
   calling this Shipped"). **Landed values** (`web/static/js/library/
   rules.js`): `COIN_HUNT_FREQUENCY=0.2`, `ROUND_TIER_RETURN_VOLUME=[6,10,16]`,
-  `ROUND_TIER_FINE_VOLUME=[2,4,6]`, `ROUND_TIER_BORROW_VOLUME=[2,4,6]`,
+  `ROUND_TIER_FINE_VOLUME=[4,6,9]`, `ROUND_TIER_BORROW_VOLUME=[5,8,12]` (both raised from [2,4,6] in v2.8),
   `ROUND_TIER_CLOCK_SECONDS=[600,480,360]` (per the "don't go so fast"
   request — deliberately far above Kitchen Shift's 300/180/120).
 * **Resolved**: wrong-shelf attempts block the Shelf Skill-Check from

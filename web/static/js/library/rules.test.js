@@ -2,6 +2,19 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  clampRating,
+  paycheckMultiplierForRating,
+  queueWaitSecondsForShift,
+  finesStartShiftForSeed,
+  FINES_START_SHIFT_MIN,
+  FINES_START_SHIFT_MAX,
+  TILL_DENOMINATIONS,
+  tillCountResult,
+  coffeePourTargetBand,
+  gradeCoffeePour,
+  COFFEE_POUR_BAND_WIDTH,
+  COFFEE_POUR_GOOD_MARGIN,
+  COFFEE_SANITY_RESTORE,
   SHIFTS_PER_MONTH,
   ROUND_TIER_COUNT,
   ROUND_TIER_SHIFT_SPAN,
@@ -354,7 +367,7 @@ describe('borrowPatienceSeconds', () => {
   });
 
   test('never goes below the documented floor', () => {
-    assert.ok(borrowPatienceSeconds(SHIFTS_PER_MONTH) >= 18);
+    assert.ok(borrowPatienceSeconds(SHIFTS_PER_MONTH) >= 30);
   });
 });
 
@@ -423,5 +436,92 @@ describe('Sanity (ported from Kitchen Shift)', () => {
     assert.notEqual(clampLibraryMood, clampSanity);
     assert.equal(LIBRARY_MOOD_MAX, SANITY_MAX); // same scale by convention...
     assert.notEqual(LIBRARY_MOOD_DRAIN_PER_MISTAKE, SANITY_DRAIN_PER_UPSET); // ...but different drain amounts
+  });
+});
+
+describe('Coffee Pour minigame', () => {
+  test('target band is COFFEE_POUR_BAND_WIDTH wide and slides between 62% and 86% full', () => {
+    const lowest = coffeePourTargetBand(0);
+    const highest = coffeePourTargetBand(0.9999);
+    assert.ok(Math.abs((lowest.high - lowest.low) - COFFEE_POUR_BAND_WIDTH) < 1e-9);
+    assert.ok(Math.abs((lowest.low + lowest.high) / 2 - 0.62) < 1e-9);
+    assert.ok((highest.low + highest.high) / 2 <= 0.86 + 1e-9);
+    assert.ok(highest.high < 1, 'the band never reaches the brim');
+    assert.deepEqual(coffeePourTargetBand(NaN), lowest);
+  });
+
+  test('grades: perfect inside the band, good just outside it, sloppy further out, spilled at the brim', () => {
+    const band = coffeePourTargetBand(0.5);
+    const mid = (band.low + band.high) / 2;
+    assert.equal(gradeCoffeePour(mid, band), 'perfect');
+    assert.equal(gradeCoffeePour(band.low, band), 'perfect');
+    assert.equal(gradeCoffeePour(band.high, band), 'perfect');
+    assert.equal(gradeCoffeePour(band.low - COFFEE_POUR_GOOD_MARGIN / 2, band), 'good');
+    assert.equal(gradeCoffeePour(band.high + COFFEE_POUR_GOOD_MARGIN / 2, band), 'good');
+    assert.equal(gradeCoffeePour(0.1, band), 'sloppy');
+    assert.equal(gradeCoffeePour(1, band), 'spilled');
+    assert.equal(gradeCoffeePour(1.3, band), 'spilled');
+    assert.equal(gradeCoffeePour(NaN, band), 'sloppy');
+  });
+
+  test('every grade restores some Sanity, and perfect restores the most', () => {
+    const grades = ['perfect', 'good', 'sloppy', 'spilled'];
+    for (const g of grades) assert.ok(COFFEE_SANITY_RESTORE[g] > 0, g);
+    assert.ok(COFFEE_SANITY_RESTORE.perfect > COFFEE_SANITY_RESTORE.good);
+    assert.ok(COFFEE_SANITY_RESTORE.good > COFFEE_SANITY_RESTORE.sloppy);
+  });
+});
+
+describe('fines start shift (v2.4)', () => {
+  test('finesStartShiftForSeed is deterministic and always within 5..8', () => {
+    const seen = new Set();
+    for (let seed = 0; seed < 500; seed++) {
+      const shift = finesStartShiftForSeed(seed * 7919);
+      assert.ok(shift >= FINES_START_SHIFT_MIN && shift <= FINES_START_SHIFT_MAX, String(shift));
+      assert.equal(finesStartShiftForSeed(seed * 7919), shift);
+      seen.add(shift);
+    }
+    assert.equal(seen.size, FINES_START_SHIFT_MAX - FINES_START_SHIFT_MIN + 1, 'every start shift in range is reachable');
+    assert.equal(finesStartShiftForSeed(NaN), finesStartShiftForSeed(0));
+  });
+
+  test('no fines before the start shift; the normal tier volume from it onward', () => {
+    assert.equal(fineVolumeForShift(1, 6), 0);
+    assert.equal(fineVolumeForShift(5, 6), 0);
+    assert.equal(fineVolumeForShift(6, 6), fineVolumeForShift(6));
+    assert.ok(fineVolumeForShift(6, 6) > 0);
+    assert.ok(fineVolumeForShift(1) > 0, 'omitting the start shift means no gate');
+  });
+});
+
+describe('Count the Till (v2.4)', () => {
+  test('tillCountResult compares the running count to the fine', () => {
+    assert.equal(tillCountResult(45, 45), 'exact');
+    assert.equal(tillCountResult(40, 45), 'under');
+    assert.equal(tillCountResult(50, 45), 'over');
+  });
+
+  test('every possible fine amount can be counted exactly from the denominations', () => {
+    for (let amount = FINE_AMOUNT_MIN_GARD; amount <= FINE_AMOUNT_MAX_GARD; amount++) {
+      let left = amount;
+      for (const d of [...TILL_DENOMINATIONS].sort((a, b) => b - a)) left %= d;
+      assert.equal(left, 0, String(amount));
+    }
+  });
+});
+
+describe('rating rules (v2.9)', () => {
+  test('paycheck multiplier is rating / 5, clamped', () => {
+    assert.equal(paycheckMultiplierForRating(5), 1);
+    assert.equal(paycheckMultiplierForRating(3.5), 0.7);
+    assert.equal(paycheckMultiplierForRating(-1), 0);
+    assert.equal(paycheckMultiplierForRating(9), 1);
+    assert.equal(clampRating(NaN), 0);
+  });
+
+  test('queue wait shrinks with shift number but stays at least 45 s', () => {
+    assert.equal(queueWaitSecondsForShift(1), 90);
+    assert.ok(queueWaitSecondsForShift(30) < queueWaitSecondsForShift(1));
+    assert.ok(queueWaitSecondsForShift(30) >= 45);
   });
 });

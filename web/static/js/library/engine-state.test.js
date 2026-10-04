@@ -10,9 +10,10 @@ import {
   resolveShelfSkillCheck,
   resolveCoinHunt,
   addFineToQueue,
-  acceptFine,
   arriveAtFinesCounter,
   resolveFinesSort,
+  arriveAtFrontDeskWithFine,
+  resolveTillCount,
   addBorrowRequest,
   acceptBorrowRequest,
   resolveFindTheBook,
@@ -22,7 +23,9 @@ import {
   tick,
   isBossOfficeReady,
   enterBossOffice,
-  restoreSanity,
+  brewCoffee,
+  canReadBook,
+  finishReading,
   LIBRARY_MOOD_MAX,
   SANITY_MAX,
 } from './engine-state.js';
@@ -35,6 +38,14 @@ import {
   KAREN_MOOD_PENALTY,
   CLOSING_WAIT_SECONDS,
   SANITY_DRAIN_PER_UPSET,
+  COFFEE_SANITY_RESTORE,
+  COFFEE_PERFECT_TIP_GARD,
+  patienceMultiplierForLibraryMood,
+  RATING_MAX,
+  RATING_PENALTY_PER_WALKOUT,
+  shiftPaycheck as shiftPaycheckForRating,
+  READING_MOOD_RESTORE,
+  READING_COOLDOWN_SECONDS,
 } from './rules.js';
 
 const SHIFT_1 = 1;
@@ -188,51 +199,76 @@ describe('Return Cart / shelving flow', () => {
   });
 });
 
-describe('Fines counter flow', () => {
+describe('Fines flow (Fines Counter -> Front Desk till)', () => {
   const FINE = { id: 'f1', amountGard: 40 };
+  // Queued entries gain wait-timer fields (null = no timer when waitSeconds is omitted).
+  const QUEUED_FINE = { ...FINE, waitRemainingSeconds: null, waitMaxSeconds: null };
 
-  test('full happy path banks the fine into bonusGard', () => {
+  test('full happy path: collect at the counter, count it into the till at the desk, banked', () => {
     let state = playingState();
-    state = addFineToQueue(state, FINE);
-    state = acceptFine(state, 'f1');
-    assert.deepEqual(state.carriedFine, FINE);
-    assert.equal(state.finesQueue.length, 0);
+    state = addFineToQueue(state, QUEUED_FINE);
+    assert.equal(state.finesQueue.length, 1);
 
     state = arriveAtFinesCounter(state);
     assert.equal(state.finesSortActive, true);
+    assert.deepEqual(state.activeFine, QUEUED_FINE);
+    assert.equal(state.finesQueue.length, 0);
 
     state = resolveFinesSort(state, true);
+    assert.deepEqual(state.carriedFine, QUEUED_FINE);
+    assert.equal(state.activeFine, null);
+    assert.equal(state.bonusGard, 0, 'not banked until it reaches the till');
+
+    state = arriveAtFrontDeskWithFine(state);
+    assert.equal(state.tillCountActive, true);
+
+    state = resolveTillCount(state, true);
     assert.equal(state.bonusGard, 40);
     assert.equal(state.carriedFine, null);
-    assert.equal(state.finesSortActive, false);
+    assert.equal(state.tillCountActive, false);
+    assert.equal(state.mistakeCount, 0);
   });
 
-  test('resolveFinesSort(false) counts a mistake and keeps the carried fine for retry', () => {
+  test('a failed Fines Sort is a mistake and the patron steps back to the front of the queue', () => {
     let state = playingState();
-    state = addFineToQueue(state, FINE);
-    state = acceptFine(state, 'f1');
+    state = addFineToQueue(state, QUEUED_FINE);
+    state = addFineToQueue(state, { id: 'f2', amountGard: 20 });
     state = arriveAtFinesCounter(state);
     const next = resolveFinesSort(state, false);
     assert.equal(next.mistakeCount, 1);
     assert.ok(next.libraryMood < LIBRARY_MOOD_MAX);
-    assert.ok(next.sanity < SANITY_MAX);
     assert.equal(next.finesSortActive, false);
-    assert.deepEqual(next.carriedFine, FINE);
+    assert.equal(next.carriedFine, null);
+    assert.deepEqual(next.finesQueue.map((f) => f.id), ['f1', 'f2']);
   });
 
-  test('acceptFine is a no-op if already carrying a fine', () => {
+  test('a till miscount is a mistake but keeps the till open with the payment in hand', () => {
     let state = playingState();
-    state = addFineToQueue(state, FINE);
-    state = addFineToQueue(state, { id: 'f2', amountGard: 20 });
-    state = acceptFine(state, 'f1');
-    const next = acceptFine(state, 'f2');
-    assert.equal(next.carriedFine.id, 'f1');
-    assert.equal(next.finesQueue.length, 1);
+    state = addFineToQueue(state, QUEUED_FINE);
+    state = arriveAtFinesCounter(state);
+    state = resolveFinesSort(state, true);
+    state = arriveAtFrontDeskWithFine(state);
+    const next = resolveTillCount(state, false);
+    assert.equal(next.mistakeCount, 1);
+    assert.equal(next.tillCountActive, true);
+    assert.deepEqual(next.carriedFine, QUEUED_FINE);
+    assert.equal(next.bonusGard, 0);
   });
 
-  test('arriveAtFinesCounter is a no-op without a carried fine', () => {
+  test('cannot start collecting another payment while still carrying one', () => {
+    let state = playingState();
+    state = addFineToQueue(state, QUEUED_FINE);
+    state = addFineToQueue(state, { id: 'f2', amountGard: 20 });
+    state = arriveAtFinesCounter(state);
+    state = resolveFinesSort(state, true);
+    assert.deepEqual(arriveAtFinesCounter(state), state);
+  });
+
+  test('arriving at either end with nothing to do is a no-op', () => {
     const state = playingState();
     assert.deepEqual(arriveAtFinesCounter(state), state);
+    assert.deepEqual(arriveAtFrontDeskWithFine(state), state);
+    assert.deepEqual(resolveTillCount(state, true), state);
   });
 });
 
@@ -254,6 +290,28 @@ describe('Borrowing flow (Find the Book -> Checkout Skill-Check)', () => {
 
     state = resolveCheckoutSkillCheck(state, true);
     assert.equal(state.activeBorrow, null);
+    assert.equal(state.mistakeCount, 0);
+  });
+
+  test('a patron arriving while library mood is low gets proportionally less patience; already-queued patrons keep theirs', () => {
+    let state = playingState();
+    state = addBorrowRequest(state, REQUEST); // arrives at full mood
+    state = { ...state, libraryMood: 0 };
+    state = addBorrowRequest(state, { ...REQUEST, id: 'r2' }); // arrives at 0 mood
+    const [calm, tense] = state.borrowQueue;
+    assert.equal(calm.patienceMaxSeconds, 30);
+    assert.equal(tense.patienceMaxSeconds, 30 * patienceMultiplierForLibraryMood(0));
+    assert.equal(tense.patienceRemainingSeconds, tense.patienceMaxSeconds);
+    assert.ok(tense.patienceMaxSeconds < calm.patienceMaxSeconds);
+  });
+
+  test('tick with pauseBorrowPatience leaves a searching request\'s patience untouched', () => {
+    let state = playingState();
+    state = addBorrowRequest(state, REQUEST);
+    state = acceptBorrowRequest(state, 'r1');
+    const before = state.activeBorrow.patienceRemainingSeconds;
+    state = tick(state, 1000, { pauseBorrowPatience: true });
+    assert.equal(state.activeBorrow?.patienceRemainingSeconds, before);
     assert.equal(state.mistakeCount, 0);
   });
 
@@ -416,21 +474,38 @@ describe('Sanity / Coffee Machine', () => {
     assert.equal(state.sanity, before - SANITY_DRAIN_PER_UPSET);
   });
 
-  test('restoreSanity (the Coffee Machine) sets sanity back to SANITY_MAX with no cooldown', () => {
-    let state = playingState();
-    state = tick(state, 50);
+  test('brewCoffee: a perfect pour refills Sanity to full and banks a Gard tip, with no cooldown', () => {
+    let state = tick(playingState(), 50);
     assert.ok(state.sanity < SANITY_MAX);
-    state = restoreSanity(state);
+    const gardBefore = state.bonusGard;
+    state = brewCoffee(state, 'perfect');
     assert.equal(state.sanity, SANITY_MAX);
+    assert.equal(state.bonusGard, gardBefore + COFFEE_PERFECT_TIP_GARD);
     // Usable again immediately — no cooldown/limit.
     state = tick(state, 10);
-    state = restoreSanity(state);
+    state = brewCoffee(state, 'perfect');
     assert.equal(state.sanity, SANITY_MAX);
   });
 
-  test('restoreSanity is a no-op outside playing', () => {
-    const state = createInitialState(SHIFT_1, KAREN_SHIFT); // not-started
-    assert.deepEqual(restoreSanity(state), state);
+  test('brewCoffee: good/sloppy/spilled add their partial restore, clamped, with no tip', () => {
+    for (const grade of ['good', 'sloppy', 'spilled']) {
+      const start = { ...playingState(), sanity: 10 };
+      const after = brewCoffee(start, grade);
+      assert.equal(after.sanity, 10 + COFFEE_SANITY_RESTORE[grade], grade);
+      assert.equal(after.bonusGard, start.bonusGard, grade);
+    }
+    assert.equal(brewCoffee({ ...playingState(), sanity: 90 }, 'good').sanity, SANITY_MAX);
+  });
+
+  test('brewCoffee: every grade restores something (never zero), and an unknown grade counts as sloppy', () => {
+    for (const grade of ['perfect', 'good', 'sloppy', 'spilled']) assert.ok(COFFEE_SANITY_RESTORE[grade] > 0, grade);
+    const start = { ...playingState(), sanity: 10 };
+    assert.equal(brewCoffee(start, 'bogus').sanity, 10 + COFFEE_SANITY_RESTORE.sloppy);
+  });
+
+  test('brewCoffee is a no-op outside playing', () => {
+    const state = createInitialState(SHIFT_1, KAREN_SHIFT);
+    assert.deepEqual(brewCoffee(state, 'perfect'), state);
   });
 
   test('sanity never drops below 0 no matter how much drains at once', () => {
@@ -500,9 +575,10 @@ describe('shift-clock tick / closing-wait / paycheck lifecycle', () => {
   test('payout includes bonusGard on top of shiftPaycheck(mistakeCount)', () => {
     let state = playingState();
     state = addFineToQueue(state, { id: 'f1', amountGard: 30 });
-    state = acceptFine(state, 'f1');
     state = arriveAtFinesCounter(state);
-    state = resolveFinesSort(state, true); // bonusGard += 30
+    state = resolveFinesSort(state, true);
+    state = arriveAtFrontDeskWithFine(state);
+    state = resolveTillCount(state, true); // bonusGard += 30
 
     state = addBookToCart(state, { id: 'b1', genreId: 'kids', isCoinHunt: false });
     state = pickUpBook(state, 'b1');
@@ -548,5 +624,90 @@ describe('shift-clock tick / closing-wait / paycheck lifecycle', () => {
     assert.equal(state.clockSeconds, before.clockSeconds);
     state = tick(state, NaN);
     assert.equal(state.clockSeconds, before.clockSeconds);
+  });
+});
+
+describe('Star rating (v2.9)', () => {
+  test('starts at RATING_MAX with no walkouts', () => {
+    const state = playingState();
+    assert.equal(state.rating, RATING_MAX);
+    assert.equal(state.walkouts, 0);
+  });
+
+  test('a queued fine or borrow patron whose wait runs out walks out and costs RATING_PENALTY_PER_WALKOUT stars', () => {
+    let state = playingState();
+    state = addFineToQueue(state, { id: 'f1', amountGard: 30, waitSeconds: 10 });
+    state = addBorrowRequest(state, { id: 'r1', bookId: 'b', patienceSeconds: 30, waitSeconds: 20 });
+    state = tick(state, 11);
+    assert.equal(state.finesQueue.length, 0);
+    assert.equal(state.borrowQueue.length, 1);
+    assert.equal(state.rating, RATING_MAX - RATING_PENALTY_PER_WALKOUT);
+    state = tick(state, 10);
+    assert.equal(state.borrowQueue.length, 0);
+    assert.equal(state.walkouts, 2);
+    assert.equal(state.rating, RATING_MAX - 2 * RATING_PENALTY_PER_WALKOUT);
+  });
+
+  test('queued patrons without a wait timer never walk out', () => {
+    let state = playingState();
+    state = addFineToQueue(state, { id: 'f1', amountGard: 30 });
+    state = tick(state, 100);
+    assert.equal(state.finesQueue.length, 1);
+    assert.equal(state.rating, RATING_MAX);
+  });
+
+  test('a borrow patron whose search patience runs out also costs stars', () => {
+    let state = playingState();
+    state = addBorrowRequest(state, { id: 'r1', bookId: 'b', patienceSeconds: 5, waitSeconds: 60 });
+    state = acceptBorrowRequest(state, 'r1');
+    state = tick(state, 6);
+    assert.equal(state.activeBorrow, null);
+    assert.equal(state.rating, RATING_MAX - RATING_PENALTY_PER_WALKOUT);
+  });
+
+  test('rating never drops below 0', () => {
+    let state = playingState();
+    for (let i = 0; i < 6; i++) state = addFineToQueue(state, { id: `f${i}`, amountGard: 20, waitSeconds: 1 });
+    state = tick(state, 2);
+    assert.equal(state.rating, 0);
+  });
+
+  test('payout is scaled by rating / RATING_MAX', () => {
+    let state = { ...playingState(), rating: 3.5 };
+    state = tick(state, state.totalClockSeconds);
+    state = tick(state, CLOSING_WAIT_SECONDS);
+    state = enterBossOffice(state);
+    assert.equal(state.payout, Math.round(shiftPaycheckForRating(0) * 0.7));
+  });
+});
+
+describe('Reading Nook (v2.10)', () => {
+  test('finishing a book restores Library Mood and starts the cooldown', () => {
+    let state = { ...playingState(), libraryMood: 50 };
+    assert.equal(canReadBook(state), true);
+    state = finishReading(state);
+    assert.equal(state.libraryMood, 50 + READING_MOOD_RESTORE);
+    assert.equal(state.readingCooldownSeconds, READING_COOLDOWN_SECONDS);
+    assert.equal(canReadBook(state), false);
+  });
+
+  test('reading again during the cooldown is a no-op; it is usable again once the cooldown ticks down', () => {
+    let state = finishReading({ ...playingState(), libraryMood: 10 });
+    const during = finishReading(state);
+    assert.deepEqual(during, state);
+    state = tick(state, READING_COOLDOWN_SECONDS);
+    assert.equal(canReadBook(state), true);
+    assert.equal(finishReading(state).libraryMood, 10 + 2 * READING_MOOD_RESTORE);
+  });
+
+  test('mood never goes above the max', () => {
+    const state = finishReading({ ...playingState(), libraryMood: LIBRARY_MOOD_MAX - 5 });
+    assert.equal(state.libraryMood, LIBRARY_MOOD_MAX);
+  });
+
+  test('not usable outside playing', () => {
+    const state = createInitialState(SHIFT_1, KAREN_SHIFT);
+    assert.equal(canReadBook(state), false);
+    assert.deepEqual(finishReading(state), state);
   });
 });

@@ -102,6 +102,9 @@ export function buildStations(genres) {
     // the same footprint on every floor).
     { id: 'stairs-2', kind: 'stairs', floor: FLOOR_2, x: 900, y: 90, size, targetFloor: FLOOR_1 },
     { id: 'elevator-2', kind: 'elevator', floor: FLOOR_2, x: 60, y: 90, size, targetFloor: FLOOR_1 },
+    // v2.10: a cozy Reading Nook (armchair + lamp) — read a book to restore
+    // Library Mood. Bottom-center of the 2nd Floor, clear of its shelves.
+    { id: 'reading-nook', kind: 'reading-nook', floor: FLOOR_2, x: 480, y: 480, size },
   ];
 
   const floor1Genres = genres.slice(0, FLOOR_1_GENRE_COUNT);
