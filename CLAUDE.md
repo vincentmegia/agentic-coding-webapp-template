@@ -36,7 +36,11 @@ touching that area rather than expecting this section to carry it:
   Postgres leaderboard, `localStorage` progress) —
   `docs/features/cooking-game.md` (plus `cooking-game-food-server.md`/
   `cooking-game-customer.md`/`cooking-game-kitchen.md`/
-  `cooking-game-food-server-leveling.md`).
+  `cooking-game-food-server-leveling.md`). v4 restyled it to match Library Shift and
+  ported Library's Coffee Pour, hallucinations, 0-stat penalties and
+  Gard counter. Both games draw people with
+  `web/static/js/shared/people.js`, so a character-art change there
+  shows up in both.
 - **Puzzle Solver** (`/puzzle-solver`, client-side DFS pathfinding
   visualizer, no DB/leaderboard) — `docs/features/puzzle-solver.md`.
 - **Library Shift** (`/library-game`, two-floor canvas library-shift sim —

@@ -1,0 +1,249 @@
+// /kitchen-shift's v4 additions (docs/features/cooking-game.md's Status:
+// the Library-style art pass, the Rice Station, Karen's shift-18 rematch,
+// and the four mechanics ported from Library Shift — Coffee Pour,
+// low-Sanity hallucinations, 0-Reputation penalties, the Gard counter).
+// The page's older behavior (HTMX nav, revisit wiring) stays covered in
+// e2e/projects.spec.js.
+//
+// Same approach as e2e/library-game.spec.js: every interaction goes
+// through the real click-to-walk-then-act path, with
+// `window.__cookingGameTestHooks` supplying exact station positions and
+// skipping only the randomly-timed waits (a customer's walk-in, the slow
+// Sanity/Reputation drains) — never the interaction itself.
+const { test, expect } = require('@playwright/test');
+
+const STORAGE_KEY = 'cooking-game:v2';
+
+/** Seeds localStorage so the page loads straight into `shift` with the one-time intro already seen. */
+async function seedSave(page, shift, extra = {}) {
+	await page.addInitScript(({ key, save }) => {
+		window.localStorage.setItem(key, JSON.stringify(save));
+	}, {
+		key: STORAGE_KEY,
+		save: { version: 1, monthToDateGard: 0, currentShift: shift, gear: {}, bestMonthTotal: 0, hasSeenIntro: true, ...extra },
+	});
+}
+
+async function startShift(page, shift = 1) {
+	await seedSave(page, shift);
+	await page.goto('/kitchen-shift');
+	await page.locator('#cooking-start-shift-button').click();
+	await page.waitForFunction(() => window.__cookingGameTestHooks?.getShiftState()?.phase === 'playing');
+}
+
+/** Canvas-space (960x600) to page coordinates — letterbox-aware, the inverse of cooking-game.js's canvasCoordsFromEvent (see library-game.spec.js's identical helper for why fullscreen makes this necessary). */
+async function canvasToPage(page, point) {
+	const box = await page.locator('#cooking-canvas').boundingBox();
+	const worldAspect = 960 / 600;
+	let contentWidth = box.width;
+	let contentHeight = box.height;
+	let offsetX = 0;
+	let offsetY = 0;
+	if (box.width / box.height > worldAspect) {
+		contentWidth = box.height * worldAspect;
+		offsetX = (box.width - contentWidth) / 2;
+	} else {
+		contentHeight = box.width / worldAspect;
+		offsetY = (box.height - contentHeight) / 2;
+	}
+	return {
+		x: box.x + offsetX + (point.x / 960) * contentWidth,
+		y: box.y + offsetY + (point.y / 600) * contentHeight,
+	};
+}
+
+async function waitUntilArrived(page) {
+	await page.waitForFunction(() => window.__cookingGameTestHooks.isPlayerMoving() === false, null, { timeout: 15000 });
+}
+
+/** Clicks a station by id (switching rooms first if needed) and waits for the walk + arrival to finish. */
+async function walkToStation(page, id) {
+	const station = await page.evaluate((stationId) => window.__cookingGameTestHooks.stationPosition(stationId), id);
+	const room = await page.evaluate(() => window.__cookingGameTestHooks.getRoom());
+	if (station.room !== room) await page.locator('#cooking-room-button').click();
+	const p = await canvasToPage(page, station);
+	await page.mouse.click(p.x, p.y);
+	await waitUntilArrived(page);
+}
+
+async function pickFromPanel(page, item) {
+	await expect(page.locator('#cooking-station-panel')).toBeVisible();
+	await page.locator('#cooking-station-panel-list button', { hasText: item }).first().click();
+	await page.locator('#cooking-station-panel-close-button').click();
+}
+
+const hooks = (page, fn, arg) => page.evaluate(fn, arg);
+
+test.describe('Rice Station', () => {
+	test('the Recipe Book lists both rice dishes, and Chicken Rice cooks at the Rice Station with the Rice Cooker', async ({ page }) => {
+		await startShift(page, 11);
+		await page.locator('#cooking-recipe-book-button').click();
+		await expect(page.locator('#cooking-recipe-book-list')).toContainText('Chicken Rice');
+		await expect(page.locator('#cooking-recipe-book-list')).toContainText('Omurice');
+		await expect(page.locator('#cooking-recipe-book-list')).toContainText('Rice Station + Rice Cooker');
+		await page.locator('#cooking-recipe-book-close-button').click();
+
+		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Chicken Rice'), tableId);
+		await walkToStation(page, `table-${tableId}`);
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getHeld())).activeOrderTableId).toBe(tableId);
+
+		// Arriving without the Rice Cooker explains what's missing.
+		await walkToStation(page, 'rice-station');
+		await expect(page.locator('#cooking-toast')).toContainText('Rice Cooker');
+
+		await walkToStation(page, 'cookware-closet');
+		await pickFromPanel(page, 'Rice Cooker');
+		await walkToStation(page, 'cabinet');
+		await page.locator('#cooking-station-panel-list button', { hasText: 'Rice' }).first().click();
+		await page.locator('#cooking-station-panel-list button', { hasText: 'Herbs' }).first().click();
+		await page.locator('#cooking-station-panel-close-button').click();
+		await walkToStation(page, 'fridge');
+		await pickFromPanel(page, 'Chicken');
+
+		await walkToStation(page, 'rice-station');
+		await expect(page.locator('#cooking-gauge')).toBeVisible();
+		await hooks(page, () => window.__cookingGameTestHooks.setCookGauge(0.5));
+		await page.locator('#cooking-gauge-button').click();
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getHeld().heldDish)).toBe('Chicken Rice');
+	});
+});
+
+test.describe("Karen's shift-18 rematch", () => {
+	test('she remembers you: the rematch line, shorter patience, and a bigger tip on a correct serve', async ({ page }) => {
+		test.setTimeout(60000);
+		await startShift(page, 18);
+		const encounter = await hooks(page, () => window.__cookingGameTestHooks.getKarenEncounter());
+		expect(encounter).toMatchObject({ rematch: true, patienceSeconds: 9, tipGard: 250 });
+
+		await page.waitForFunction(() => window.__cookingGameTestHooks.getKaren() !== null, null, { timeout: 30000 });
+		await expect(page.locator('#cooking-toast')).toContainText('YOU AGAIN');
+		const { tableId } = await hooks(page, () => window.__cookingGameTestHooks.getKaren());
+
+		await walkToStation(page, `table-${tableId}`);
+		const order = await hooks(page, (id) => window.__cookingGameTestHooks.getShiftState().orders.find((o) => o.tableId === id), tableId);
+		expect(order.patienceMaxSeconds).toBeLessThanOrEqual(9);
+
+		await hooks(page, (dish) => window.__cookingGameTestHooks.setHeldDish(dish), order.dishName);
+		await walkToStation(page, `table-${tableId}`);
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getShiftState().bonusGard)).toBe(250);
+	});
+});
+
+test.describe('Coffee Machine (Coffee Pour minigame)', () => {
+	test('arriving opens the pour instead of refilling instantly; a perfect pour refills Sanity and tips 10g', async ({ page }) => {
+		await startShift(page);
+		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ sanity: 30 }));
+		await walkToStation(page, 'coffee-machine');
+		const pour = await hooks(page, () => window.__cookingGameTestHooks.getCoffeePour());
+		expect(pour).not.toBeNull();
+		expect(pour.grade).toBeNull();
+
+		const center = await canvasToPage(page, { x: 480, y: 300 });
+		await page.mouse.move(center.x, center.y);
+		await page.mouse.down();
+		const target = (pour.band.min + pour.band.max) / 2;
+		await hooks(page, (fill) => window.__cookingGameTestHooks.setCoffeePourFill(fill), target);
+		await page.mouse.up();
+
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getShiftState().bonusGard)).toBe(10);
+		expect(await hooks(page, () => window.__cookingGameTestHooks.getShiftState().sanity)).toBeGreaterThan(95);
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getCoffeePour())).toBeNull();
+	});
+
+	test('holding Space until it overflows spills all over you: −50 Sanity and coffee stains', async ({ page }) => {
+		await startShift(page);
+		await walkToStation(page, 'coffee-machine');
+		await page.keyboard.down(' ');
+		await hooks(page, () => window.__cookingGameTestHooks.setCoffeePourFill(0.99));
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getCoffeePour()?.grade)).toBe('spilled');
+		await page.keyboard.up(' ');
+		const sanity = await hooks(page, () => window.__cookingGameTestHooks.getShiftState().sanity);
+		expect(sanity).toBeLessThan(55);
+		expect(await hooks(page, () => window.__cookingGameTestHooks.getCoffeeSplashSeconds())).toBeGreaterThan(0);
+		await expect(page.locator('#cooking-toast')).toContainText('Hot coffee');
+	});
+});
+
+test.describe('hallucinations', () => {
+	test('at 0 Sanity: full intensity, a ghost customer startles you, and the cook gauge gets narrower', async ({ page }) => {
+		await startShift(page, 11);
+		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ sanity: 0 }));
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getHallucinations())).intensity).toBe(1);
+
+		const ghost = await hooks(page, () => window.__cookingGameTestHooks.spawnGhostNow());
+		await walkToStation(page, `table-${ghost.tableId}`);
+		await expect(page.locator('#cooking-toast')).toContainText("there's no one there");
+		const after = await hooks(page, () => window.__cookingGameTestHooks.getHallucinations());
+		expect(after.ghosts.find((g) => g.id === ghost.id)).toBeUndefined();
+
+		// Shaky hands: the Stove's success window is half its normal width.
+		// Gather at full Sanity (so nothing gets dropped on the way), then
+		// drop to 0 just before walking to the Stove.
+		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ sanity: 100 }));
+		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Grilled Cheese'), tableId);
+		await walkToStation(page, `table-${tableId}`);
+		await walkToStation(page, 'cookware-closet');
+		await pickFromPanel(page, 'Pan');
+		await walkToStation(page, 'cabinet');
+		await pickFromPanel(page, 'Bread');
+		await walkToStation(page, 'fridge');
+		await pickFromPanel(page, 'Cheese');
+		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ sanity: 0 }));
+		await walkToStation(page, 'stove');
+		const zone = await hooks(page, () => window.__cookingGameTestHooks.getCookZone());
+		// At 0 Sanity, shaky hands can (randomly, by design) drop an
+		// ingredient on that last walk, in which case no gauge opens.
+		test.skip(zone === null, 'shaky hands dropped an ingredient on the way to the Stove');
+		expect(zone.end - zone.start).toBeCloseTo(0.08, 5);
+	});
+});
+
+test.describe('zero Reputation', () => {
+	test('a customer storms out and a complaint letter docks Gard while Reputation is at 0', async ({ page }) => {
+		await startShift(page);
+		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Garden Salad'), tableId);
+		await walkToStation(page, `table-${tableId}`);
+		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ reputation: 0, reputationStormTimer: 19.9, zeroReputationSeconds: 29.9 }));
+
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getShiftState().stormOuts)).toBe(1);
+		const state = await hooks(page, () => window.__cookingGameTestHooks.getShiftState());
+		expect(state.complaints).toBe(1);
+		expect(state.orders.find((o) => o.tableId === tableId)).toBeUndefined();
+		expect(await hooks(page, () => window.__cookingGameTestHooks.getNetShiftGard())).toBe(-25);
+
+		// The paycheck itemizes the complaint. Reputation goes back up first:
+		// skipToClosing ticks the whole shift clock in one go, which at 0
+		// Reputation would (correctly) pile up ~10 more complaint letters.
+		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ reputation: 50 }));
+		await hooks(page, () => window.__cookingGameTestHooks.skipToClosing());
+		await hooks(page, () => window.__cookingGameTestHooks.collectPaycheck());
+		await expect(page.locator('#cooking-paycheck-outcome')).toContainText('1 complaint letter (−25g)');
+	});
+});
+
+test.describe('Gard counter', () => {
+	test('earning Gard pops a "+N g" and the counter tracks it', async ({ page }) => {
+		await startShift(page);
+		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ bonusGard: 40 }));
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getGardPops().length)).toBe(1);
+		const pops = await hooks(page, () => window.__cookingGameTestHooks.getGardPops());
+		expect(pops[0].amount).toBe(40);
+		expect(await hooks(page, () => window.__cookingGameTestHooks.getNetShiftGard())).toBe(40);
+	});
+});
+
+test('no console errors on load and during play, including no CSP violations', async ({ page }) => {
+	const errors = [];
+	page.on('pageerror', (e) => errors.push(String(e)));
+	page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+	await startShift(page, 21);
+	await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ sanity: 0, reputation: 0 }));
+	await page.locator('#cooking-room-button').click();
+	await page.waitForTimeout(1500);
+	await page.locator('#cooking-room-button').click();
+	await page.waitForTimeout(1500);
+	expect(errors).toEqual([]);
+});

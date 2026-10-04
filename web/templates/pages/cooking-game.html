@@ -209,8 +209,12 @@
 						     sampleCookGauge()) — a click-compatible replacement for the
 						     old "press Space at the right moment" mechanic. */}}
 						<div id="cooking-gauge" class="hidden absolute inset-x-0 bottom-4 mx-auto w-full max-w-xs space-y-2 rounded-card border border-line bg-surface p-3 shadow-lg">
-							<div class="h-3 overflow-hidden rounded-full bg-surface-2">
+							{{/* v4: the translucent gold success zone, drawn over the sweep
+							     (cooking-game.js sizes/colors it — it narrows with shaky
+							     hands at low Sanity). */}}
+							<div class="relative h-3 overflow-hidden rounded-full bg-surface-2">
 								<div id="cooking-gauge-fill" class="h-full w-0 bg-primary"></div>
+								<div id="cooking-gauge-zone" class="absolute inset-y-0" aria-hidden="true"></div>
 							</div>
 							<button
 								type="button"

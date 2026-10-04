@@ -434,3 +434,131 @@ describe('mistakes and reputation', () => {
     assert.equal(state.mistakeCount, 2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// v4 — mechanics ported from Library Shift
+// ---------------------------------------------------------------------------
+
+import {
+  brewCoffee,
+  earnBonusGard,
+  startleFromHallucination,
+  shiftPayout,
+} from './engine-state.js';
+import {
+  COFFEE_SANITY_RESTORE,
+  COFFEE_PERFECT_TIP_GARD,
+  HALLUCINATION_STARTLE_SANITY,
+  ZERO_REPUTATION_STORM_OUT_SECONDS,
+  COMPLAINT_INTERVAL_SECONDS,
+  COMPLAINT_GARD,
+  shiftPaycheck,
+} from './rules.js';
+
+describe('brewCoffee (Coffee Pour)', () => {
+  test('a perfect pour fills Sanity and tips bonus Gard', () => {
+    const state = brewCoffee(createInitialState(TABLE_IDS, { sanity: 10 }), 'perfect');
+    assert.equal(state.sanity, SANITY_MAX);
+    assert.equal(state.bonusGard, COFFEE_PERFECT_TIP_GARD);
+  });
+
+  test('good/sloppy restore partially, with no tip', () => {
+    assert.equal(brewCoffee(createInitialState(TABLE_IDS, { sanity: 10 }), 'good').sanity, 10 + COFFEE_SANITY_RESTORE.good);
+    const sloppy = brewCoffee(createInitialState(TABLE_IDS, { sanity: 10 }), 'sloppy');
+    assert.equal(sloppy.sanity, 10 + COFFEE_SANITY_RESTORE.sloppy);
+    assert.equal(sloppy.bonusGard, 0);
+  });
+
+  test('a spill drains 50 Sanity, clamped at 0', () => {
+    assert.equal(brewCoffee(createInitialState(TABLE_IDS, { sanity: 80 }), 'spilled').sanity, 30);
+    assert.equal(brewCoffee(createInitialState(TABLE_IDS, { sanity: 20 }), 'spilled').sanity, 0);
+  });
+
+  test('an unknown grade counts as sloppy; a no-op outside playing', () => {
+    assert.equal(brewCoffee(createInitialState(TABLE_IDS, { sanity: 10 }), 'weird').sanity, 10 + COFFEE_SANITY_RESTORE.sloppy);
+    const closing = createInitialState(TABLE_IDS, { phase: 'closing-clean', sanity: 10 });
+    assert.equal(brewCoffee(closing, 'perfect'), closing);
+  });
+});
+
+describe('earnBonusGard', () => {
+  test('adds positive amounts only', () => {
+    const state = createInitialState(TABLE_IDS);
+    assert.equal(earnBonusGard(state, 250).bonusGard, 250);
+    assert.equal(earnBonusGard(state, 0), state);
+    assert.equal(earnBonusGard(state, NaN), state);
+  });
+});
+
+describe('startleFromHallucination', () => {
+  test('costs HALLUCINATION_STARTLE_SANITY, not a mistake', () => {
+    const state = startleFromHallucination(createInitialState(TABLE_IDS, { sanity: 20 }));
+    assert.equal(state.sanity, 20 - HALLUCINATION_STARTLE_SANITY);
+    assert.equal(state.mistakeCount, 0);
+  });
+});
+
+describe('tick at 0 Sanity', () => {
+  test('counts only the time after Sanity actually hit 0', () => {
+    // 1 Sanity left drains in 1.5 s at SANITY_DRAIN_PER_SECOND (100/150).
+    const state = tick(createInitialState(TABLE_IDS, { sanity: 1 }), 10);
+    assert.equal(state.sanity, 0);
+    assert.ok(Math.abs(state.zeroSanitySeconds - 8.5) < 1e-9);
+  });
+});
+
+describe('tick at 0 Reputation', () => {
+  test('nothing happens while Reputation is above 0', () => {
+    const state = tick(addOrder(createInitialState(TABLE_IDS, { reputation: 25 }), 1, 'Burger', 999, 5), 25);
+    assert.equal(state.stormOuts, 0);
+    assert.equal(state.complaints, 0);
+    assert.equal(state.zeroReputationSeconds, 0);
+  });
+
+  test('the customer closest to giving up storms out every ZERO_REPUTATION_STORM_OUT_SECONDS — a mistake', () => {
+    let state = createInitialState(TABLE_IDS, { reputation: 0 });
+    state = addOrder(state, 1, 'Burger', 500, 5);
+    state = addOrder(state, 2, 'Pasta', 300, 5);
+    state = tick(state, ZERO_REPUTATION_STORM_OUT_SECONDS);
+    assert.equal(state.stormOuts, 1);
+    assert.deepEqual(state.orders.map((o) => o.tableId), [1]);
+    assert.equal(state.tables[2].dirty, true);
+    assert.equal(state.mistakeCount, 1);
+    assert.equal(state.shiftUpset, true);
+  });
+
+  test('with nobody to storm out, the timer holds so the next order goes right away', () => {
+    let state = tick(createInitialState(TABLE_IDS, { reputation: 0 }), ZERO_REPUTATION_STORM_OUT_SECONDS + 5);
+    assert.equal(state.stormOuts, 0);
+    assert.equal(state.reputationStormTimer, ZERO_REPUTATION_STORM_OUT_SECONDS);
+    state = addOrder(state, 1, 'Burger', 500, 5);
+    state = tick(state, 0.01);
+    assert.equal(state.stormOuts, 1);
+  });
+
+  test('a complaint letter every COMPLAINT_INTERVAL_SECONDS at 0', () => {
+    const state = tick(createInitialState(TABLE_IDS, { reputation: 0 }), COMPLAINT_INTERVAL_SECONDS * 2 + 1);
+    assert.equal(state.complaints, 2);
+  });
+});
+
+describe('shiftPayout', () => {
+  test('a clean shift with no extras is exactly the base paycheck', () => {
+    assert.equal(shiftPayout(createInitialState(TABLE_IDS)).payout, shiftPaycheck(0));
+  });
+
+  test('bonus Gard adds, complaint letters subtract, then the pay cuts multiply', () => {
+    const state = createInitialState(TABLE_IDS, {
+      mistakeCount: 1, bonusGard: 250, complaints: 2, zeroSanitySeconds: 50, zeroReputationSeconds: 20,
+    });
+    const parts = shiftPayout(state);
+    const gross = shiftPaycheck(1) + 250 - 2 * COMPLAINT_GARD;
+    assert.equal(parts.payout, Math.round(gross * 0.9 * 0.96));
+    assert.equal(parts.complaintGard, 2 * COMPLAINT_GARD);
+  });
+
+  test('flat deductions floor at 0 before the multipliers', () => {
+    const parts = shiftPayout(createInitialState(TABLE_IDS, { mistakeCount: 99, complaints: 1000 }));
+    assert.equal(parts.payout, 0);
+  });
+});

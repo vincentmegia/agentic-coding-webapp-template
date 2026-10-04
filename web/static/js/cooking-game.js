@@ -96,24 +96,20 @@ import {
   availableDishes,
   findDish,
   RECIPE_BANDS,
-  cookSuccessZone,
   isCookSuccess,
   cookSweepSpeed,
   customerArrivalIntervalSeconds,
   jitteredArrivalIntervalSeconds,
   customerPatienceSeconds,
   tableCapacity,
-  shiftPaycheck,
   COUNTER_PAYMENT_GARD,
-  isKarenShift,
+  karenEncounter,
   inGameTimeLabel,
   SHIFTS_PER_MONTH,
   PHYSICAL_TABLE_COUNT,
   FRIDGE_INGREDIENTS,
   CABINET_INGREDIENTS,
   COOKWARE_ITEMS,
-  KAREN_LINE,
-  KAREN_PATIENCE_SECONDS,
   MEL_DISH,
   MEL_THANK_YOU_LINE,
   MEL_PATIENCE_BONUS_SECONDS,
@@ -129,6 +125,15 @@ import {
   tableUnlockLevelForShift,
   unlockedTableCountForShift,
   CUSTOMER_SANITY_MAX,
+  COFFEE_POUR_SECONDS_TO_BRIM,
+  coffeePourTargetBand,
+  gradeCoffeePour,
+  hallucinationIntensity,
+  shakyHandsZoneScale,
+  shakyHandsSweepMultiplier,
+  shakyCookSuccessZone,
+  CARRY_DROP_CHANCE_PER_SECOND,
+  COMPLAINT_GARD,
 } from './cooking/rules.js';
 import {
   createInitialState,
@@ -139,7 +144,10 @@ import {
   washDishes,
   shutDown,
   failOrderAt,
-  restoreSanity,
+  brewCoffee,
+  earnBonusGard as addBonusGard,
+  startleFromHallucination,
+  shiftPayout,
   annoyCustomer,
   SANITY_MAX,
   REPUTATION_MAX,
@@ -162,6 +170,7 @@ import {
   isTableUnlocked,
   unlockedStations,
 } from './cooking/floor-plan.js';
+import { drawPerson, shadeColor, PEOPLE_TEMPLATES } from './shared/people.js';
 
 // ---------------------------------------------------------------------------
 // localStorage progress (doc: "a single localStorage key")
@@ -350,9 +359,6 @@ function removeDishIngredientsFromInventory(dish, inventory) {
 // style needs smooth scaling, not jagged edges — see cooking-game.html's
 // canvas element, which no longer carries the .pixel-canvas class.
 
-const FLOOR_COLOR = '#fbeef1';
-const FLOOR_TILE_COLOR = '#f5dbe2';
-const FLOOR_TILE_SIZE = 40;
 
 // v3.7 dish icons + carrying animation: how fast drawPlayerHolding's held
 // tray/upper-body bobs while walking with something held (radians/sec fed
@@ -418,19 +424,20 @@ const CUSTOMER_COLLISION_RADIUS = 14;
 const TABLE_COLLISION_RADIUS = 30;
 
 const STATION_COLORS = {
-  fridge: '#bcdcf2',
-  cabinet: '#f7e2b8',
-  toilet: '#cfe8ec',
-  'cleaning-closet': '#c9e8d8',
-  'cookware-closet': '#e6cbe8',
-  stove: '#f7c6b0',
-  oven: '#f2a8a0',
+  // v4: Library Shift's warmer, lightly desaturated palette.
+  fridge: '#bcd6e4',
+  cabinet: '#e0bf94',
+  toilet: '#cfe3ea',
+  'cleaning-closet': '#c9e2d4',
+  'cookware-closet': '#d6c3e0',
+  stove: '#ede4da',
+  oven: '#e9b9a8',
+  'rice-station': '#efe0c4',
   counter: '#f2d98a',
-  'coffee-machine': '#d9bfa3',
+  'coffee-machine': '#e3cdb4',
   'boss-office': '#dcc2ea',
-  table: '#fdf1e4',
-  'kitchen-door': '#f2c9a0',
-  'dining-door': '#f2c9a0',
+  'kitchen-door': '#e9c49a',
+  'dining-door': '#e9c49a',
 };
 
 const STATION_LABELS = {
@@ -441,22 +448,13 @@ const STATION_LABELS = {
   'cookware-closet': 'Cookware Closet',
   stove: 'Stove',
   oven: 'Oven',
+  'rice-station': 'Rice Station',
   counter: 'Counter',
   'coffee-machine': 'Coffee Machine',
   'boss-office': "Duke's Office",
   'kitchen-door': 'To Kitchen',
   'dining-door': 'To Dining',
 };
-
-/** Which station kinds render as a "door" (rect + handle dot, opens while active) vs a plain fixture. */
-const DOOR_KINDS = new Set(['fridge', 'cabinet', 'toilet', 'cleaning-closet', 'cookware-closet', 'boss-office', 'kitchen-door', 'dining-door']);
-
-const STATION_CORNER_RADIUS = 14;
-
-function drawPixelRect(ctx, x, y, w, h, color) {
-  ctx.fillStyle = color;
-  ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
-}
 
 function drawRoundRect(ctx, x, y, w, h, r, color) {
   ctx.fillStyle = color;
@@ -813,6 +811,73 @@ function drawCoupleOrderIcon(ctx) {
 }
 
 /** Dish name -> icon drawer, one entry per RECIPE_BANDS/MEL_DISH/COUPLE_DISH name (rules.js). */
+/** A plate with a dome of white rice — shared base for both rice dishes. */
+function drawRicePlate(ctx) {
+  ctx.fillStyle = '#fdf1e4';
+  ctx.strokeStyle = '#e0c9a6';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(50, 68, 36, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawChickenRiceIcon(ctx) {
+  drawRicePlate(ctx);
+  // Rice mound on the left, speckled with grains.
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.ellipse(38, 60, 18, 13, 0, Math.PI, 0);
+  ctx.lineTo(56, 66);
+  ctx.lineTo(20, 66);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#e6dccb';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#e6dccb';
+  for (const [x, y] of [[30, 56], [38, 52], [44, 58], [34, 62], [42, 63]]) {
+    ctx.beginPath();
+    ctx.ellipse(x, y, 2, 1, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Sliced chicken fanned on the right.
+  for (const [x, y] of [[58, 56], [64, 60], [70, 64]]) {
+    drawQuadBlob(ctx, [x - 7, y, x, y - 8, x + 7, y, x, y + 4, x - 7, y], '#e8b37a');
+    ctx.strokeStyle = '#c98a50';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 5, y);
+    ctx.lineTo(x + 5, y);
+    ctx.stroke();
+  }
+  // A herb sprig.
+  drawQuadBlob(ctx, [52, 50, 56, 42, 60, 48, 56, 52, 52, 50], '#7aa865');
+}
+
+function drawOmuriceIcon(ctx) {
+  drawRicePlate(ctx);
+  // The omelette blanket: a fat golden oval over the rice.
+  ctx.fillStyle = '#f7d774';
+  ctx.strokeStyle = '#e0b84a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(50, 58, 28, 15, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.beginPath();
+  ctx.ellipse(42, 52, 10, 4, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+  // A ketchup heart on top.
+  ctx.fillStyle = '#d0453a';
+  ctx.beginPath();
+  ctx.moveTo(50, 66);
+  ctx.bezierCurveTo(38, 58, 42, 48, 50, 54);
+  ctx.bezierCurveTo(58, 48, 62, 58, 50, 66);
+  ctx.fill();
+}
+
 const DISH_ICON_DRAWERS = {
   'Garden Salad': drawGardenSaladIcon,
   'Grilled Cheese': drawGrilledCheeseIcon,
@@ -822,6 +887,8 @@ const DISH_ICON_DRAWERS = {
   'Pasta': drawPastaIcon,
   'Steak Dinner': drawSteakDinnerIcon,
   'Soufflé': drawSouffleIcon,
+  'Chicken Rice': drawChickenRiceIcon,
+  'Omurice': drawOmuriceIcon,
   "Mel's Usual": drawMelsUsualIcon,
   "Olive & Oliver's Order": drawCoupleOrderIcon,
 };
@@ -1126,6 +1193,100 @@ function drawStarCakeIcon(ctx) {
 }
 
 /** Raw ingredient name -> icon drawer, one entry per FRIDGE_INGREDIENTS/CABINET_INGREDIENTS name (rules.js). */
+function drawRiceIcon(ctx) {
+  // A burlap-ish rice sack, top tied off, a few grains spilling out.
+  ctx.fillStyle = '#efe2c4';
+  ctx.strokeStyle = '#c9b48a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(34, 34);
+  ctx.quadraticCurveTo(24, 58, 30, 80);
+  ctx.lineTo(70, 80);
+  ctx.quadraticCurveTo(76, 58, 66, 34);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#c9b48a';
+  ctx.fillRect(38, 28, 24, 7);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.ellipse(50, 26, 10, 5, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.fillStyle = '#9a7a4a';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('米', 50, 58);
+  ctx.fillStyle = '#ffffff';
+  for (const [x, y] of [[76, 82], [82, 78], [20, 82]]) {
+    ctx.beginPath();
+    ctx.ellipse(x, y, 2.5, 1.3, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Cookware icons — Pan/Baking Tray/Rice Cooker (rules.js's COOKWARE_ITEMS),
+// shown in the Cookware Closet panel and on the HUD's "cookware in hand"
+// pill once picked up. Same 100x100 local-box convention as every icon above.
+
+function drawPanIcon(ctx) {
+  ctx.fillStyle = '#5a4a44';
+  ctx.beginPath();
+  ctx.ellipse(42, 56, 28, 22, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#7a6a62';
+  ctx.beginPath();
+  ctx.ellipse(42, 54, 22, 17, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(34, 48, 8, 4, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+  drawRoundRect(ctx, 66, 50, 28, 8, 4, '#8a5a3a');
+}
+
+function drawBakingTrayIcon(ctx) {
+  drawRoundRect(ctx, 14, 34, 72, 40, 6, '#a7aeb6');
+  drawRoundRect(ctx, 20, 40, 60, 28, 4, '#c7ced6');
+  ctx.strokeStyle = '#8a929a';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(20, 40, 60, 28);
+  // Side handles.
+  drawRoundRect(ctx, 6, 46, 10, 16, 4, '#8a929a');
+  drawRoundRect(ctx, 84, 46, 10, 16, 4, '#8a929a');
+}
+
+function drawRiceCookerIcon(ctx) {
+  // Body, lid, steam vent, and a little front panel with a light.
+  drawRoundRect(ctx, 22, 40, 56, 44, 14, '#f5f0e6');
+  ctx.strokeStyle = '#d6cbb6';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(22, 40, 56, 44, 14);
+  ctx.stroke();
+  ctx.fillStyle = '#f0c6cf';
+  ctx.beginPath();
+  ctx.ellipse(50, 40, 28, 10, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.stroke();
+  drawRoundRect(ctx, 44, 24, 12, 6, 3, '#d6cbb6');
+  drawRoundRect(ctx, 38, 58, 24, 14, 4, '#e6ddcc');
+  ctx.fillStyle = '#7fd68a';
+  ctx.beginPath();
+  ctx.arc(44, 65, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e06a5b';
+  ctx.beginPath();
+  ctx.arc(56, 65, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+const COOKWARE_ICON_DRAWERS = {
+  Pan: drawPanIcon,
+  'Baking Tray': drawBakingTrayIcon,
+  'Rice Cooker': drawRiceCookerIcon,
+};
+
 const INGREDIENT_ICON_DRAWERS = {
   Cheese: drawCheeseIcon,
   Milk: drawMilkIcon,
@@ -1144,6 +1305,7 @@ const INGREDIENT_ICON_DRAWERS = {
   Buns: drawBunsIcon,
   Sauce: drawSauceIcon,
   Potato: drawPotatoIcon,
+  Rice: drawRiceIcon,
   'Star Cake': drawStarCakeIcon,
   Cake: drawCakeIcon,
 };
@@ -1175,156 +1337,104 @@ function drawIngredientIcon(ctx, cx, cy, ingredientName, size) {
   if (drawer) drawIconAt(ctx, cx, cy, size, drawer);
 }
 
-/**
- * An "anime art style" face — big vertical-oval eyes (white sclera, a
- * colored iris, a small sparkle highlight), thin eyebrows, two blush
- * ovals, and a small curved smile — drawn on the lower half of
- * drawPixelPerson's head circle. Canvas primitives only, matching every
- * other visual in this file (see the "v3 restyle" changelog note above,
- * by the Coquette rendering constants): no image assets exist anywhere in
- * this project to draw an actual sprite from.
- */
-function drawAnimeFace(ctx, x, y, scale, eyeColor) {
-  const s = scale;
-  const headCenterY = y - 32 * s;
-  const eyeY = headCenterY + 1 * s;
+// ---------------------------------------------------------------------------
+// Characters — v4 art pass ("make the art style similar to the library
+// game"): every person is drawn by the renderer Library Shift uses
+// (../shared/people.js's drawPerson: a wide rounded torso the head sits on,
+// hands, shoes, a ground shadow, and a personality-driven face/hair/outfit),
+// replacing v3.3's drawPixelPerson/drawAnimeFace. Regular customers now get
+// one of the shared PEOPLE_TEMPLATES designs instead of one recolored body.
+// ---------------------------------------------------------------------------
 
-  for (const dir of [-1, 1]) {
-    const ex = x + dir * 3.3 * s;
+/** Kitchen Shift's own named characters, in shared/people.js's personality shape. */
+const KITCHEN_PEOPLE = {
+  server: {
+    bodyColor: '#6fa0d8', pantsColor: '#3a4a5a', headColor: '#f4c99a', hairColor: '#3a2a1a', accentColor: '#ffffff',
+    eyeColor: '#2a2a2a', eyeShape: 'bigRound', browAngle: 0.3, mouthCurve: 1.1, blush: true,
+    hairStyle: 'bun', outfit: 'apron', accessory: 'ribbon', shoeColor: '#5a3a2a',
+  },
+  mel: {
+    bodyColor: '#fff3c4', pantsColor: '#ffffff', headColor: '#f6dcb8', hairColor: '#e8b84b', accentColor: '#ffffff',
+    eyeColor: '#3a2a2a', eyeShape: 'bigRound', browAngle: 0.5, mouthCurve: 1.5, blush: true,
+    hairStyle: 'bun', outfit: 'none', accessory: 'ribbon', shoeColor: '#e8b84b',
+  },
+  olive: {
+    bodyColor: OLIVE_FAVORITE_COLOR, pantsColor: '#fdf1e4', headColor: '#f6dcc0', hairColor: '#7a4a2e', accentColor: '#ffffff',
+    eyeColor: '#2a3a2a', eyeShape: 'bigRound', browAngle: 0.3, mouthCurve: 1.1, blush: true,
+    hairStyle: 'long', outfit: 'dress', accessory: 'ribbon', shoeColor: '#5a3a22',
+  },
+  oliver: {
+    bodyColor: OLIVER_FAVORITE_COLOR, pantsColor: '#2c3140', headColor: '#f6dcc0', hairColor: '#33261a',
+    eyeColor: '#2a2a3a', eyeShape: 'roundSmall', browAngle: 0.2, mouthCurve: 0.9, blush: false,
+    hairStyle: 'sidePart', outfit: 'collar', shoeColor: '#1e1e1e',
+  },
+  counterStaff: {
+    bodyColor: '#f2d98a', pantsColor: '#5a3a22', headColor: '#e0ac69', hairColor: '#3a2a1a', accentColor: '#fdf8ee',
+    eyeColor: '#2a2a2a', eyeShape: 'roundSmall', browAngle: 0.3, mouthCurve: 1, blush: true,
+    hairStyle: 'bangs', outfit: 'apron', shoeColor: '#3a2a1a',
+  },
+  guard: {
+    bodyColor: '#4a5468', pantsColor: '#242c38', headColor: '#a8754a', hairColor: '#14181f', accentColor: '#e0c25a',
+    hatColor: '#242c38', eyeColor: '#1a1a1a', eyeShape: 'narrow', browAngle: -0.4, mouthCurve: 0, blush: false,
+    hairStyle: 'beanie', outfit: 'uniform', shoeColor: '#14181f',
+  },
+};
 
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.ellipse(ex, eyeY, 1.9 * s, 2.6 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
+/** Designs a regular (non-scripted) customer can have — every shared design except Karen. */
+const CUSTOMER_LOOK_KEYS = Object.keys(PEOPLE_TEMPLATES).filter((key) => key !== 'karen');
 
-    ctx.fillStyle = eyeColor; // iris + pupil, shifted slightly down for a soft gaze
-    ctx.beginPath();
-    ctx.arc(ex, eyeY + 0.4 * s, 1.3 * s, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#ffffff'; // sparkle highlight
-    ctx.beginPath();
-    ctx.arc(ex - 0.5 * s, eyeY - 0.4 * s, 0.5 * s, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = eyeColor;
-    ctx.lineWidth = Math.max(1, 0.6 * s);
-    ctx.beginPath();
-    ctx.moveTo(ex - 1.6 * s, eyeY - 3.4 * s);
-    ctx.lineTo(ex + 1.6 * s, eyeY - 3.8 * s);
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = 'rgba(247,155,175,0.55)'; // blush
-  for (const dir of [-1, 1]) {
-    ctx.beginPath();
-    ctx.ellipse(x + dir * 5.6 * s, headCenterY + 3.2 * s, 1.6 * s, 1 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.strokeStyle = '#c65f7c'; // small smile
-  ctx.lineWidth = Math.max(1, 0.7 * s);
-  ctx.beginPath();
-  ctx.arc(x, headCenterY + 4.5 * s, 1.6 * s, 0.15 * Math.PI, 0.85 * Math.PI);
-  ctx.stroke();
-}
-
-/**
- * A soft, round-headed pixel-person: rounded-rect limbs/torso (pants,
- * shirt), a circular head with an anime-style face (see drawAnimeFace),
- * an optional hair "cap" (upper-half circle) and a bow accent — reused
- * for the player, customers, Karen/Olive & Oliver, and the security
- * guard. Mel gets her own `drawMel` instead of this generic version (see
- * below) — her look has specific accessories the user described, not
- * just a recolor.
- */
-/**
- * The head/hair/face/bow/marker stack shared by drawPixelPerson and
- * drawPlayerCarrying (below) — factored out so the carrying pose, which
- * needs different arm/torso positioning, doesn't have to duplicate the
- * anime-face rendering.
- */
-function drawPersonHead(ctx, x, y, s, { headColor, hairColor = null, marker = null, bowColor = null, eyeColor = '#3a2a2a' }) {
-  ctx.fillStyle = headColor;
-  ctx.beginPath();
-  ctx.arc(x, y - 32 * s, 9 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  if (hairColor) {
-    ctx.fillStyle = hairColor;
-    ctx.beginPath();
-    ctx.arc(x, y - 35 * s, 9.5 * s, Math.PI, 0); // an upper-half "cap" over the head
-    ctx.fill();
-  }
-
-  drawAnimeFace(ctx, x, y, s, eyeColor);
-
-  if (bowColor) drawBow(ctx, x + 8 * s, y - 43 * s, bowColor, s * 0.8);
-  if (marker) {
-    ctx.fillStyle = marker;
-    ctx.beginPath();
-    ctx.arc(x, y - 46 * s, 3 * s, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function drawPixelPerson(ctx, x, y, { bodyColor, headColor, pantsColor = null, hairColor = null, scale = 1, marker = null, bowColor = null, eyeColor = '#3a2a2a' }) {
-  const s = scale;
-  const pants = pantsColor || bodyColor;
-  drawRoundRect(ctx, x - 8 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pants); // left leg
-  drawRoundRect(ctx, x + 2 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pants); // right leg
-  drawRoundRect(ctx, x - 12 * s, y - 22 * s, 6 * s, 16 * s, 3 * s, bodyColor); // left arm
-  drawRoundRect(ctx, x + 6 * s, y - 22 * s, 6 * s, 16 * s, 3 * s, bodyColor); // right arm
-  drawRoundRect(ctx, x - 11 * s, y - 24 * s, 22 * s, 20 * s, 6 * s, bodyColor); // torso (shirt)
-
-  drawPersonHead(ctx, x, y, s, { headColor, hairColor, marker, bowColor, eyeColor });
+function drawKitchenPerson(ctx, x, y, key, opts = {}) {
+  const personality = KITCHEN_PEOPLE[key] || PEOPLE_TEMPLATES[key] || PEOPLE_TEMPLATES.shyStudent;
+  drawPerson(ctx, x, y, personality, opts);
 }
 
 /**
  * Mel: sweet, kind, and caring — favorite color a soft creamy light
- * yellow and white, favorite flowers dandelions/tulips/roses, favorite
- * hobby drawing and cycling. Her usual outfit (all per the user's
- * description): a dandelion tucked behind her ear, a yellow hair clip, her
- * hair tied up in a white ribbon, a yellow shirt with a small flower
- * pattern, and a plain white skirt. A dedicated draw function rather than
- * a `drawPixelPerson` recolor, since her look is a specific outfit, not
- * just different colors on the generic template.
+ * yellow and white, favorite flowers dandelions/tulips/roses. Her usual
+ * outfit (all per the user's description): a dandelion tucked behind her
+ * ear, a yellow hair clip, her hair tied up in a white ribbon, a yellow
+ * shirt with a small flower pattern, and a plain white skirt — drawn on
+ * top of the shared body (shared/people.js's head sits at y - 34*s).
  */
 function drawMel(ctx, x, y, scale) {
   const s = scale;
-  drawPixelPerson(ctx, x, y, {
-    bodyColor: '#fff3c4', // creamy light yellow shirt
-    headColor: '#f6dcb8',
-    pantsColor: '#ffffff', // plain white skirt
-    hairColor: '#e8b84b',
-    scale: s,
-  });
+  drawKitchenPerson(ctx, x, y, 'mel', { scale: s });
+  const headY = y - 34 * s;
+
+  // Plain white skirt over the hips.
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(x - 10 * s, y - 8 * s);
+  ctx.lineTo(x + 10 * s, y - 8 * s);
+  ctx.lineTo(x + 13 * s, y + 1 * s);
+  ctx.lineTo(x - 13 * s, y + 1 * s);
+  ctx.closePath();
+  ctx.fill();
 
   // Small flower pattern on her shirt.
   ctx.fillStyle = '#f6a6c1';
-  [[-4, -14], [3, -10], [-2, -7]].forEach(([dx, dy]) => {
+  [[-5, -20], [4, -16], [-2, -12]].forEach(([dx, dy]) => {
     ctx.beginPath();
-    ctx.arc(x + dx * s, y + dy * s, 1.4 * s, 0, Math.PI * 2);
+    ctx.arc(x + dx * s, y + dy * s, 1.3 * s, 0, Math.PI * 2);
     ctx.fill();
   });
 
-  // White ribbon tying her hair up.
-  drawBow(ctx, x + 7 * s, y - 44 * s, '#ffffff', s * 0.85);
-
   // Yellow hair clip.
-  drawRoundRect(ctx, x - 3 * s, y - 41 * s, 4 * s, 2 * s, 1 * s, '#ffd23f');
+  drawRoundRect(ctx, x - 6 * s, headY - 8 * s, 4.5 * s, 2 * s, 1 * s, MEL_FAVORITE_COLOR);
 
   // A dandelion tucked behind her ear — a small cream puff with a few wisps.
+  const fx = x - 11 * s;
+  const fy = headY - 2 * s;
   ctx.fillStyle = '#fdfaf0';
   ctx.beginPath();
-  ctx.arc(x - 10 * s, y - 34 * s, 3 * s, 0, Math.PI * 2);
+  ctx.arc(fx, fy, 3 * s, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#fdfaf0';
   ctx.lineWidth = Math.max(1, s * 0.6);
   for (const angle of [-0.6, 0, 0.6]) {
     ctx.beginPath();
-    ctx.moveTo(x - 10 * s, y - 34 * s);
-    ctx.lineTo(x - 10 * s + Math.cos(angle) * 4 * s, y - 34 * s - 4 * s + Math.sin(angle) * 2 * s);
+    ctx.moveTo(fx, fy);
+    ctx.lineTo(fx - Math.sin(angle) * 4 * s, fy - Math.cos(angle) * 4 * s);
     ctx.stroke();
   }
 }
@@ -1411,6 +1521,9 @@ export function init(canvas, elements) {
   let activePanel = null; // 'fridge' | 'cabinet' | 'cookware' | null
   let recipeBookOpen = false;
   let karen = null; // { tableId } while her order is live and unresolved this shift
+  // rules.js's karenEncounter() for the current shift (line/patience/tip —
+  // shift 18's rematch differs from shift 12's), or null on any other shift.
+  let karenThisShift = null;
   let mel = null; // { tableId } while her order is live and unresolved this shift
   let melSpawnedThisShift = false; // guaranteed once per shift, but v3.35 randomizes *when* — see maybeSpawnCustomer
   let couple = null; // { tableId } while Olive & Oliver's order is live and unresolved this shift
@@ -1433,6 +1546,10 @@ export function init(canvas, elements) {
   // spawnArrivingCustomer/updateArrivingCustomers. Each entry:
   // { x, y, targetX, targetY, tableId, appearance, dishName }.
   let arrivingCustomers = [];
+  // v4: which shared design (CUSTOMER_LOOK_KEYS) each seated regular
+  // customer has, by table — picked when they walk in, carried to their
+  // walk-out (spawnPayingCustomer) so they look the same the whole visit.
+  let customerLooks = {};
   let timeSinceCustomerSpawn = 0;
   // v3.34: the actual jittered wait `maybeSpawnCustomer` is counting down
   // to right now — re-rolled (jitteredArrivalIntervalSeconds) every time
@@ -1651,9 +1768,8 @@ export function init(canvas, elements) {
       // on the tray/order bubble (this project has no image-generation
       // tooling, so every icon is a procedural drawer taking a plain 2D
       // context — a small offscreen <canvas> works just as well as the
-      // main game canvas). Cookware Closet items have no icon drawer yet,
-      // so they fall back to text-only, same as before.
-      const drawer = INGREDIENT_ICON_DRAWERS[item];
+      // main game canvas). Cookware Closet items use COOKWARE_ICON_DRAWERS.
+      const drawer = INGREDIENT_ICON_DRAWERS[item] || COOKWARE_ICON_DRAWERS[item];
       if (drawer) {
         // Bumped up from an initial 24px (reported "too small... hard to
         // see") to 44px — big enough to actually read the icon's shape at
@@ -1662,7 +1778,7 @@ export function init(canvas, elements) {
         iconCanvas.width = 44;
         iconCanvas.height = 44;
         iconCanvas.className = 'shrink-0';
-        drawIngredientIcon(iconCanvas.getContext('2d'), 22, 22, item, 40);
+        drawIconAt(iconCanvas.getContext('2d'), 22, 22, 40, drawer);
         button.appendChild(iconCanvas);
       }
 
@@ -1698,7 +1814,7 @@ export function init(canvas, elements) {
   let recipeBookRendered = false;
 
   function describeDish(dish) {
-    const station = dish.station === 'none' ? 'No cooking needed' : (dish.station === 'stove' ? 'Stove' : 'Oven');
+    const station = dish.station === 'none' ? 'No cooking needed' : STATION_LABELS[dish.station];
     const cookware = dish.cookware ? ` + ${dish.cookware}` : '';
     return `${station}${cookware} — ${dish.ingredients.join(', ')}`;
   }
@@ -1742,7 +1858,8 @@ export function init(canvas, elements) {
 
   function spawnKarenIfDue() {
     karen = null;
-    if (!isKarenShift(currentShiftNumber)) return;
+    karenThisShift = karenEncounter(currentShiftNumber);
+    if (!karenThisShift) return;
     const availableTableIds = TABLE_IDS.filter((id) => !shiftState.tables[id].occupied);
     if (availableTableIds.length === 0) return;
     const tableId = availableTableIds[Math.floor(random() * availableTableIds.length)];
@@ -1852,6 +1969,13 @@ export function init(canvas, elements) {
     pendingCustomers = {};
     payingCustomers = [];
     arrivingCustomers = [];
+    customerLooks = {};
+    counterGardThisShift = 0;
+    lastSeenShiftGard = 0;
+    gardPops = [];
+    coffeePour = null;
+    coffeeSplashSeconds = 0;
+    resetHallucinations();
     inventory = [];
     cookware = new Set();
     heldDish = null;
@@ -1889,7 +2013,11 @@ export function init(canvas, elements) {
     // itself is unchanged and still drives dataset.outcome below, kept for
     // that binary ok/upset UI state and the test hooks that already key off
     // it.
-    const paycheck = shiftPaycheck(shiftState.mistakeCount);
+    // v4: Library Shift's payout — base paycheck for the mistake count plus
+    // bonus Gard (Karen's tip, perfect pours) minus complaint letters, then
+    // the 0-Sanity/0-Reputation pay cuts (engine-state.js's shiftPayout).
+    const payoutParts = shiftPayout(shiftState);
+    const paycheck = payoutParts.payout;
     save.monthToDateGard += paycheck;
     const isFinalShift = currentShiftNumber >= SHIFTS_PER_MONTH;
     if (isFinalShift) {
@@ -1913,9 +2041,14 @@ export function init(canvas, elements) {
 
     elements.paycheckScreen.root.dataset.outcome = shiftState.shiftUpset ? 'upset' : 'ok';
     elements.paycheckScreen.root.dataset.final = isFinalShift ? 'true' : 'false';
-    elements.paycheckScreen.outcome.textContent = shiftState.mistakeCount > 0
+    const outcomeParts = [shiftState.mistakeCount > 0
       ? `${shiftState.mistakeCount} mistake${shiftState.mistakeCount === 1 ? '' : 's'} — Duke saw the reviews`
-      : 'Duke says great job';
+      : 'Duke says great job'];
+    if (payoutParts.bonusGard > 0) outcomeParts.push(`+${payoutParts.bonusGard}g bonus`);
+    if (shiftState.complaints > 0) outcomeParts.push(`${shiftState.complaints} complaint letter${shiftState.complaints === 1 ? '' : 's'} (−${payoutParts.complaintGard}g)`);
+    if (payoutParts.sanityMultiplier < 1) outcomeParts.push(`−${Math.round((1 - payoutParts.sanityMultiplier) * 100)}% for hallucinating`);
+    if (payoutParts.reputationMultiplier < 1) outcomeParts.push(`−${Math.round((1 - payoutParts.reputationMultiplier) * 100)}% for a ruined reputation`);
+    elements.paycheckScreen.outcome.textContent = outcomeParts.join(' · ');
     elements.paycheckScreen.shiftTotal.textContent = `${paycheck} Gard`;
     elements.paycheckScreen.monthTotal.textContent = `${save.monthToDateGard} Gard`;
     elements.paycheckScreen.nextShiftButton.classList.toggle('hidden', isFinalShift);
@@ -1974,6 +2107,507 @@ export function init(canvas, elements) {
     if (karen && karen.tableId === tableId) triggerKarenRipple();
     if (mel && mel.tableId === tableId) mel = null;
     if (couple && couple.tableId === tableId) couple = null;
+  }
+
+  // -- Gard counter (v4, ported from Library Shift v2.15) -----------------
+  //
+  // A HUD pill beside the Sanity/Reputation bars: this shift's Gard so far
+  // (Counter payments + bonus Gard such as Karen's tip or a perfect pour,
+  // minus complaint letters) and the month-to-date total, with a floating
+  // "+N g" pop each time it changes. The base paycheck isn't shown until
+  // Duke's office, since mistakes decide it.
+
+  let counterGardThisShift = 0;
+  let lastSeenShiftGard = 0;
+  let gardPops = []; // { amount, age }
+  const GARD_POP_SECONDS = 1.4;
+
+  /** Adds Gard to this shift's bonus (paid at Duke's office) — Karen's tip. */
+  function earnBonusGard(amount) {
+    shiftState = addBonusGard(shiftState, amount);
+  }
+
+  function netShiftGard() {
+    if (!shiftState) return 0;
+    return counterGardThisShift + (shiftState.bonusGard ?? 0) - (shiftState.complaints ?? 0) * COMPLAINT_GARD;
+  }
+
+  function trackGardPops(deltaSeconds) {
+    const net = netShiftGard();
+    if (net !== lastSeenShiftGard) {
+      gardPops.push({ amount: net - lastSeenShiftGard, age: 0 });
+      lastSeenShiftGard = net;
+    }
+    gardPops = gardPops.filter((pop) => {
+      pop.age += deltaSeconds;
+      return pop.age < GARD_POP_SECONDS;
+    });
+  }
+
+  function drawGardCoin(cx, cy, r) {
+    ctx.fillStyle = '#c28a2c';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#f2cf6a';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#a8741e';
+    ctx.font = `bold ${Math.round(r)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('G', cx, cy + 0.5);
+  }
+
+  function drawGardCounter() {
+    const x = 152;
+    const y = 14;
+    const w = 176;
+    const h = 22;
+    ctx.save();
+    drawRoundRect(ctx, x, y, w, h, 11, 'rgba(255,251,246,0.85)');
+    ctx.strokeStyle = 'rgba(58,42,42,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 11);
+    ctx.stroke();
+    drawGardCoin(x + 13, y + h / 2, 8);
+    const net = netShiftGard();
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${net >= 0 ? '+' : '−'}${Math.abs(net)}g shift`, x + 26, y + h / 2 + 0.5);
+    ctx.globalAlpha = 0.7;
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`Month ${save.monthToDateGard}g`, x + w - 9, y + h / 2 + 0.5);
+    ctx.globalAlpha = 1;
+    for (const pop of gardPops) {
+      const t = pop.age / GARD_POP_SECONDS;
+      ctx.globalAlpha = 1 - t;
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'center';
+      const text = `${pop.amount > 0 ? '+' : '−'}${Math.abs(pop.amount)} g`;
+      const py = y + h + 12 - t * 10;
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = 'rgba(255,251,246,0.95)';
+      ctx.strokeText(text, x + 60, py);
+      ctx.fillStyle = pop.amount > 0 ? '#b07a1e' : '#c0392b';
+      ctx.fillText(text, x + 60, py);
+    }
+    ctx.restore();
+  }
+
+  // -- Coffee Pour minigame (v4, ported from Library Shift v2.2/v2.19) ---
+  //
+  // Arriving at the Coffee Machine opens an on-canvas pour: hold (mouse,
+  // touch, Space or Enter) to pour, release inside the gold band. Overfill
+  // to the brim and it spills all over you: −50 Sanity and coffee stains.
+
+  const COFFEE_RESULT_SECONDS = 1.2;
+  const COFFEE_SPLASH_SECONDS = 6;
+  const COFFEE_RESULT_TEXT = {
+    perfect: 'Perfect pour! Sanity fully restored, +10g tip.',
+    good: 'Good pour — feeling sharper.',
+    sloppy: 'Sloppy pour — it helps a little.',
+    spilled: 'Ow! Hot coffee all over you — −50 Sanity.',
+  };
+  const COFFEE_RESULT_COLORS = { perfect: '#e0a83a', good: '#7fb0d6', sloppy: '#a08a7a', spilled: '#e06a5b' };
+
+  let coffeePour = null; // { fill, pouring, band, grade, closeIn }
+  let coffeeSplashSeconds = 0;
+
+  function openCoffeePour() {
+    coffeePour = { fill: 0, pouring: false, band: coffeePourTargetBand(random()), grade: null, closeIn: 0 };
+    moveTarget = null;
+  }
+
+  function startCoffeePour() {
+    if (coffeePour && !coffeePour.grade) coffeePour.pouring = true;
+  }
+
+  // Only grades a pour that actually started, so the keyup of whatever key
+  // got the player here can't grade an empty cup.
+  function stopCoffeePour() {
+    if (coffeePour && coffeePour.pouring && !coffeePour.grade) finishCoffeePour();
+  }
+
+  function finishCoffeePour() {
+    coffeePour.pouring = false;
+    const grade = gradeCoffeePour(coffeePour.fill, coffeePour.band);
+    coffeePour.grade = grade;
+    coffeePour.closeIn = COFFEE_RESULT_SECONDS;
+    shiftState = brewCoffee(shiftState, grade);
+    if (grade === 'spilled') coffeeSplashSeconds = COFFEE_SPLASH_SECONDS;
+    showToast(COFFEE_RESULT_TEXT[grade], 3);
+  }
+
+  function updateCoffeePour(deltaSeconds) {
+    if (coffeeSplashSeconds > 0) coffeeSplashSeconds = Math.max(0, coffeeSplashSeconds - deltaSeconds);
+    if (!coffeePour) return;
+    if (shiftState.phase !== 'playing' && !coffeePour.grade) {
+      coffeePour = null;
+      return;
+    }
+    if (coffeePour.grade) {
+      coffeePour.closeIn -= deltaSeconds;
+      if (coffeePour.closeIn <= 0) coffeePour = null;
+      return;
+    }
+    if (coffeePour.pouring) {
+      coffeePour.fill = Math.min(1, coffeePour.fill + deltaSeconds / COFFEE_POUR_SECONDS_TO_BRIM);
+      if (coffeePour.fill >= 1) finishCoffeePour();
+    }
+  }
+
+  function onCanvasPointerDown(e) {
+    if (!coffeePour) return;
+    e.preventDefault();
+    startCoffeePour();
+  }
+
+  function onWindowPointerUp() {
+    stopCoffeePour();
+  }
+
+  function onKeyUp(e) {
+    if (e.key === ' ' || e.key === 'Enter') stopCoffeePour();
+  }
+
+  /** Steaming coffee stains on the player's apron for a few seconds after a spill. */
+  function drawCoffeeSplash(x, y, s) {
+    if (coffeeSplashSeconds <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, coffeeSplashSeconds / 1.5);
+    ctx.fillStyle = 'rgba(106,74,48,0.85)';
+    for (const [dx, dy, r] of [[-5, -20, 3], [3, -16, 3.6], [-2, -11, 2.4], [6, -22, 2], [-7, -13, 1.8], [1, -24, 1.6]]) {
+      ctx.beginPath();
+      ctx.arc(x + dx * s, y + dy * s, r * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, coffeeSplashSeconds / 1.5);
+    ctx.translate(x, y);
+    drawSteam([-4 * s, 4 * s], -24 * s, 12 * s, 0.8);
+    ctx.restore();
+  }
+
+  function drawCoffeePourOverlay() {
+    if (!coffeePour) return;
+    const W = world.width;
+    const H = world.height;
+    ctx.save();
+    ctx.fillStyle = 'rgba(40,28,20,0.45)';
+    ctx.fillRect(0, 0, W, H);
+
+    const panelW = 360;
+    const panelH = 400;
+    const px = (W - panelW) / 2;
+    const py = (H - panelH) / 2;
+    drawRoundRect(ctx, px, py, panelW, panelH, 18, '#f2e9da');
+    ctx.strokeStyle = 'rgba(58,42,42,0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(px, py, panelW, panelH, 18);
+    ctx.stroke();
+
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Coffee Pour', W / 2, py + 26);
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Hold to pour — release in the gold band', W / 2, py + 44);
+    ctx.globalAlpha = 0.7;
+    ctx.font = '11px sans-serif';
+    ctx.fillText('mouse, tap, Space or Enter', W / 2, py + 58);
+    ctx.globalAlpha = 1;
+
+    // Machine head + spout, LED red while pouring.
+    const cx = W / 2;
+    drawRoundRect(ctx, cx - 70, py + 68, 140, 34, 10, '#7a5a42');
+    drawRoundRect(ctx, cx - 26, py + 100, 52, 14, 4, '#b0a090');
+    ctx.fillStyle = coffeePour.pouring ? '#e06a5b' : '#9fe0a8';
+    ctx.beginPath();
+    ctx.arc(cx + 52, py + 82, 5, 0, Math.PI * 2);
+    ctx.fill();
+    if (coffeePour.pouring) {
+      ctx.fillStyle = '#6a4a30';
+      ctx.fillRect(cx - 3, py + 114, 6, 70);
+    }
+
+    // Tapered mug.
+    const cupTop = py + 170;
+    const cupBottom = py + 350;
+    const topHalf = 72;
+    const bottomHalf = 58;
+    const mugPath = () => {
+      ctx.beginPath();
+      ctx.moveTo(cx - topHalf, cupTop);
+      ctx.lineTo(cx + topHalf, cupTop);
+      ctx.lineTo(cx + bottomHalf, cupBottom);
+      ctx.quadraticCurveTo(cx, cupBottom + 10, cx - bottomHalf, cupBottom);
+      ctx.closePath();
+    };
+    ctx.fillStyle = '#fdf8ee';
+    mugPath();
+    ctx.fill();
+    ctx.strokeStyle = '#c9b896';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx + topHalf + 6, (cupTop + cupBottom) / 2, 26, -Math.PI / 2, Math.PI / 2);
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = '#fdf8ee';
+    ctx.stroke();
+
+    // Coffee, clipped to the mug.
+    const levelY = (fill) => cupBottom - fill * (cupBottom - cupTop);
+    ctx.save();
+    mugPath();
+    ctx.clip();
+    const surfaceY = levelY(Math.min(1, coffeePour.fill));
+    ctx.fillStyle = '#6a4a30';
+    ctx.fillRect(cx - topHalf, surfaceY, topHalf * 2, cupBottom - surfaceY + 12);
+    if (coffeePour.fill > 0.02) {
+      ctx.fillStyle = '#c49a6c';
+      ctx.fillRect(cx - topHalf, surfaceY, topHalf * 2, 5);
+    }
+    ctx.restore();
+
+    // Gold target band.
+    const bandTop = levelY(coffeePour.band.max);
+    const bandBottom = levelY(coffeePour.band.min);
+    ctx.fillStyle = 'rgba(232,185,90,0.28)';
+    ctx.fillRect(cx - topHalf - 14, bandTop, (topHalf + 14) * 2, bandBottom - bandTop);
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = '#e0a83a';
+    ctx.lineWidth = 2;
+    for (const by of [bandTop, bandBottom]) {
+      ctx.beginPath();
+      ctx.moveTo(cx - topHalf - 14, by);
+      ctx.lineTo(cx + topHalf + 14, by);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#e0a83a';
+    for (const dir of [-1, 1]) {
+      const tx = cx + dir * (topHalf + 18);
+      const ty = (bandTop + bandBottom) / 2;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx + dir * 9, ty - 6);
+      ctx.lineTo(tx + dir * 9, ty + 6);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    if (coffeePour.grade === 'spilled') {
+      ctx.fillStyle = '#6a4a30';
+      for (const [dx, dy, r] of [[-80, -8, 6], [84, 4, 5], [-60, 30, 4], [70, 40, 5], [-95, 60, 3], [100, 70, 4]]) {
+        ctx.beginPath();
+        ctx.arc(cx + dx, cupTop + dy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.ellipse(cx, cupBottom + 18, 120, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (coffeePour.grade) {
+      ctx.save();
+      ctx.translate(cx, surfaceY - 4);
+      drawSteam([-20, 0, 20], 0, 30, 0.9);
+      ctx.restore();
+    }
+
+    if (coffeePour.grade) {
+      const text = coffeePour.grade[0].toUpperCase() + coffeePour.grade.slice(1);
+      drawRoundRect(ctx, cx - 60, py + panelH - 38, 120, 26, 13, COFFEE_RESULT_COLORS[coffeePour.grade]);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(text, cx, py + panelH - 24.5);
+    }
+    ctx.restore();
+  }
+
+  // -- Hallucinations (v4, ported from Library Shift v2.16) ---------------
+  //
+  // Below HALLUCINATION_START_SANITY the diner starts playing tricks —
+  // shadow figures, whispers, a pulsing vignette, flickers, and ghost
+  // customers sitting at empty tables (walk up to one and nobody's there:
+  // −5 Sanity). At 0 Sanity: jump scares, shaky hands (narrower, faster
+  // cook gauge), dropping what you carry, and a pay cut.
+
+  const WHISPERS = [
+    'table six is watching you',
+    'did you hear the bell?',
+    'the oven is calling your name',
+    'nobody ordered that',
+    'Duke knows',
+    'behind you',
+    'one more shift… one more shift…',
+    'the soup is staring back',
+  ];
+
+  let halluc = { figures: [], whispers: [], ghosts: [], flicker: 0, scare: 0, ghostCounter: 0 };
+
+  function currentIntensity() {
+    return shiftState && shiftState.phase === 'playing' ? hallucinationIntensity(shiftState.sanity) : 0;
+  }
+
+  function resetHallucinations() {
+    halluc = { figures: [], whispers: [], ghosts: [], flicker: 0, scare: 0, ghostCounter: 0 };
+  }
+
+  function ghostAtTable(tableId) {
+    return halluc.ghosts.find((g) => g.tableId === tableId) || null;
+  }
+
+  function spawnGhostCustomer(life = 15) {
+    const level = currentTableUnlockLevel();
+    const free = TABLE_IDS.filter((id) => isTableUnlocked(id, level)
+      && !shiftState.tables[id].occupied
+      && !pendingCustomers[id]
+      && !arrivingCustomers.some((c) => c.tableId === id)
+      && !ghostAtTable(id));
+    if (free.length === 0) return null;
+    const ghost = {
+      id: ++halluc.ghostCounter,
+      tableId: free[Math.floor(random() * free.length)],
+      look: CUSTOMER_LOOK_KEYS[Math.floor(random() * CUSTOMER_LOOK_KEYS.length)],
+      age: 0,
+      life,
+    };
+    halluc.ghosts.push(ghost);
+    return ghost;
+  }
+
+  function updateHallucinations(deltaSeconds) {
+    const age = (list) => list.filter((item) => {
+      item.age += deltaSeconds;
+      return item.age < item.life;
+    });
+    halluc.figures = age(halluc.figures);
+    halluc.whispers = age(halluc.whispers);
+    halluc.ghosts = age(halluc.ghosts);
+    halluc.flicker = Math.max(0, halluc.flicker - deltaSeconds);
+    halluc.scare = Math.max(0, halluc.scare - deltaSeconds);
+
+    const i = currentIntensity();
+    if (i <= 0) {
+      // Sanity's back above the threshold (or the shift's over) — the
+      // tricks stop at once.
+      halluc.figures = [];
+      halluc.whispers = [];
+      halluc.ghosts = [];
+      return;
+    }
+    const chance = (perSecond) => random() < perSecond * deltaSeconds;
+    if (i > 0.3 && chance(0.35 * i)) {
+      halluc.figures.push({ x: 80 + random() * (world.width - 160), y: 140 + random() * 380, age: 0, life: 0.8 + random() * 1.2 });
+    }
+    if (chance(0.3 * i)) {
+      halluc.whispers.push({ text: WHISPERS[Math.floor(random() * WHISPERS.length)], x: 120 + random() * (world.width - 240), y: 120 + random() * 380, age: 0, life: 2.6 });
+    }
+    if (chance(0.12 * i)) halluc.flicker = 0.18;
+    if (i >= 1 && chance(0.04)) halluc.scare = 0.45;
+    if (currentRoom === ROOM_DINING && i >= 0.5 && halluc.ghosts.length === 0 && chance(0.06 * i)) spawnGhostCustomer();
+    if (!cookMiniGame && !coffeePour && (heldDish || inventory.length > 0) && chance(CARRY_DROP_CHANCE_PER_SECOND * i)) {
+      if (heldDish) {
+        showToast(`Your hands shake — you dropped the ${heldDish}!`, 3);
+        heldDish = null;
+      } else {
+        const index = Math.floor(random() * inventory.length);
+        showToast(`Your hands shake — you dropped the ${inventory[index]}!`, 3);
+        inventory.splice(index, 1);
+      }
+    }
+  }
+
+  function drawShadowFigure(x, y, scale, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#140c18';
+    ctx.beginPath();
+    ctx.ellipse(x, y - 34 * scale, 10 * scale, 11 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x - 14 * scale, y + 8 * scale);
+    ctx.quadraticCurveTo(x - 13 * scale, y - 26 * scale, x, y - 26 * scale);
+    ctx.quadraticCurveTo(x + 13 * scale, y - 26 * scale, x + 14 * scale, y + 8 * scale);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#e0303a';
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(x + dir * 3.6 * scale, y - 35 * scale, 1.4 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** A ghost customer: a translucent, jittering diner with a "???" chip, drawn in the table's local space. */
+  function drawGhostAtTable(ghost, half) {
+    const t = performance.now();
+    ctx.save();
+    ctx.globalAlpha = 0.35 + 0.2 * Math.sin(t / 90);
+    drawKitchenPerson(ctx, Math.sin(t / 37) * 1.5, half + 8, ghost.look, { scale: 1.0 });
+    ctx.restore();
+    drawLabelChip(ctx, 0, -half - 10, '???', 'bold 10px sans-serif');
+  }
+
+  function drawHallucinations() {
+    const i = currentIntensity();
+    const t = performance.now();
+    if (i <= 0 && halluc.flicker <= 0 && halluc.scare <= 0) return;
+    for (const f of halluc.figures) {
+      const fade = Math.sin((f.age / f.life) * Math.PI);
+      const flick = Math.sin(t / 33) > -0.6 ? 1 : 0.3;
+      drawShadowFigure(f.x, f.y, 1.4, 0.55 * fade * flick);
+    }
+    ctx.save();
+    for (const w of halluc.whispers) {
+      ctx.globalAlpha = Math.sin((w.age / w.life) * Math.PI) * 0.85;
+      ctx.fillStyle = 'rgba(110,40,90,1)';
+      ctx.font = 'italic 15px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(w.text, w.x, w.y - w.age * 8);
+    }
+    ctx.restore();
+    if (i > 0) {
+      const pulse = 0.85 + 0.15 * Math.sin(t / 400);
+      const vignette = ctx.createRadialGradient(world.width / 2, world.height / 2, 90 + 170 * (1 - i), world.width / 2, world.height / 2, 560);
+      vignette.addColorStop(0, 'rgba(40,0,50,0)');
+      vignette.addColorStop(0.6, `rgba(40,0,50,${0.45 * i * pulse})`);
+      vignette.addColorStop(1, `rgba(20,0,30,${0.9 * i * pulse})`);
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, world.width, world.height);
+    }
+    if (halluc.flicker > 0) {
+      ctx.fillStyle = 'rgba(10,0,15,0.55)';
+      ctx.fillRect(0, 0, world.width, world.height);
+    }
+    if (halluc.scare > 0) {
+      const p = 1 - halluc.scare / 0.45;
+      ctx.fillStyle = 'rgba(5,0,8,0.7)';
+      ctx.fillRect(0, 0, world.width, world.height);
+      drawShadowFigure(world.width / 2, world.height + 120 - p * 140, 4.2, 0.95);
+    }
+  }
+
+  // -- 0 Reputation penalties (v4, ported from Library Shift's 0 Mood) ----
+
+  /** Toasts for whatever engine-state.js's tick just did at 0 Reputation. */
+  function announceZeroReputationPenalties(before) {
+    if ((shiftState.complaints ?? 0) > (before.complaints ?? 0)) {
+      showToast(`📨 A complaint letter for Duke — −${COMPLAINT_GARD} Gard. Reputation is at 0!`, 3.5);
+    }
+    if ((shiftState.stormOuts ?? 0) > (before.stormOuts ?? 0)) {
+      showToast('A fed-up customer stormed out — Reputation is at 0!', 3.5);
+    }
   }
 
   // -- Movement + station interaction --------------------------------
@@ -2044,7 +2678,7 @@ export function init(canvas, elements) {
   }
 
   function onCanvasClick(e) {
-    if (activePanel || recipeBookOpen || !running) return;
+    if (activePanel || recipeBookOpen || coffeePour || !running) return;
     const { x, y } = canvasCoordsFromEvent(e);
 
     // v3.24: clicking directly on a food icon sitting on the tray removes
@@ -2094,6 +2728,11 @@ export function init(canvas, elements) {
   // where `running` is already false and Enter should submit that form
   // normally, not be intercepted here.
   function onKeyDown(e) {
+    if (coffeePour && (e.key === ' ' || e.key === 'Enter')) {
+      e.preventDefault();
+      if (!e.repeat) startCoffeePour();
+      return;
+    }
     if (e.key !== 'Enter') return;
     if (!hoverStation) return;
     if (activePanel || recipeBookOpen || !running) return;
@@ -2163,12 +2802,19 @@ export function init(canvas, elements) {
   }
 
   function handleTableArrival(tableId) {
+    const ghost = ghostAtTable(tableId);
+    if (ghost && !pendingCustomers[tableId]) {
+      halluc.ghosts = halluc.ghosts.filter((g) => g !== ghost);
+      shiftState = startleFromHallucination(shiftState);
+      showToast("…there's no one there. Your heart pounds.", 3);
+      return;
+    }
     const pendingDish = pendingCustomers[tableId];
     if (pendingDish) {
       const isKarenTable = karen && karen.tableId === tableId;
       const isMelTable = mel && mel.tableId === tableId;
       let patience = customerPatienceSeconds(currentShiftNumber, save.gear.regularsPatience);
-      if (isKarenTable) patience = KAREN_PATIENCE_SECONDS;
+      if (isKarenTable) patience = karenThisShift.patienceSeconds;
       else if (isMelTable) patience += MEL_PATIENCE_BONUS_SECONDS;
       // v3.11: a mistake this shift drains the restaurant's reputation, and
       // every order taken *after* that (not just the mistaken one) gets
@@ -2206,8 +2852,15 @@ export function init(canvas, elements) {
         spawnPayingCustomer(tableId, appearance, servedDish);
       }
       if (isKarenTable) {
-        if (matched) karen = null;
-        else triggerKarenRipple();
+        if (matched) {
+          karen = null;
+          earnBonusGard(karenThisShift.tipGard);
+          showToast(karenThisShift.rematch
+            ? `Karen, grudgingly: "...Fine. That was actually good." +${karenThisShift.tipGard}g tip`
+            : `Karen huffs, but tips anyway. +${karenThisShift.tipGard}g`, 4);
+        } else {
+          triggerKarenRipple();
+        }
       }
       if (isMelTable) {
         if (matched) showToast(MEL_THANK_YOU_LINE, 4);
@@ -2264,6 +2917,7 @@ export function init(canvas, elements) {
       payingDuration: null, // picked on arrival at the Counter, once 'walking' completes
       appearance,
       dishName,
+      look: customerLooks[tableId],
     });
   }
 
@@ -2288,6 +2942,7 @@ export function init(canvas, elements) {
         c.elapsed += deltaSeconds;
         if (c.elapsed >= c.payingDuration) {
           save.monthToDateGard += COUNTER_PAYMENT_GARD;
+          counterGardThisShift += COUNTER_PAYMENT_GARD;
           persistSave(storageAvailable, save);
           c.phase = 'leaving';
           c.targetX = INTRO_ENTRANCE_POSITION.x;
@@ -2343,22 +2998,16 @@ export function init(canvas, elements) {
    * drawn identically regardless of which direction they're walking, so a
    * customer looks the same arriving as they do leaving.
    */
-  function drawCustomerFigure(x, y, appearance) {
+  function drawCustomerFigure(x, y, appearance, look) {
     if (appearance === 'mel') {
-      drawMel(ctx, x, y, 1.05);
+      drawMel(ctx, x, y, 1.0);
     } else if (appearance === 'couple') {
-      drawPixelPerson(ctx, x - 12, y, { bodyColor: OLIVE_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#fdf1e4', hairColor: '#7a4a2e', bowColor: '#ffffff', scale: 0.85 });
-      drawPixelPerson(ctx, x + 12, y, { bodyColor: OLIVER_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#2c3140', hairColor: '#33261a', scale: 0.85 });
+      drawKitchenPerson(ctx, x - 13, y, 'olive', { scale: 0.85 });
+      drawKitchenPerson(ctx, x + 13, y, 'oliver', { scale: 0.85 });
+    } else if (appearance === 'karen') {
+      drawKitchenPerson(ctx, x, y, 'karen', { scale: 1.0, angryTint: Boolean(karenThisShift && karenThisShift.rematch) });
     } else {
-      drawPixelPerson(ctx, x, y, {
-        bodyColor: appearance === 'karen' ? '#e88ba0' : '#f2c88a',
-        headColor: '#f6dcc0',
-        pantsColor: appearance === 'karen' ? '#2a2a2a' : '#5a3a22',
-        hairColor: appearance === 'karen' ? '#3a2a2a' : '#6b4a30',
-        bowColor: appearance === 'karen' ? '#2a2a2a' : null,
-        scale: 1.05,
-        marker: appearance === 'karen' ? '#ffe066' : null,
-      });
+      drawKitchenPerson(ctx, x, y, look || CUSTOMER_LOOK_KEYS[0], { scale: 1.0 });
     }
   }
 
@@ -2379,7 +3028,7 @@ export function init(canvas, elements) {
         ...arrivingCustomers.map((other) => ({ x: other.x, y: other.y, radius: CUSTOMER_COLLISION_RADIUS })),
       ];
       const visual = resolveObstacleCollisions(c.x, c.y, CUSTOMER_COLLISION_RADIUS, obstacles);
-      drawCustomerFigure(visual.x, visual.y, c.appearance);
+      drawCustomerFigure(visual.x, visual.y, c.appearance, c.look);
       if (c.phase === 'eating') drawEatingAnimation({ ...c, x: visual.x, y: visual.y });
     }
   }
@@ -2403,6 +3052,7 @@ export function init(canvas, elements) {
       tableId,
       appearance,
       dishName,
+      look: CUSTOMER_LOOK_KEYS[Math.floor(random() * CUSTOMER_LOOK_KEYS.length)],
     });
   }
 
@@ -2423,11 +3073,12 @@ export function init(canvas, elements) {
         // at spawn time instead — now genuinely "the moment she's seated"
         // per the customer rules doc, not just the moment she was picked.
         pendingCustomers[c.tableId] = c.dishName;
+        customerLooks[c.tableId] = c.look;
         if (c.appearance === 'mel') mel = { tableId: c.tableId };
         else if (c.appearance === 'couple') couple = { tableId: c.tableId };
         else if (c.appearance === 'karen') {
           karen = { tableId: c.tableId };
-          showToast(KAREN_LINE, 5);
+          showToast(karenThisShift.line, 5);
         }
         return false;
       }
@@ -2447,7 +3098,7 @@ export function init(canvas, elements) {
         ...arrivingCustomers.filter((other) => other !== c).map((other) => ({ x: other.x, y: other.y, radius: CUSTOMER_COLLISION_RADIUS })),
       ];
       const visual = resolveObstacleCollisions(c.x, c.y, CUSTOMER_COLLISION_RADIUS, obstacles);
-      drawCustomerFigure(visual.x, visual.y, c.appearance);
+      drawCustomerFigure(visual.x, visual.y, c.appearance, c.look);
     }
   }
 
@@ -2497,8 +3148,15 @@ export function init(canvas, elements) {
       station: stationKind,
       gaugePosition: 0,
       direction: 1,
-      zone: cookSuccessZone(save.gear.sharpKnife),
+      // v4 shaky hands: a narrower window at low Sanity.
+      zone: shakyCookSuccessZone(save.gear.sharpKnife, shakyHandsZoneScale(currentIntensity())),
     };
+    if (elements.cookGauge.zone) {
+      const zone = cookMiniGame.zone;
+      elements.cookGauge.zone.style.left = `${(zone.start * 100).toFixed(1)}%`;
+      elements.cookGauge.zone.style.width = `${((zone.end - zone.start) * 100).toFixed(1)}%`;
+      elements.cookGauge.zone.style.backgroundColor = 'rgba(224,168,58,0.55)';
+    }
     elements.cookGauge.root.classList.remove('hidden');
   }
 
@@ -2542,10 +3200,9 @@ export function init(canvas, elements) {
       if (station.kind === 'table') return handleTableArrival(station.tableId);
       if (station.kind === 'fridge' || station.kind === 'cabinet') return handleGatherArrival(station.kind);
       if (station.kind === 'cookware-closet') return openPanel('cookware');
-      if (station.kind === 'stove' || station.kind === 'oven') return handleCookArrival(station.kind);
+      if (station.kind === 'stove' || station.kind === 'oven' || station.kind === 'rice-station') return handleCookArrival(station.kind);
       if (station.kind === 'coffee-machine') {
-        shiftState = restoreSanity(shiftState);
-        showToast('Coffee! Feeling sharper.');
+        openCoffeePour();
         return;
       }
       return;
@@ -2583,7 +3240,8 @@ export function init(canvas, elements) {
     const availableTableIds = TABLE_IDS.filter((id) => isTableUnlocked(id, level)
       && !shiftState.tables[id].occupied
       && !pendingCustomers[id]
-      && !arrivingCustomers.some((c) => c.tableId === id));
+      && !arrivingCustomers.some((c) => c.tableId === id)
+      && !ghostAtTable(id));
     if (availableTableIds.length === 0) return;
 
     const tableId = availableTableIds[Math.floor(random() * availableTableIds.length)];
@@ -2620,7 +3278,7 @@ export function init(canvas, elements) {
 
   function updateCookMiniGame(deltaSeconds) {
     if (!cookMiniGame) return;
-    const speed = cookSweepSpeed(currentShiftNumber);
+    const speed = cookSweepSpeed(currentShiftNumber) * shakyHandsSweepMultiplier(currentIntensity());
     cookMiniGame.gaugePosition += cookMiniGame.direction * speed * deltaSeconds;
     if (cookMiniGame.gaugePosition >= 1) {
       cookMiniGame.gaugePosition = 1;
@@ -2651,26 +3309,23 @@ export function init(canvas, elements) {
 
   // -- Rendering ----------------------------------------------------------
 
-  // Fixed, hand-placed decorative star positions on the floor — a light
-  // watermark, not a per-tile pattern (too busy/costly to redraw every
-  // tile every frame), matching "make the restaurant star themed."
-  const FLOOR_STAR_POSITIONS = [
-    { x: 170, y: 210 }, { x: 790, y: 210 }, { x: 170, y: 420 }, { x: 790, y: 420 },
-    { x: 480, y: 300 },
-  ];
+  // v4 art pass ("make the art style similar to the library game"): the
+  // pink checkerboard floor became Library Shift's staggered wooden planks
+  // (Dining) and warm terracotta tiles (Kitchen), both with the same soft
+  // vignette toward the walls — fixed per position, so nothing shimmers.
+  const PLANK_HEIGHT = 30;
+  const PLANK_LENGTH = 160;
+  const PLANK_TONES = ['#efdfc4', '#ecdabd', '#f1e3ca', '#e9d6b8'];
+  const KITCHEN_TILE_SIZE = 48;
+  const KITCHEN_TILE_TONES = ['#f3e4d2', '#efdcc6'];
 
   /**
-   * v3.32: "generate a door or sprite image for entrance and exit" — this
-   * spot used to be plain floor text ("★ Entrance / Exit ★", no graphic at
-   * all). Drawn directly in `drawFloor` (world coordinates, not a
-   * station's local translated space, since — per the comment below —
-   * this was deliberately never made a real clickable station) rather
-   * than through `drawStation`. Sits on the room's bottom "wall", centered
-   * on `INTRO_ENTRANCE_POSITION.x` (650) — the exact spot the one-time
-   * walk-in intro and every departing paid customer (`payingCustomers`'
-   * 'leaving' phase) already walk to/from, so the graphic now visually
-   * explains why characters converge there. Same canvas-primitives-only
-   * convention as every other sprite in this file.
+   * v3.32: "generate a door or sprite image for entrance and exit" — the
+   * diner's front door, drawn directly in world coordinates (never a
+   * clickable station). Centered on `INTRO_ENTRANCE_POSITION.x` (650) — the
+   * exact spot the one-time walk-in intro, every arriving customer and
+   * every departing paid customer walk to/from. v4: restyled to match the
+   * Library-style wood palette (paneled frame, brass handle, a mat).
    */
   function drawEntranceDoor() {
     const doorX = 650;
@@ -2678,71 +3333,146 @@ export function init(canvas, elements) {
     const doorHalfWidth = 30;
     const doorHeight = 62;
 
-    // Frame: a warm wood arch, slightly darker than the counter-front
-    // panel's tone so it reads as a distinct fixture against the floor.
-    drawRoundRect(ctx, doorX - doorHalfWidth, doorTop, doorHalfWidth * 2, doorHeight, 10, '#8a6a4a');
-    // Open doorway showing warm light from outside — brighter near the
-    // top, like daylight/porch light spilling in, built from two layered
-    // fills rather than a canvas gradient (kept simple, same spirit as
-    // every other flat-shaded icon here).
-    drawRoundRect(ctx, doorX - doorHalfWidth + 6, doorTop + 6, doorHalfWidth * 2 - 12, doorHeight - 12, 6, '#ffdf95');
-    drawRoundRect(ctx, doorX - doorHalfWidth + 6, doorTop + 6, doorHalfWidth * 2 - 12, (doorHeight - 12) * 0.45, 6, '#fff3d6');
-    // The door itself, propped open against the right side of the frame.
-    drawRoundRect(ctx, doorX + doorHalfWidth - 13, doorTop + 6, 9, doorHeight - 12, 3, '#5a3a22');
-    ctx.fillStyle = '#3a2a1a';
+    drawRoundRect(ctx, doorX - doorHalfWidth - 4, doorTop - 4, doorHalfWidth * 2 + 8, doorHeight + 4, [10, 10, 0, 0], '#8a6a4a');
+    // Open doorway with warm daylight spilling in.
+    drawRoundRect(ctx, doorX - doorHalfWidth + 2, doorTop + 2, doorHalfWidth * 2 - 4, doorHeight - 2, [7, 7, 0, 0], '#ffe6a8');
+    drawRoundRect(ctx, doorX - doorHalfWidth + 2, doorTop + 2, doorHalfWidth * 2 - 4, (doorHeight - 2) * 0.45, [7, 7, 0, 0], '#fff4d6');
+    // The door leaf, propped open against the right side, with a brass handle.
+    drawRoundRect(ctx, doorX + doorHalfWidth - 13, doorTop + 2, 11, doorHeight - 2, 2, '#b9824f');
+    ctx.strokeStyle = 'rgba(90,55,30,0.35)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(doorX + doorHalfWidth - 11, doorTop + 8, 7, 20);
+    ctx.strokeRect(doorX + doorHalfWidth - 11, doorTop + 34, 7, 20);
+    ctx.fillStyle = '#c9a24a';
     ctx.beginPath();
-    ctx.arc(doorX + doorHalfWidth - 16, doorTop + doorHeight / 2, 1.5, 0, Math.PI * 2);
+    ctx.arc(doorX + doorHalfWidth - 15, doorTop + doorHeight / 2, 2, 0, Math.PI * 2);
     ctx.fill();
-    // A small star lantern above the frame and a welcome mat below it —
-    // the restaurant's existing star theme, either side of the doorway.
-    drawStar(ctx, doorX - doorHalfWidth - 6, doorTop + 4, 6, 2.5, '#f2d98a');
-    drawStar(ctx, doorX + doorHalfWidth + 6, doorTop + 4, 6, 2.5, '#f2d98a');
-    drawRoundRect(ctx, doorX - doorHalfWidth - 6, doorTop + doorHeight, doorHalfWidth * 2 + 12, 9, 4, '#c65f7c');
-    drawStar(ctx, doorX, doorTop + doorHeight + 4.5, 4, 1.8, '#fdf1e4');
+    // Star lanterns either side and a welcome mat.
+    drawStar(ctx, doorX - doorHalfWidth - 10, doorTop + 6, 6, 2.5, '#e8b95a');
+    drawStar(ctx, doorX + doorHalfWidth + 10, doorTop + 6, 6, 2.5, '#e8b95a');
+    drawRoundRect(ctx, doorX - doorHalfWidth - 6, doorTop + doorHeight - 4, doorHalfWidth * 2 + 12, 9, 4, '#c65f7c');
+    drawStar(ctx, doorX, doorTop + doorHeight + 0.5, 4, 1.8, '#fdf1e4');
+  }
+
+  function drawPlankFloor() {
+    ctx.fillStyle = PLANK_TONES[0];
+    ctx.fillRect(0, 0, world.width, world.height);
+    for (let row = 0; row * PLANK_HEIGHT < world.height; row++) {
+      const y = row * PLANK_HEIGHT;
+      const offset = (row % 3) * (PLANK_LENGTH / 3);
+      for (let x = -offset, i = 0; x < world.width; x += PLANK_LENGTH, i++) {
+        ctx.fillStyle = PLANK_TONES[(row * 7 + i * 3) % PLANK_TONES.length];
+        ctx.fillRect(x, y, PLANK_LENGTH, PLANK_HEIGHT);
+        ctx.fillStyle = 'rgba(120,85,50,0.16)';
+        ctx.fillRect(x, y, 1.5, PLANK_HEIGHT);
+        ctx.fillStyle = 'rgba(120,85,50,0.06)';
+        ctx.fillRect(x + 24 + ((row * 37 + i * 53) % 90), y + 9 + ((row + i) % 3) * 5, 40, 1.5);
+      }
+      ctx.fillStyle = 'rgba(120,85,50,0.18)';
+      ctx.fillRect(0, y, world.width, 1.5);
+    }
+  }
+
+  function drawKitchenTileFloor() {
+    for (let row = 0; row * KITCHEN_TILE_SIZE < world.height; row++) {
+      for (let col = 0; col * KITCHEN_TILE_SIZE < world.width; col++) {
+        const x = col * KITCHEN_TILE_SIZE;
+        const y = row * KITCHEN_TILE_SIZE;
+        ctx.fillStyle = KITCHEN_TILE_TONES[(row + col) % 2];
+        ctx.fillRect(x, y, KITCHEN_TILE_SIZE, KITCHEN_TILE_SIZE);
+        // A soft highlight on each tile's upper-left, for a glazed look.
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillRect(x + 3, y + 3, KITCHEN_TILE_SIZE - 14, 3);
+      }
+    }
+    // Grout lines.
+    ctx.fillStyle = 'rgba(150,110,80,0.2)';
+    for (let x = 0; x < world.width; x += KITCHEN_TILE_SIZE) ctx.fillRect(x, 0, 1.5, world.height);
+    for (let y = 0; y < world.height; y += KITCHEN_TILE_SIZE) ctx.fillRect(0, y, world.width, 1.5);
   }
 
   function drawFloor() {
-    drawPixelRect(ctx, 0, 0, world.width, world.height, FLOOR_COLOR);
-    for (let x = 0; x < world.width; x += FLOOR_TILE_SIZE) {
-      for (let y = 0; y < world.height; y += FLOOR_TILE_SIZE) {
-        if (((x / FLOOR_TILE_SIZE) + (y / FLOOR_TILE_SIZE)) % 2 === 0) {
-          drawPixelRect(ctx, x, y, FLOOR_TILE_SIZE, FLOOR_TILE_SIZE, FLOOR_TILE_COLOR);
-        }
-      }
-    }
-    for (const p of FLOOR_STAR_POSITIONS) {
-      drawStar(ctx, p.x, p.y, 10, 4, 'rgba(255,255,255,0.35)');
-    }
+    if (currentRoom === ROOM_DINING) drawPlankFloor();
+    else drawKitchenTileFloor();
 
-    // The star-themed sign and the entrance/exit door only make sense in
-    // the Dining room (the Kitchen has no entrance/exit of its own — its
-    // only way out is the dining-door station) — the door is purely
-    // decorative, not an interactive station (the user originally asked
-    // "where is the entrance/exit" — this answers it directly rather than
-    // adding a new clickable station for something with no separate
-    // mechanic). Stations draw on top of the floor, so the sign must sit
-    // somewhere no station box or label chip ever occupies — Duke's
-    // Office (x 445-515) owns the top-center column including its label
-    // chip below it, so the sign is offset well clear of that column
-    // instead of centered on it.
+    const vignette = ctx.createRadialGradient(world.width / 2, world.height / 2, 200, world.width / 2, world.height / 2, 620);
+    vignette.addColorStop(0, 'rgba(120,85,50,0)');
+    vignette.addColorStop(1, 'rgba(120,85,50,0.12)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, world.width, world.height);
+
+    // The sign sits right of Duke's Office (x 445-515) and the wall clock,
+    // clear of every station box and label chip — the HUD (Sanity/
+    // Reputation bars and the Gard counter) owns the top-left.
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#8a6a4a';
+    ctx.font = 'bold 13px sans-serif';
     if (currentRoom === ROOM_DINING) {
-      ctx.fillStyle = '#c65f7c';
-      ctx.font = 'bold 13px sans-serif';
-      ctx.fillText('✨ Startime Diner ✨', 240, 18);
-
+      ctx.fillText('★ Startime Diner ★', 700, 22);
       drawEntranceDoor();
-      ctx.fillStyle = 'rgba(198,95,124,0.7)';
+      ctx.fillStyle = 'rgba(138,106,74,0.8)';
       ctx.font = '10px sans-serif';
       ctx.fillText('Entrance / Exit', 650, world.height - 8);
     } else {
-      ctx.fillStyle = '#c65f7c';
-      ctx.font = 'bold 13px sans-serif';
-      ctx.fillText('✨ Kitchen ✨', 240, 18);
+      ctx.fillText('Kitchen', 700, 22);
     }
     ctx.restore();
+
+    drawWallClock();
+  }
+
+  /**
+   * v4: an analog wall clock (ported from Library Shift) echoing the HUD's
+   * `#cooking-hud-clock` reading — parsed from the same `inGameTimeLabel`
+   * text so the two can never drift apart. Purely decorative; drawn in
+   * both rooms (every kitchen has a clock on the wall too).
+   */
+  function drawWallClock() {
+    if (!shiftState) return;
+    const label = inGameTimeLabel(shiftState.clockSeconds, shiftClockSecondsForShift(currentShiftNumber));
+    const match = /^(\d+):(\d+)\s(AM|PM)$/.exec(label);
+    if (!match) return;
+    const hour12 = Number(match[1]);
+    const minute = Number(match[2]);
+
+    const cx = 600;
+    const cy = 34;
+    const r = 18;
+    drawRoundRect(ctx, cx - r - 4, cy - r - 4, (r + 4) * 2, (r + 4) * 2, 8, '#8a6a4a');
+    ctx.fillStyle = '#fdf8ee';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#5a4a3a';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * (r - 3), cy + Math.sin(angle) * (r - 3));
+      ctx.lineTo(cx + Math.cos(angle) * (r - 7), cy + Math.sin(angle) * (r - 7));
+      ctx.stroke();
+    }
+    const minuteAngle = (minute / 60) * Math.PI * 2 - Math.PI / 2;
+    const hourAngle = (((hour12 % 12) + minute / 60) / 12) * Math.PI * 2 - Math.PI / 2;
+    ctx.strokeStyle = '#3a2a2a';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(hourAngle) * r * 0.5, cy + Math.sin(hourAngle) * r * 0.5);
+    ctx.stroke();
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(minuteAngle) * r * 0.75, cy + Math.sin(minuteAngle) * r * 0.75);
+    ctx.stroke();
+    ctx.fillStyle = '#3a2a2a';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   function isStationOpen(station) {
@@ -2764,23 +3494,21 @@ export function init(canvas, elements) {
     const isCoupleTable = couple && couple.tableId === tableId;
     const half = station.size / 2;
 
+    const ghost = !pendingDish && !order ? ghostAtTable(tableId) : null;
+    if (ghost) drawGhostAtTable(ghost, half);
+
     if (pendingDish || order) {
       if (isMelTable) {
-        drawMel(ctx, 0, half + 8, 1.05);
+        drawMel(ctx, 0, half + 8, 1.0);
       } else if (isCoupleTable) {
         // Olive & Oliver: a couple sharing one table — two people, not one.
-        drawPixelPerson(ctx, -17, half + 8, { bodyColor: OLIVE_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#fdf1e4', hairColor: '#7a4a2e', bowColor: '#ffffff', scale: 0.95 });
-        drawPixelPerson(ctx, 17, half + 8, { bodyColor: OLIVER_FAVORITE_COLOR, headColor: '#f6dcc0', pantsColor: '#2c3140', hairColor: '#33261a', scale: 0.95 });
+        drawKitchenPerson(ctx, -17, half + 8, 'olive', { scale: 0.9 });
+        drawKitchenPerson(ctx, 17, half + 8, 'oliver', { scale: 0.9 });
+      } else if (isKarenTable) {
+        // Already fuming the moment she sits down.
+        drawKitchenPerson(ctx, 0, half + 8, 'karen', { scale: 1.0, angryTint: true });
       } else {
-        drawPixelPerson(ctx, 0, half + 8, {
-          bodyColor: isKarenTable ? '#e88ba0' : '#f2c88a',
-          headColor: '#f6dcc0',
-          pantsColor: isKarenTable ? '#2a2a2a' : '#5a3a22',
-          hairColor: isKarenTable ? '#3a2a2a' : '#6b4a30',
-          bowColor: isKarenTable ? '#2a2a2a' : null,
-          scale: 1.05,
-          marker: isKarenTable ? '#ffe066' : null,
-        });
+        drawKitchenPerson(ctx, 0, half + 8, customerLooks[tableId] || CUSTOMER_LOOK_KEYS[0], { scale: 1.0 });
       }
     }
 
@@ -2815,362 +3543,531 @@ export function init(canvas, elements) {
     }
   }
 
-  // Dark, warm text color used for every on-canvas label — the pastel
-  // "coquette" floor/station palette is light, so the old cream/white
-  // label text (readable against the v2 dark-wood palette) would have
-  // gone almost invisible; this is the fix for "where is the coffee
-  // machine???", not just a style choice.
-  const LABEL_TEXT_COLOR = '#5a3a4a';
+  // v4 art pass: Library Shift's label ink/chip style (a darker warm ink, a
+  // thin outline around the chip) — still the fix for "where is the coffee
+  // machine???" (light chip behind dark text over any station color).
+  const LABEL_TEXT_COLOR = '#3a2a2a';
 
   /** Small rounded chip behind a label so it stays legible over any station color. */
   function drawLabelChip(ctx, cx, cy, text, font) {
+    if (!text) return;
+    ctx.save();
     ctx.font = font;
-    const textWidth = ctx.measureText(text).width;
-    const paddingX = 5;
-    const chipW = textWidth + paddingX * 2;
-    const chipH = 14;
-    drawRoundRect(ctx, cx - chipW / 2, cy - chipH / 2, chipW, chipH, 6, 'rgba(255,251,246,0.85)');
-    ctx.fillStyle = LABEL_TEXT_COLOR;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, cx, cy + 0.5);
-  }
-
-  /**
-   * v3.26: the user asked to "improve the sprites" for the Counter and
-   * Coffee Machine, which previously drew as a plain flat-colored box
-   * (counter) or a plain flat-colored box with one decorative stripe
-   * (coffee machine) — the least detailed stations in the room. Both are
-   * drawn in the station's own local coordinate space (already
-   * translated/centered by `drawStation`), same convention as every
-   * other on-canvas icon in this file — no image assets, only canvas
-   * primitives.
-   *
-   * v3.27: the employee previously stood at `-half - 45`, entirely above
-   * and outside the box — a floating figure with a visible gap. v3.27
-   * fixed that by drawing them small and inside the box, with a thin
-   * "counter-top ledge" strip drawn *after* them meant to occlude just
-   * their lower torso. v3.31: that thin ledge (9px, positioned by eye
-   * rather than checked against the person's actual geometry) landed
-   * squarely across their *face* instead — `drawPixelPerson`'s head
-   * center sits at `y - 32*scale`, and the old ledge band overlapped
-   * nearly the whole face circle, exactly the "dashed line across the
-   * face" the user reported. Redesigned from the geometry up: the
-   * employee's own torso-bottom (`y - 4*scale`, computed directly from
-   * the same waist/scale values passed to `drawPixelPerson` below, not
-   * eyeballed) is now the *exact* top edge of a solid counter-front
-   * panel — full head, neck, and shoulders always clear above it, legs
-   * always fully hidden behind it, no band ever crosses the face.
-   */
-  function drawCounterDetail(half) {
-    const waistY = -half + 22;
-    const scale = 0.5;
-    // Employee first, fully visible — the front panel (drawn next) is
-    // sized to start exactly at their torso-bottom, below.
-    drawPixelPerson(ctx, 0, waistY, {
-      bodyColor: '#e8b95a', // apron, matching the counter-front accent color
-      headColor: '#f4c99a',
-      pantsColor: '#5a3a22',
-      hairColor: '#3a2a1a',
-      bowColor: '#ffffff', // a small collar/pin accent
-      scale,
-    });
-
-    // Solid counter-front panel: starts exactly at the employee's own
-    // torso-bottom (drawPixelPerson's y - 4*scale) so it never climbs
-    // higher than their waist, and always fully hides their legs.
-    const panelTop = waistY - 4 * scale;
-    drawRoundRect(ctx, -half, panelTop, half * 2, half - panelTop, 6, '#d99a5c');
-    // A lighter countertop-surface highlight along the panel's top edge.
-    drawRoundRect(ctx, -half, panelTop, half * 2, 5, 3, '#f7e3b0');
-    // A small register on the panel: body + screen + a bell on top.
-    drawRoundRect(ctx, -12, panelTop + 14, 24, 16, 3, '#8a6a4a');
-    drawRoundRect(ctx, -9, panelTop + 17, 18, 8, 2, '#bcdcf2');
-    ctx.fillStyle = '#e0a85a';
+    const w = ctx.measureText(text).width + 14;
+    const h = 16;
+    drawRoundRect(ctx, cx - w / 2, cy - h / 2, w, h, 6, 'rgba(255,251,246,0.92)');
+    ctx.strokeStyle = 'rgba(58,42,42,0.25)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(10, panelTop + 11, 4, Math.PI, 0);
-    ctx.fill();
-    ctx.fillRect(8, panelTop + 11, 4, 3);
-  }
-
-  function drawCoffeeMachineDetail(half) {
-    // Darker machine-body panel, inset from the outer box.
-    drawRoundRect(ctx, -half + 7, -half + 5, half * 2 - 14, half * 1.1, 6, '#7a5a42');
-    // Group head + spout the portafilter/cup sits under.
-    drawRoundRect(ctx, -7, -half + 12, 14, 7, 2, '#5a4230');
-    ctx.fillStyle = '#5a4230';
-    ctx.fillRect(-2, -half + 18, 4, 9);
-    // Two small control buttons.
-    ctx.fillStyle = '#e8b95a';
-    ctx.beginPath();
-    ctx.arc(-half + 15, -half + 13, 2.3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(half - 15, -half + 13, 2.3, 0, Math.PI * 2);
-    ctx.fill();
-    // A cup on a saucer at the base, catching the spout.
-    drawRoundRect(ctx, -10, half - 15, 20, 4, 2, '#fdf1e4');
-    drawRoundRect(ctx, -7, half - 20, 14, 8, 2, '#6a4a30');
-    ctx.strokeStyle = '#6a4a30';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(8, half - 16, 3, -Math.PI / 2, Math.PI / 2);
+    ctx.roundRect(cx - w / 2, cy - h / 2, w, h, 6);
     ctx.stroke();
-    // Steam wisps above the cup.
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.fillText(text, cx, cy + 0.5);
+    ctx.restore();
+  }
+
+  /** A small cream plaque with bold caps text — Library Shift's "RETURNS"/"FINES" sign style. */
+  function drawPlaque(text, cy, width, color = '#a0503a') {
+    drawRoundRect(ctx, -width / 2, cy - 6, width, 12, 3, '#fdf8ee');
+    ctx.fillStyle = color;
+    ctx.font = 'bold 7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 0, cy + 0.5);
+  }
+
+  /** A round brass knob — every door/cabinet detail drawer places its own. */
+  function drawKnob(x, y, r = 2.6) {
+    ctx.fillStyle = '#c9a24a';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /** Steam wisps rising from (x, y) — shared by the coffee machine, stove, oven and rice station. */
+  function drawSteam(xs, y, height = 14, alpha = 0.8) {
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
     ctx.lineWidth = 1.5;
-    for (const dx of [-3, 3]) {
+    for (const dx of xs) {
       ctx.beginPath();
-      ctx.moveTo(dx, half - 23);
-      ctx.quadraticCurveTo(dx - 3, half - 29, dx, half - 35);
+      ctx.moveTo(dx, y);
+      ctx.quadraticCurveTo(dx - 3, y - height / 3, dx, y - (height * 2) / 3);
+      ctx.quadraticCurveTo(dx + 3, y - height * 0.85, dx, y - height);
       ctx.stroke();
     }
   }
 
+  /** Whether the cook gauge is currently running at this station kind (glows/steam while cooking). */
+  function isCookingAt(kind) {
+    return Boolean(cookMiniGame && cookMiniGame.station === kind);
+  }
+
   /**
-   * v3.30: "generate kitchen utility sprites" — the six Kitchen-room
-   * stations (fridge, cabinet, cookware closet, cleaning closet, stove,
-   * oven) previously drew as a plain flat-colored box (fridge/cabinet/
-   * cookware-closet/cleaning-closet: box + the generic door knob every
-   * DOOR_KINDS station gets; stove/oven: box and nothing else at all) —
-   * the same "least detailed stations" gap the Counter/Coffee Machine
-   * were in before v3.26. Same conventions as those: drawn in the
-   * station's own local coordinate space, canvas primitives only (no
-   * image assets/generation tooling in this project).
-   *
-   * fridge/cabinet/cookware-closet/cleaning-closet are DOOR_KINDS
-   * stations (drawStation's shared open-inset+knob logic still applies
-   * to them) — these four detail drawers are called *before* that shared
-   * logic runs, so the knob/open-panel still reads on top, same layering
-   * `drawCounterDetail` uses for the counter employee vs. the counter-
-   * front panel. stove/oven are not DOOR_KINDS (nothing to interact with
-   * beyond the cook mini-game), so they get their own top-level branch,
-   * same as counter/coffee-machine. v3.31 extended this same pattern to
-   * the remaining DOOR_KINDS stations (toilet, boss-office, both doors) —
-   * see DOOR_KIND_DETAIL_DRAWERS below.
+   * v3.26/v3.27/v3.31: the front Counter — an employee standing behind a
+   * solid counter-front panel that starts exactly at their torso-bottom
+   * (shared/people.js's torso ends at y - 5*s), so the panel never crosses
+   * the face and always hides the legs. v4: the employee is the shared
+   * Library-style person; the panel is wood with a lighter countertop lip.
    */
-  function drawFridgeDetail(half) {
-    // A horizontal seam splitting a small top freezer section from the
-    // larger fridge-body section below, each with its own vertical handle
-    // bar — the shared door knob (drawn after this) still lands on the
-    // lower/bigger section, roughly where its handle bar ends.
-    ctx.strokeStyle = 'rgba(90,50,60,0.25)';
-    ctx.lineWidth = 2;
+  function drawCounterDetail(half) {
+    const scale = 0.48;
+    const waistY = -half + 24;
+    drawKitchenPerson(ctx, 0, waistY, 'counterStaff', { scale });
+    const panelTop = waistY - 5 * scale;
+    drawRoundRect(ctx, -half, panelTop, half * 2, half - panelTop, [0, 0, 10, 10], '#c98a5a');
+    drawRoundRect(ctx, -half, panelTop - 2, half * 2, 6, 3, '#e8b37a');
+    ctx.strokeStyle = 'rgba(90,55,30,0.3)';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(-half + 8, panelTop + 12, half - 12, half - panelTop - 18);
+    ctx.strokeRect(4, panelTop + 12, half - 12, half - panelTop - 18);
+    // Cash register: display, body, keypad.
+    drawRoundRect(ctx, 6, panelTop - 12, 22, 6, 2, '#5a4a4a');
+    drawRoundRect(ctx, 8, panelTop - 11, 12, 3.5, 1, '#9fe0a8');
+    drawRoundRect(ctx, 4, panelTop - 6, 26, 8, 2, '#7a6a6a');
+    // Service bell.
+    ctx.fillStyle = '#e0a83a';
     ctx.beginPath();
-    ctx.moveTo(-half + 6, -half + 20);
-    ctx.lineTo(half - 6, -half + 20);
-    ctx.stroke();
-    drawRoundRect(ctx, half - 13, -half + 8, 3, 9, 1.5, 'rgba(90,50,60,0.3)');
-  }
-
-  function drawCabinetDetail(half) {
-    // Two wood-panel cabinet doors: a center seam plus a shallow inset
-    // rectangle on each half suggesting a raised panel look.
-    ctx.strokeStyle = 'rgba(90,50,60,0.25)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, -half + 6);
-    ctx.lineTo(0, half - 6);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(90,50,60,0.18)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(-half + 10, -half + 10, half - 16, half * 2 - 20);
-    ctx.strokeRect(6, -half + 10, half - 16, half * 2 - 20);
-  }
-
-  function drawCookwareClosetDetail(half) {
-    // An open shelf holding a pot and a pan — the shared door knob still
-    // draws after this, on the right edge, clear of both.
-    drawRoundRect(ctx, -half + 6, 6, half * 2 - 20, 3, 1.5, 'rgba(90,50,60,0.3)'); // shelf
-    // Pot: body + two side-handle nubs flush against its edges + a
-    // top-center lid knob — kept on the closet's left side, clear of the
-    // shared door knob that draws after this on the right edge.
-    const potLeft = -half + 10;
-    const potWidth = 18;
-    const potTop = -14;
-    drawRoundRect(ctx, potLeft, potTop, potWidth, 16, 4, '#8a6a4a');
-    ctx.fillStyle = '#8a6a4a';
-    ctx.fillRect(potLeft - 3, potTop + 4, 3, 5);
-    ctx.fillRect(potLeft + potWidth, potTop + 4, 3, 5);
-    ctx.beginPath();
-    ctx.arc(potLeft + potWidth / 2, potTop - 2, 2.3, 0, Math.PI * 2);
+    ctx.arc(-20, panelTop - 1, 5, Math.PI, 0);
     ctx.fill();
-    // Pan: a circle with a handle stick, to the right of the pot.
+    ctx.fillRect(-21, panelTop - 9, 2, 3);
+  }
+
+  /** v4: Library Shift's espresso machine (bean hopper, display, brewing bay, cup, drip tray, steam), resized for this game's 70px box. */
+  function drawCoffeeMachineDetail(half) {
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath();
+    ctx.moveTo(-10, -half + 3);
+    ctx.lineTo(10, -half + 3);
+    ctx.lineTo(6, -half + 13);
+    ctx.lineTo(-6, -half + 13);
+    ctx.closePath();
+    ctx.fill();
     ctx.fillStyle = '#6a4a30';
+    for (const [bx, by] of [[-5, -half + 7], [0, -half + 6], [5, -half + 7], [-2.5, -half + 10], [2.5, -half + 10]]) {
+      ctx.beginPath();
+      ctx.ellipse(bx, by, 1.8, 1.2, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawRoundRect(ctx, -half + 7, -half + 13, half * 2 - 14, half * 2 - 19, 6, '#7a5a42');
+    drawRoundRect(ctx, -half + 7, -half + 13, half * 2 - 14, 8, [6, 6, 0, 0], '#8f6c50');
+    drawRoundRect(ctx, -8, -half + 15, 16, 4, 1.5, '#9fe0a8');
+    for (const [bx, color] of [[-half + 13, '#e8b95a'], [half - 13, '#e06a5b']]) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(bx, -half + 17, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawRoundRect(ctx, -half + 12, -half + 25, half * 2 - 24, half + 2, 5, '#4a3424');
+    drawRoundRect(ctx, -7, -half + 25, 14, 5, 2, '#b0a090');
+    ctx.fillStyle = '#b0a090';
+    ctx.fillRect(-4, -half + 29, 2.5, 4);
+    ctx.fillRect(1.5, -half + 29, 2.5, 4);
+    ctx.fillStyle = '#c47f4e';
+    ctx.fillRect(-0.75, -half + 33, 1.5, 3);
+    drawRoundRect(ctx, -6.5, half - 21, 13, 10, [1, 1, 4, 4], '#fdf8ee');
+    drawRoundRect(ctx, -5, half - 20, 10, 2, 1, '#6a4a30');
+    ctx.strokeStyle = '#fdf8ee';
+    ctx.lineWidth = 1.8;
     ctx.beginPath();
-    ctx.arc(15, -6, 8, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillRect(21, -8, 10, 3.5);
+    ctx.arc(7.5, half - 16, 2.6, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+    drawRoundRect(ctx, -half + 10, half - 11, half * 2 - 20, 4, 2, '#b0a090');
+    ctx.fillStyle = 'rgba(58,42,42,0.4)';
+    for (let gx = -half + 13; gx < half - 11; gx += 4.5) ctx.fillRect(gx, half - 10.5, 1.3, 2.5);
+    drawSteam([-11, 11], half - 22, 12);
   }
 
-  function drawCleaningClosetDetail(half) {
-    // A mop (stick + fan-shaped head) and a small bucket beside it, kept
-    // off-center/toward the top — drawStation draws the dirty-dish count
-    // dead center over this, once shiftState.dirtyDishCount > 0.
+  /**
+   * Fridge: a two-door fridge (small freezer on top), long handles, a
+   * couple of magnets and a note. While its panel is open, the main door
+   * swings away to show stocked shelves.
+   */
+  function drawFridgeDetail(half, open) {
+    const seamY = -half + 22;
+    if (open) {
+      drawRoundRect(ctx, -half + 5, seamY + 3, half * 2 - 10, half - seamY - 8, 5, '#fdf8ee');
+      for (const shelfY of [seamY + 15, seamY + 29]) {
+        drawRoundRect(ctx, -half + 7, shelfY, half * 2 - 14, 2, 1, 'rgba(90,110,130,0.45)');
+      }
+      for (const [fx, fy, color] of [[-20, seamY + 9, '#e06a5b'], [-9, seamY + 9, '#f7d774'], [4, seamY + 9, '#ffffff'], [-16, seamY + 23, '#7aa865'], [-4, seamY + 23, '#f2b6c6'], [10, seamY + 23, '#c98a5a'], [-12, seamY + 37, '#6fa0d8'], [6, seamY + 37, '#e8b95a']]) {
+        drawRoundRect(ctx, fx, fy - 4, 9, 8, 2, color);
+      }
+      drawRoundRect(ctx, half - 9, seamY + 3, 6, half - seamY - 8, 2, shadeColor('#bcd6e4', -0.1));
+    }
+    ctx.fillStyle = 'rgba(58,80,100,0.22)';
+    ctx.fillRect(-half + 4, seamY, half * 2 - 8, 2);
+    drawRoundRect(ctx, half - 12, -half + 7, 3.5, 11, 1.75, '#8aa2b2');
+    if (!open) {
+      drawRoundRect(ctx, half - 12, seamY + 6, 3.5, 22, 1.75, '#8aa2b2');
+      // Magnets and a shopping-list note.
+      drawRoundRect(ctx, -half + 10, seamY + 9, 14, 16, 1.5, '#fdf8ee');
+      ctx.fillStyle = 'rgba(58,42,42,0.35)';
+      for (const ly of [seamY + 13, seamY + 17, seamY + 21]) ctx.fillRect(-half + 12, ly, 10, 1);
+      for (const [mx, my, color] of [[-half + 17, seamY + 8, '#e06a5b'], [2, seamY + 20, '#7aa865'], [-4, seamY + 30, '#e8b95a']]) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(mx, my, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(-half + 6, -half + 6, 3, half * 2 - 14);
+  }
+
+  /** Cabinet: a wood countertop lip over two raised-panel doors with knobs; open shows jars and boxes on shelves. */
+  function drawCabinetDetail(half, open) {
+    drawRoundRect(ctx, -half - 1, -half + 4, half * 2 + 2, 7, 3, '#f0d2a8');
+    if (open) {
+      drawRoundRect(ctx, -half + 5, -half + 14, half * 2 - 10, half * 2 - 19, 4, '#6a4a30');
+      drawRoundRect(ctx, -half + 6, -2, half * 2 - 12, 2.5, 1, '#c99a6a');
+      for (const [jx, jy, color] of [[-22, -12, '#f7d774'], [-10, -12, '#e06a5b'], [4, -14, '#fdf8ee'], [16, -12, '#7aa865'], [-18, 12, '#c98a5a'], [-4, 12, '#f2b6c6'], [12, 12, '#e8b95a']]) {
+        drawRoundRect(ctx, jx - 4, jy - 6, 9, 12, 2, color);
+        drawRoundRect(ctx, jx - 4, jy - 7.5, 9, 2.5, 1, 'rgba(58,42,42,0.4)');
+      }
+      return;
+    }
+    ctx.fillStyle = 'rgba(90,55,30,0.35)';
+    ctx.fillRect(-0.75, -half + 13, 1.5, half * 2 - 18);
+    ctx.strokeStyle = 'rgba(90,55,30,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-half + 8, -half + 18, half - 13, half * 2 - 28);
+    ctx.strokeRect(5, -half + 18, half - 13, half * 2 - 28);
+    drawKnob(-5, 4);
+    drawKnob(5, 4);
+  }
+
+  /** Cookware Closet: open wooden shelving — a hanging utensil rail, a pot, a pan and a baking tray. */
+  function drawCookwareClosetDetail(half, open) {
+    drawRoundRect(ctx, -half + 5, -half + 5, half * 2 - 10, half * 2 - 10, 5, open ? '#f5ecf8' : shadeColor('#d6c3e0', 0.35));
+    // Utensil rail with a ladle, spatula and whisk.
+    drawRoundRect(ctx, -half + 9, -half + 9, half * 2 - 18, 2.5, 1, '#8a6a4a');
+    ctx.strokeStyle = '#8a8f96';
+    ctx.lineWidth = 1.6;
+    for (const ux of [-16, -4, 8, 19]) {
+      ctx.beginPath();
+      ctx.moveTo(ux, -half + 11);
+      ctx.lineTo(ux, -half + 22);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#8a8f96';
+    ctx.beginPath();
+    ctx.arc(-16, -half + 23, 3, 0, Math.PI);
+    ctx.fill();
+    ctx.fillRect(-6.5, -half + 21, 5, 4);
+    ctx.beginPath();
+    ctx.ellipse(8, -half + 24, 2.5, 4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // Two shelves.
+    for (const shelfY of [2, half - 9]) drawRoundRect(ctx, -half + 6, shelfY, half * 2 - 12, 3, 1.5, '#b9824f');
+    // Pot (body, handles, lid knob) and a pan on the top shelf.
+    drawRoundRect(ctx, -24, -10, 18, 12, 3, '#9a6a5a');
+    ctx.fillStyle = '#9a6a5a';
+    ctx.fillRect(-27, -7, 3, 4);
+    ctx.fillRect(-6, -7, 3, 4);
+    drawRoundRect(ctx, -25, -12, 20, 3, 1.5, '#7a4a3a');
+    ctx.beginPath();
+    ctx.arc(-15, -13, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#5a4a44';
+    ctx.beginPath();
+    ctx.ellipse(10, -2, 11, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    drawRoundRect(ctx, 20, -4, 11, 3, 1.5, '#8a5a3a');
+    // Baking tray and a rice cooker on the bottom shelf.
+    drawRoundRect(ctx, -26, half - 15, 24, 5, 1.5, '#a7aeb6');
+    drawRoundRect(ctx, 6, half - 23, 18, 14, 5, '#f5f0e6');
+    ctx.fillStyle = '#f0c6cf';
+    ctx.beginPath();
+    ctx.ellipse(15, half - 23, 9, 3.5, 0, Math.PI, 0);
+    ctx.fill();
+  }
+
+  /** Cleaning Closet: a slatted-vent door, plus a mop and bucket leaning beside it; the dirty-dish count is a badge (drawStation). */
+  function drawCleaningClosetDetail(half, open) {
+    drawRoundRect(ctx, -half + 6, -half + 6, 30, half * 2 - 12, [5, 5, 2, 2], open ? '#4a5a52' : shadeColor('#c9e2d4', -0.08));
+    if (!open) {
+      ctx.fillStyle = 'rgba(58,80,70,0.3)';
+      for (let vy = -half + 12; vy < -half + 28; vy += 4) ctx.fillRect(-half + 11, vy, 20, 1.6);
+      drawKnob(-half + 31, 4);
+    }
+    // Mop: handle + fanned strands.
     ctx.strokeStyle = '#a68a6a';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(-10, -half + 8);
-    ctx.lineTo(-10, half - 16);
+    ctx.moveTo(12, -half + 6);
+    ctx.lineTo(18, half - 14);
     ctx.stroke();
-    ctx.strokeStyle = '#c9b896';
+    ctx.strokeStyle = '#e6dccb';
     ctx.lineWidth = 2;
-    for (const dx of [-16, -10, -4]) {
+    for (const dx of [12, 16, 20, 24]) {
       ctx.beginPath();
-      ctx.moveTo(-10, half - 18);
-      ctx.lineTo(dx, half - 6);
+      ctx.moveTo(18, half - 15);
+      ctx.lineTo(dx, half - 5);
       ctx.stroke();
     }
-    // Bucket: a trapezoid with a small handle arc.
-    ctx.fillStyle = '#8fbfae';
+    // Bucket with water.
+    ctx.fillStyle = '#6fa0d8';
     ctx.beginPath();
-    ctx.moveTo(4, half - 20);
-    ctx.lineTo(24, half - 20);
-    ctx.lineTo(21, half - 6);
-    ctx.lineTo(7, half - 6);
+    ctx.moveTo(-6, half - 17);
+    ctx.lineTo(12, half - 17);
+    ctx.lineTo(10, half - 4);
+    ctx.lineTo(-4, half - 4);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = '#6a9a88';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(14, half - 24, 8, Math.PI, 0);
-    ctx.stroke();
-  }
-
-  function drawStoveDetail(half) {
-    // Two burners on the cooktop, plus a small control-knob row along the
-    // front edge — no door/knob on this station (not a DOOR_KINDS kind).
-    ctx.strokeStyle = 'rgba(90,50,60,0.35)';
-    ctx.lineWidth = 2;
-    for (const [dx, dy] of [[-11, -10], [11, -10], [-11, 8], [11, 8]]) {
-      ctx.beginPath();
-      ctx.arc(dx, dy, 7, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(dx, dy, 2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(90,50,60,0.35)';
-      ctx.fill();
-    }
-    ctx.fillStyle = '#8a6a4a';
-    drawRoundRect(ctx, -half + 6, half - 12, half * 2 - 12, 4, 2, '#8a6a4a');
-    ctx.fillStyle = '#e8b95a';
-    for (const dx of [-half + 14, -half + 24, -half + 34]) {
-      ctx.beginPath();
-      ctx.arc(dx, half - 10, 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function drawOvenDetail(half) {
-    // A small control panel (three knobs), a clear gap, a horizontal
-    // handle bar, then the door itself with a centered window "glow" —
-    // each element given its own band so they read as distinct parts
-    // rather than merging together at this box's small (70px) scale.
-    ctx.fillStyle = '#e8b95a';
-    for (const dx of [-12, 0, 12]) {
-      ctx.beginPath();
-      ctx.arc(dx, -half + 8, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    drawRoundRect(ctx, -half + 8, -half + 15, half * 2 - 16, 3, 1.5, '#7a5a4a'); // handle bar
-    // Door: an inset panel with a rounded window showing a warm "glow".
-    drawRoundRect(ctx, -half + 6, -half + 21, half * 2 - 12, half - 27, 5, '#c97a6a');
-    ctx.fillStyle = '#f7d9a0';
-    ctx.beginPath();
-    ctx.ellipse(0, 4, 13, 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#8a5a4a';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.ellipse(0, 4, 13, 10, 0, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  /**
-   * v3.31: "generate new sprites for restroom... change the sprite for
-   * Duke's office too and kitchen" — the remaining four `DOOR_KINDS`
-   * stations (toilet, boss-office, kitchen-door, dining-door) were the
-   * last ones still drawing as a plain flat-colored box + the generic
-   * door knob, no station-specific detail at all. Same conventions as
-   * every other detail drawer in this file.
-   */
-  function drawRestroomDetail(half) {
-    // A small WC silhouette — tank + bowl + seat-lid outline — plus a
-    // sparkle accent (this game's existing "clean/sparkly" motif, see
-    // drawStar's other call sites) rather than anything more literal.
-    drawRoundRect(ctx, -9, -half + 12, 18, 9, 3, '#eef6f8');
-    ctx.fillStyle = '#eef6f8';
-    ctx.beginPath();
-    ctx.ellipse(0, half - 18, 13, 15, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(90,50,60,0.3)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.ellipse(0, half - 27, 10, 5, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    drawStar(ctx, 13, -half + 8, 5, 2.2, '#f2d98a');
-  }
-
-  function drawBossOfficeDetail(half) {
-    // A name plaque (two thin engraved-looking lines) near the top, a
-    // small "boss" star badge, and a briefcase below — Duke's office
-    // door, not an interior scene, same convention as every other
-    // DOOR_KINDS detail (a closed door with a identifying detail, not a
-    // room preview).
-    drawRoundRect(ctx, -16, -half + 12, 32, 12, 3, '#e8cf8a');
-    ctx.strokeStyle = 'rgba(90,50,60,0.4)';
+    drawRoundRect(ctx, -6, half - 18, 18, 3, 1.5, '#bcdcf2');
+    ctx.strokeStyle = '#4f7fb0';
     ctx.lineWidth = 1.3;
-    for (const dy of [-half + 16, -half + 20]) {
-      ctx.beginPath();
-      ctx.moveTo(-11, dy);
-      ctx.lineTo(11, dy);
-      ctx.stroke();
-    }
-    drawStar(ctx, 0, -half + 32, 5, 2.2, '#f2d98a');
-    // Briefcase: body + a small handle arc on top.
-    drawRoundRect(ctx, -14, half - 20, 28, 14, 3, '#8a6a4a');
-    ctx.strokeStyle = '#5a3a22';
-    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(0, half - 20, 6, Math.PI, 0);
+    ctx.arc(3, half - 19, 7, Math.PI, 0);
     ctx.stroke();
   }
 
+  /** Stove: a cooktop with four grated burners, a knob strip, and an oven door below. A burner glows (with a pan on it) while cooking. */
+  function drawStoveDetail(half) {
+    const cooking = isCookingAt('stove');
+    drawRoundRect(ctx, -half + 4, -half + 4, half * 2 - 8, 30, 4, '#3a3634');
+    for (const [bx, by] of [[-13, -half + 12], [13, -half + 12], [-13, -half + 26], [13, -half + 26]]) {
+      ctx.strokeStyle = '#6a625e';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(bx, by, 5.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(bx, by, 2.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (cooking) {
+      ctx.fillStyle = 'rgba(255,140,60,0.85)';
+      ctx.beginPath();
+      ctx.arc(-13, -half + 26, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#5a4a44';
+      ctx.beginPath();
+      ctx.ellipse(-13, -half + 24, 9, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      drawRoundRect(ctx, -4, -half + 22, 12, 3, 1.5, '#8a5a3a');
+      drawSteam([-16, -10], -half + 20, 12);
+    }
+    // Knob strip.
+    drawRoundRect(ctx, -half + 4, -1, half * 2 - 8, 7, 2, '#d6cdc2');
+    for (const kx of [-20, -10, 10, 20]) {
+      ctx.fillStyle = '#5a4a44';
+      ctx.beginPath();
+      ctx.arc(kx, 2.5, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Oven door with a window and handle.
+    drawRoundRect(ctx, -half + 9, 12, half * 2 - 18, 4, 2, '#8a8f96');
+    drawRoundRect(ctx, -half + 10, 18, half * 2 - 20, half - 23, 3, cooking ? '#5a3a2a' : '#4a4442');
+  }
+
+  /** Oven: a wall oven — an LCD timer and knobs on top, a handle bar, and a big window with a warm glow that brightens while baking. */
+  function drawOvenDetail(half) {
+    const cooking = isCookingAt('oven');
+    drawRoundRect(ctx, -half + 5, -half + 5, half * 2 - 10, 12, 3, '#5a4a4a');
+    drawRoundRect(ctx, -9, -half + 7.5, 18, 7, 1.5, '#9fe0a8');
+    ctx.fillStyle = '#2a4a2a';
+    ctx.font = 'bold 6px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(cooking ? '350°' : '0:00', 0, -half + 11.5);
+    for (const kx of [-half + 11, half - 11]) {
+      ctx.fillStyle = '#e8b95a';
+      ctx.beginPath();
+      ctx.arc(kx, -half + 11, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawRoundRect(ctx, -half + 9, -half + 21, half * 2 - 18, 3.5, 1.75, '#8a8f96');
+    drawRoundRect(ctx, -half + 6, -half + 27, half * 2 - 12, half * 2 - 33, 5, shadeColor('#e9b9a8', -0.25));
+    drawRoundRect(ctx, -half + 12, -half + 32, half * 2 - 24, half * 2 - 44, 4, cooking ? '#ffb45a' : '#f7d9a0');
+    ctx.fillStyle = 'rgba(58,42,42,0.3)';
+    ctx.fillRect(-half + 13, 8, half * 2 - 26, 1.5);
+    if (cooking) drawSteam([-8, 8], -half + 22, 10, 0.7);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(-half + 14, -half + 34, 3, half - 12);
+  }
+
   /**
-   * Shared by both kitchen-door (Dining -> Kitchen) and dining-door
-   * (Kitchen -> Dining) — the same physical doorway seen from either
-   * side, so both get the identical "swinging restaurant door" look: a
-   * center seam plus a small round window in each leaf.
+   * Rice Station: a countertop with drawers and a power outlet — the spot
+   * the Rice Cooker plugs into (rules.js's 'rice-station' dishes). Shows
+   * the cooker sitting on it once the player has picked one up this shift
+   * (steaming while the gauge runs), or an empty dashed spot until then.
+   */
+  function drawRiceStationDetail(half) {
+    drawRoundRect(ctx, -half + 4, -half + 6, half * 2 - 8, 16, 3, '#f6eedf');
+    drawRoundRect(ctx, half - 16, -half + 10, 8, 9, 2, '#fdf8ee');
+    ctx.fillStyle = '#5a4a44';
+    ctx.fillRect(half - 13.5, -half + 12.5, 1, 3);
+    ctx.fillRect(half - 10.5, -half + 12.5, 1, 3);
+    drawRoundRect(ctx, -half, 2, half * 2, 5, 2.5, '#e8b37a');
+    drawRoundRect(ctx, -half + 2, 7, half * 2 - 4, half - 9, [0, 0, 8, 8], '#c98a5a');
+    for (const dy of [10, 21]) {
+      ctx.strokeStyle = 'rgba(90,55,30,0.35)';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(-half + 8, dy, half * 2 - 16, 9);
+      drawRoundRect(ctx, -5, dy + 3.5, 10, 2, 1, '#8a6a4a');
+    }
+    if (cookware.has('Rice Cooker')) {
+      drawIconAt(ctx, -6, -10, 40, drawRiceCookerIcon);
+      ctx.strokeStyle = '#5a4a44';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(8, -6);
+      ctx.quadraticCurveTo(16, -4, half - 12, -half + 17);
+      ctx.stroke();
+      if (isCookingAt('rice-station')) drawSteam([-10, -2], -24, 12);
+    } else {
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = 'rgba(90,55,30,0.45)';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.ellipse(-6, -4, 13, 5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  /** Restroom: a door with a little WC sign and a brass knob. */
+  function drawRestroomDetail(half) {
+    drawRoundRect(ctx, -half + 10, -half + 6, half * 2 - 20, half * 2 - 6, [6, 6, 0, 0], 'rgba(60,110,130,0.14)');
+    ctx.strokeStyle = 'rgba(60,110,130,0.3)';
+    ctx.lineWidth = 1.3;
+    ctx.strokeRect(-half + 15, -half + 30, half * 2 - 30, 14);
+    ctx.strokeRect(-half + 15, 12, half * 2 - 30, 14);
+    drawRoundRect(ctx, -13, -half + 11, 26, 14, 7, '#4f86b0');
+    ctx.fillStyle = '#fdf8ee';
+    for (const dx of [-5, 5]) {
+      ctx.beginPath();
+      ctx.arc(dx, -half + 15, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillRect(-6.5, -half + 17.5, 3, 5);
+    ctx.beginPath();
+    ctx.moveTo(5, -half + 17);
+    ctx.lineTo(7.5, -half + 22.5);
+    ctx.lineTo(2.5, -half + 22.5);
+    ctx.closePath();
+    ctx.fill();
+    drawKnob(half - 16, 6);
+  }
+
+  /** Duke's Office: Library Shift's paneled office door with a brass "DUKE" plaque and knob; a padlock badge while locked. */
+  function drawBossOfficeDetail(half, open) {
+    drawRoundRect(ctx, -half + 9, -half + 5, half * 2 - 18, half * 2 - 5, [6, 6, 0, 0], 'rgba(90,60,90,0.18)');
+    ctx.strokeStyle = 'rgba(90,60,90,0.28)';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(-half + 14, -half + 22, half * 2 - 28, 17);
+    ctx.strokeRect(-half + 14, 8, half * 2 - 28, 17);
+    drawRoundRect(ctx, -14, -half + 8, 28, 10, 2, '#e8cf8a');
+    ctx.fillStyle = '#8a6a3a';
+    ctx.font = 'bold 7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DUKE', 0, -half + 13.5);
+    drawKnob(half - 15, 3, 2.8);
+    if (!open) {
+      drawRoundRect(ctx, -11, -8, 22, 22, 11, 'rgba(255,251,246,0.92)');
+      ctx.strokeStyle = '#5a5060';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.arc(0, -1, 4.2, Math.PI, 0);
+      ctx.stroke();
+      drawRoundRect(ctx, -6, 1, 12, 9, 2.5, '#5a5060');
+    }
+  }
+
+  /**
+   * Shared by kitchen-door (Dining -> Kitchen) and dining-door (Kitchen ->
+   * Dining) — the same physical doorway seen from either side: two swinging
+   * restaurant door leaves, each with a porthole window and a kick plate.
    */
   function drawSwingDoorDetail(half) {
-    ctx.strokeStyle = 'rgba(90,50,60,0.3)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, -half + 6);
-    ctx.lineTo(0, half - 6);
-    ctx.stroke();
-    for (const dx of [-12, 12]) {
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    for (const dir of [-1, 1]) {
+      const leafX = dir < 0 ? -half + 6 : 1.5;
+      const leafW = half - 7.5;
+      drawRoundRect(ctx, leafX, -half + 6, leafW, half * 2 - 10, 3, '#c98a5a');
+      const cx = leafX + leafW / 2;
+      ctx.fillStyle = '#bcdcf2';
       ctx.beginPath();
-      ctx.arc(dx, -half + 17, 7, 0, Math.PI * 2);
+      ctx.arc(cx, -half + 20, 7, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(90,50,60,0.35)';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#8a8f96';
+      ctx.lineWidth = 2;
       ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillRect(cx - 3.5, -half + 16, 2, 5);
+      drawRoundRect(ctx, leafX + 2, half - 14, leafW - 4, 7, 2, '#a7aeb6');
     }
   }
 
-  const DOOR_KIND_DETAIL_DRAWERS = {
+  const STATION_DETAIL_DRAWERS = {
     fridge: drawFridgeDetail,
     cabinet: drawCabinetDetail,
     'cookware-closet': drawCookwareClosetDetail,
     'cleaning-closet': drawCleaningClosetDetail,
+    stove: drawStoveDetail,
+    oven: drawOvenDetail,
+    'rice-station': drawRiceStationDetail,
     toilet: drawRestroomDetail,
     'boss-office': drawBossOfficeDetail,
     'kitchen-door': drawSwingDoorDetail,
     'dining-door': drawSwingDoorDetail,
+    counter: drawCounterDetail,
+    'coffee-machine': drawCoffeeMachineDetail,
   };
+
+  /**
+   * v3.16 tables are circles; v4 draws them as Library-style wood
+   * furniture — a soft shadow, a wood rim, and a cream tablecloth with a
+   * gold star. A dirty table shows a stacked plate and crumbs.
+   */
+  function drawTableTop(half, dirty) {
+    ctx.fillStyle = 'rgba(58,42,42,0.14)';
+    ctx.beginPath();
+    ctx.ellipse(0, half * 0.18, half * 0.98, half * 0.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#b9824f';
+    ctx.beginPath();
+    ctx.arc(0, 0, half, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#d9a66b';
+    ctx.beginPath();
+    ctx.arc(0, -1, half - 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fdf8ee';
+    ctx.beginPath();
+    ctx.arc(0, -1, half * 0.72, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(198,95,124,0.35)';
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(0, -1, half * 0.62, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (dirty) {
+      ctx.fillStyle = '#f0e6d6';
+      ctx.beginPath();
+      ctx.ellipse(-half * 0.2, -half * 0.1, half * 0.32, half * 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#d6c6ae';
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(138,90,40,0.55)';
+      for (const [dx, dy] of [[0.2, 0.2], [0.3, -0.25], [-0.05, 0.3], [0.12, 0.05]]) {
+        ctx.beginPath();
+        ctx.arc(dx * half, dy * half, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      drawStar(ctx, 0, -1, half * 0.16, half * 0.07, '#e8b95a');
+    }
+  }
 
   function drawStation(station) {
     // Locked (not-yet-unlocked-this-tier) tables render nothing at all —
@@ -3188,79 +4085,71 @@ export function init(canvas, elements) {
 
     const isTable = station.kind === 'table';
     const open = isStationOpen(station);
-    const baseColor = STATION_COLORS[station.kind] || '#8a6a4a';
-    const fillColor = open ? '#fbf3df' : baseColor;
 
     if (isTable) {
-      // v3.16: tables draw as circles instead of rounded squares, per the
-      // user's explicit request — every other station kind keeps its
-      // existing rounded-rect look below.
-      ctx.fillStyle = fillColor;
-      ctx.beginPath();
-      ctx.arc(0, 0, half, 0, Math.PI * 2);
-      ctx.fill();
+      drawTableTop(half, Boolean(shiftState.tables[station.tableId] && shiftState.tables[station.tableId].dirty));
     } else {
-      drawRoundRect(ctx, -half, -half, size, size, STATION_CORNER_RADIUS, fillColor);
-
-      if (DOOR_KINDS.has(station.kind)) {
-        // v3.30/v3.31: every DOOR_KINDS station now has its own detail
-        // drawer (DOOR_KIND_DETAIL_DRAWERS), run first so the knob/open-
-        // panel below still layers on top, same as drawCounterDetail's
-        // employee-then-panel ordering.
-        const doorDetail = DOOR_KIND_DETAIL_DRAWERS[station.kind];
-        if (doorDetail) doorDetail(half);
-        // Door handle: a small round knob, and (while "open") an inset panel reading as an ajar door.
-        if (open) {
-          drawRoundRect(ctx, -half + 6, -half + 6, size - 12, size - 12, STATION_CORNER_RADIUS - 4, baseColor);
-        }
-        ctx.fillStyle = '#7a5a4a';
-        ctx.beginPath();
-        ctx.arc(half - 9, 0, 3, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (station.kind === 'counter') {
-        drawCounterDetail(half);
-      } else if (station.kind === 'coffee-machine') {
-        drawCoffeeMachineDetail(half);
-      } else if (station.kind === 'stove') {
-        drawStoveDetail(half);
-      } else if (station.kind === 'oven') {
-        drawOvenDetail(half);
-      }
+      drawRoundRect(ctx, -half, -half, size, size, 10, STATION_COLORS[station.kind] || '#8a6a4a');
+      const detail = STATION_DETAIL_DRAWERS[station.kind];
+      if (detail) detail(half, open);
     }
 
-    ctx.strokeStyle = isTarget ? '#ffb3c6' : (isHovered ? '#f2d98a' : 'rgba(90,50,60,0.3)');
+    // Library Shift's outline: a thin warm ink edge, blue on hover, amber
+    // on the station the player is walking to.
+    ctx.strokeStyle = isTarget ? '#e0a83a' : (isHovered ? '#7fb0d6' : 'rgba(58,42,42,0.3)');
     ctx.lineWidth = isTarget || isHovered ? 3 : 2;
     ctx.beginPath();
     if (isTable) {
       ctx.arc(0, 0, half - 1, 0, Math.PI * 2);
     } else {
-      ctx.roundRect(-half + 1, -half + 1, size - 2, size - 2, STATION_CORNER_RADIUS - 1);
+      ctx.roundRect(-half + 1, -half + 1, size - 2, size - 2, 8);
     }
     ctx.stroke();
+    ctx.restore();
+  }
 
-    // Flip the label above the box for stations hugging the bottom edge
-    // (counter/coffee-machine) — otherwise the chip would draw partly or
-    // fully off-canvas and become invisible, same root cause as "where is
-    // the coffee machine???". Tables no longer get a "Table N" caption at
-    // all (removed per the user's request) — every other station keeps
-    // its label.
-    if (station.kind !== 'table') {
+  /**
+   * v4: everything that sits *on top of* the furniture — seated customers
+   * and their bars (tables), label chips and the dirty-dish badge — drawn
+   * in a second pass after every station, so a customer seated at one
+   * table is never covered by the next row's table, and a tight Tier 3
+   * table row never hides a station's label chip.
+   */
+  function drawStationOverlay(station) {
+    if (station.kind === 'table' && !isTableUnlocked(station.tableId, currentTableUnlockLevel())) return;
+    const half = station.size / 2;
+    const isTable = station.kind === 'table';
+    ctx.save();
+    ctx.translate(Math.round(station.x), Math.round(station.y));
+
+    // Flip the label above the box for stations hugging the bottom edge,
+    // so the chip never draws off-canvas. Tables have no caption (removed
+    // per the user's request).
+    if (!isTable) {
       const labelBelowFits = station.y + half + 13 + 7 <= CANVAS_HEIGHT;
       const labelY = labelBelowFits ? half + 13 : -half - 13;
-      drawLabelChip(ctx, 0, labelY, STATION_LABELS[station.kind] || '', 'bold 11px sans-serif');
+      drawLabelChip(ctx, 0, labelY, hoverLabelFor(station), 'bold 11px sans-serif');
     }
 
-    if (station.kind === 'table') {
+    if (isTable) {
       drawTableContents(station);
     } else if (station.kind === 'cleaning-closet' && shiftState.dirtyDishCount > 0) {
-      ctx.fillStyle = LABEL_TEXT_COLOR;
-      ctx.font = 'bold 12px sans-serif';
+      // Dirty-dish count as a badge on the closet's corner.
+      drawRoundRect(ctx, half - 20, -half - 6, 24, 16, 8, '#e06a5b');
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 10px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(String(shiftState.dirtyDishCount), 0, 0);
+      ctx.fillText(String(shiftState.dirtyDishCount), half - 8, -half + 2.5);
     }
 
     ctx.restore();
+  }
+
+  /** A station's on-canvas caption — Duke's Office reads "(locked)" until payday, like Library Shift's Boss's Office. */
+  function hoverLabelFor(station) {
+    if (station.kind === 'boss-office' && shiftState.phase !== 'paycheck') return "Duke's Office (locked)";
+    return STATION_LABELS[station.kind] || '';
   }
 
   /**
@@ -3289,40 +4178,23 @@ export function init(canvas, elements) {
 
   function drawPlayerHolding(ctx, x, y, bobOffset) {
     const { trayX, trayY, s } = drawPlayerHoldingPose(x, y, bobOffset);
-    const bodyColor = '#6fa0d8';
-    const pantsColor = '#3a4a5a';
-
-    drawRoundRect(ctx, x - 8 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pantsColor); // left leg
-    drawRoundRect(ctx, x + 2 * s, y - 4 * s, 6 * s, 14 * s, 2 * s, pantsColor); // right leg
-
-    const uy = y + bobOffset; // upper body reference, offset from the planted legs
-    drawRoundRect(ctx, x - 11 * s, uy - 24 * s, 22 * s, 20 * s, 6 * s, bodyColor); // torso
-
-    // Arms bent inward around the tray.
-    ctx.save();
-    ctx.translate(x - 9 * s, uy - 14 * s);
-    ctx.rotate(-0.9);
-    drawRoundRect(ctx, -3 * s, -8 * s, 6 * s, 15 * s, 3 * s, bodyColor);
-    ctx.restore();
-    ctx.save();
-    ctx.translate(x + 9 * s, uy - 14 * s);
-    ctx.rotate(0.9);
-    drawRoundRect(ctx, -3 * s, -8 * s, 6 * s, 15 * s, 3 * s, bodyColor);
-    ctx.restore();
-
-    // Lower than the tray's own radius alone would suggest — TRAY_RY is
-    // big enough now that centering it higher (like the pre-v3.10, much
-    // smaller tray did) let its top edge touch the bottom of the head.
+    // v4: the shared Library-style body (bobbing with the walk), with the
+    // tray held out in front at chest height and both hands on its rim.
+    drawKitchenPerson(ctx, x, y + bobOffset, 'server', { scale: s, stress: playerStress() });
     ctx.fillStyle = '#fdf1e4';
-    ctx.strokeStyle = '#e0c9a6';
+    ctx.strokeStyle = '#d6bf9a';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.ellipse(trayX, trayY, TRAY_RX * s, TRAY_RY * s, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-
-    drawPersonHead(ctx, x, uy, s, { headColor: '#f4c99a', hairColor: '#3a2a1a', bowColor: '#ffffff', eyeColor: '#3a2a2a' });
-
+    ctx.fillStyle = KITCHEN_PEOPLE.server.headColor;
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(trayX + dir * (TRAY_RX - 1) * s, trayY + 1 * s, 2.7 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawCoffeeSplash(x, y + bobOffset, s);
     return { trayX, trayY, s };
   }
 
@@ -3429,14 +4301,13 @@ export function init(canvas, elements) {
       return;
     }
 
-    drawPixelPerson(ctx, x, y, {
-      bodyColor: '#6fa0d8',
-      headColor: '#f4c99a',
-      pantsColor: '#3a4a5a',
-      hairColor: '#3a2a1a',
-      bowColor: '#ffffff',
-      scale: 1.25,
-    });
+    drawKitchenPerson(ctx, x, y, 'server', { scale: 1.25, stress: playerStress() });
+    drawCoffeeSplash(x, y, 1.25);
+  }
+
+  /** The player's low-Sanity stress (0..1) — Library Shift's worried face, eye bags and sweat drop below HALLUCINATION_START_SANITY. */
+  function playerStress() {
+    return shiftState ? hallucinationIntensity(shiftState.sanity) : 0;
   }
 
   // Security guard — a stationary decorative figure near the entrance/
@@ -3447,76 +4318,52 @@ export function init(canvas, elements) {
   const SECURITY_GUARD_POSITION = { x: 560, y: 545 };
 
   function drawSecurityGuard() {
-    drawPixelPerson(ctx, SECURITY_GUARD_POSITION.x, SECURITY_GUARD_POSITION.y, {
-      bodyColor: '#4a5468',
-      headColor: '#caa27a',
-      pantsColor: '#242c38',
-      hairColor: '#14181f', // reads as a dark cap
-      bowColor: '#e0c25a', // a small badge ribbon
-      scale: 1.1,
-      marker: '#e0c25a',
-    });
-    drawLabelChip(ctx, SECURITY_GUARD_POSITION.x, SECURITY_GUARD_POSITION.y + 40, 'Security', 'bold 10px sans-serif');
+    drawKitchenPerson(ctx, SECURITY_GUARD_POSITION.x, SECURITY_GUARD_POSITION.y, 'guard', { scale: 1.1 });
+    drawLabelChip(ctx, SECURITY_GUARD_POSITION.x, SECURITY_GUARD_POSITION.y + 26, 'Security', 'bold 10px sans-serif');
   }
 
-  // On-canvas Sanity bar, drawn inside the scene itself (moved off the
-  // surrounding HUD per the user's "add the sanity bar inside the game
-  // instead of outside") — a small heart-topped bar pinned to the
-  // top-left corner of the floor plan.
+  // On-canvas Sanity and Reputation bars (top-left of the floor plan,
+  // inside the scene per the user's "add the sanity bar inside the game").
+  // v4: Library Shift's look — the Sanity label in the site's display font,
+  // Caprasimo, once it has loaded (a canvas draw before the @font-face is
+  // ready silently falls back, so every frame re-checks).
+  let displayFontReady = false;
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => { displayFontReady = true; }).catch(() => {});
+  }
+
+  function drawStatBar(y, label, value, max, colors, font) {
+    const x = 14;
+    const width = 130;
+    const height = 16;
+    const percent = Math.round(value);
+    const frac = Math.max(0, Math.min(1, value / max));
+    const fillColor = percent > 50 ? colors[0] : (percent > 20 ? '#e0a83a' : '#e06a5b');
+    ctx.save();
+    drawRoundRect(ctx, x, y, width, height, 8, 'rgba(255,251,246,0.85)');
+    if (frac > 0) drawRoundRect(ctx, x + 2, y + 2, Math.max(6, (width - 4) * frac), height - 4, 6, fillColor);
+    ctx.strokeStyle = 'rgba(58,42,42,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, height, 8);
+    ctx.stroke();
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.font = font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${label} ${percent}%`, x + width / 2, y + height / 2 + 0.5);
+    ctx.restore();
+  }
+
   function drawSanityBar() {
-    const x = 14;
-    const y = 14;
-    const width = 130;
-    const height = 16;
-    const sanityPercent = Math.round(shiftState.sanity);
-    const frac = Math.max(0, Math.min(1, shiftState.sanity / SANITY_MAX));
-    const fillColor = sanityPercent > 50 ? '#7fd68a' : (sanityPercent > 20 ? '#e0a83a' : '#e06a5b');
-
-    ctx.save();
-    drawRoundRect(ctx, x, y, width, height, 8, 'rgba(255,251,246,0.85)');
-    drawRoundRect(ctx, x + 2, y + 2, Math.max(0, (width - 4) * frac), height - 4, 6, fillColor);
-    ctx.strokeStyle = 'rgba(90,50,60,0.3)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(x, y, width, height, 8);
-    ctx.stroke();
-
-    ctx.fillStyle = LABEL_TEXT_COLOR;
-    ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`Sanity ${sanityPercent}%`, x + width / 2, y + height / 2 + 0.5);
-    ctx.restore();
+    drawStatBar(14, 'Sanity', shiftState.sanity, SANITY_MAX, ['#7fd68a'],
+      displayFontReady ? 'bold 11px "Caprasimo", sans-serif' : 'bold 11px sans-serif');
   }
 
-  // v3.11: the restaurant's reputation, drawn directly below the Sanity
-  // bar it's visually paired with — same shape/pattern, tracking the
-  // *restaurant's* mood (every mistake, not the player's own fatigue) —
-  // see rules.js's REPUTATION_MAX/patienceMultiplierForReputation.
+  // v3.11: the restaurant's reputation, directly below Sanity — every
+  // mistake drains it; v4 adds penalties while it sits at 0.
   function drawReputationBar() {
-    const x = 14;
-    const y = 36;
-    const width = 130;
-    const height = 16;
-    const reputationPercent = Math.round(shiftState.reputation);
-    const frac = Math.max(0, Math.min(1, shiftState.reputation / REPUTATION_MAX));
-    const fillColor = reputationPercent > 50 ? '#7fb0d6' : (reputationPercent > 20 ? '#e0a83a' : '#e06a5b');
-
-    ctx.save();
-    drawRoundRect(ctx, x, y, width, height, 8, 'rgba(255,251,246,0.85)');
-    drawRoundRect(ctx, x + 2, y + 2, Math.max(0, (width - 4) * frac), height - 4, 6, fillColor);
-    ctx.strokeStyle = 'rgba(90,50,60,0.3)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(x, y, width, height, 8);
-    ctx.stroke();
-
-    ctx.fillStyle = LABEL_TEXT_COLOR;
-    ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`Reputation ${reputationPercent}%`, x + width / 2, y + height / 2 + 0.5);
-    ctx.restore();
+    drawStatBar(36, 'Reputation', shiftState.reputation, REPUTATION_MAX, ['#7fb0d6'], 'bold 10px sans-serif');
   }
 
   /**
@@ -3611,16 +4458,28 @@ export function init(canvas, elements) {
   }
 
   function render() {
+    // v4: past 60% hallucination intensity the whole room shakes (the HUD,
+    // drawn after the restore, stays steady) — Library Shift's same effect.
+    const i = currentIntensity();
+    const shake = i > 0.6 ? (i - 0.6) * 5 : 0;
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 2 * shake, (Math.random() - 0.5) * 2 * shake);
     drawFloor();
-    stationsInRoom(stations, currentRoom).forEach((station) => drawStation(station));
+    const roomStations = stationsInRoom(stations, currentRoom);
+    roomStations.forEach((station) => drawStation(station));
+    roomStations.forEach((station) => drawStationOverlay(station));
     // Guard stands watch by the Dining entrance — not a Kitchen fixture.
     if (currentRoom === ROOM_DINING) drawSecurityGuard();
     if (currentRoom === ROOM_DINING) drawArrivingCustomers();
     if (currentRoom === ROOM_DINING) drawPayingCustomers();
     drawPlayer();
     drawOrderBubble();
+    drawHallucinations();
+    ctx.restore();
     drawSanityBar();
     drawReputationBar();
+    drawGardCounter();
+    drawCoffeePourOverlay();
   }
 
   // -- Game loop ------------------------------------------------------
@@ -3631,11 +4490,12 @@ export function init(canvas, elements) {
     const deltaSeconds = Math.min(0.1, (timestamp - lastTimestamp) / 1000);
     lastTimestamp = timestamp;
 
-    if (!activePanel && !recipeBookOpen) updatePlayer(deltaSeconds);
+    if (!activePanel && !recipeBookOpen && !coffeePour) updatePlayer(deltaSeconds);
 
     if (shiftState.phase === 'playing') {
       const beforeTick = shiftState;
       shiftState = tick(shiftState, deltaSeconds);
+      announceZeroReputationPenalties(beforeTick);
       if (karen) {
         const hadOrder = beforeTick.orders.some((o) => o.tableId === karen.tableId);
         const stillHasOrder = shiftState.orders.some((o) => o.tableId === karen.tableId);
@@ -3674,6 +4534,9 @@ export function init(canvas, elements) {
 
     updateOrderBubble(deltaSeconds);
     updatePayingCustomers(deltaSeconds);
+    updateCoffeePour(deltaSeconds);
+    updateHallucinations(deltaSeconds);
+    trackGardPops(deltaSeconds);
     updateHoverHint();
     renderHud();
     renderOrderQueue();
@@ -3749,6 +4612,10 @@ export function init(canvas, elements) {
   canvas.addEventListener('mousemove', onCanvasMouseMove);
   canvas.addEventListener('mouseleave', onCanvasMouseLeave);
   document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
+  canvas.addEventListener('pointerdown', onCanvasPointerDown);
+  window.addEventListener('pointerup', onWindowPointerUp);
+  window.addEventListener('pointercancel', onWindowPointerUp);
   document.addEventListener('visibilitychange', onVisibilityChange);
   elements.fullscreenButton.addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -3800,6 +4667,10 @@ export function init(canvas, elements) {
     canvas.removeEventListener('mousemove', onCanvasMouseMove);
     canvas.removeEventListener('mouseleave', onCanvasMouseLeave);
     document.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('keyup', onKeyUp);
+    canvas.removeEventListener('pointerdown', onCanvasPointerDown);
+    window.removeEventListener('pointerup', onWindowPointerUp);
+    window.removeEventListener('pointercancel', onWindowPointerUp);
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('visibilitychange', onVisibilityChange);
     document.body.removeEventListener('htmx:beforeSwap', teardown);
@@ -3844,6 +4715,42 @@ export function init(canvas, elements) {
         if (!shiftState || shiftState.phase !== 'paycheck') return;
         endShift();
       },
+      // v4 hooks (e2e/cooking-game.spec.js): read state, and patch the
+      // stats a test needs (e.g. Sanity/Reputation at 0) without waiting
+      // out the real drains.
+      getShiftState() { return shiftState; },
+      setShiftStats(patch) { if (shiftState) shiftState = { ...shiftState, ...patch }; },
+      stationPosition(id) {
+        const station = stations.find((st) => st.id === id);
+        return station ? { x: station.x, y: station.y, size: station.size, room: station.room } : null;
+      },
+      getRoom() { return currentRoom; },
+      getCoffeePour() { return coffeePour ? { ...coffeePour, band: { ...coffeePour.band } } : null; },
+      setCoffeePourFill(fill) { if (coffeePour && !coffeePour.grade) coffeePour.fill = fill; },
+      getCoffeeSplashSeconds() { return coffeeSplashSeconds; },
+      getHallucinations() {
+        return { intensity: currentIntensity(), ghosts: halluc.ghosts.map((g) => ({ ...g })), figures: halluc.figures.length, whispers: halluc.whispers.length };
+      },
+      spawnGhostNow() { return shiftState ? spawnGhostCustomer(60) : null; },
+      getGardPops() { return gardPops.map((pop) => ({ ...pop })); },
+      getNetShiftGard() { return netShiftGard(); },
+      getKarenEncounter() { return karenThisShift; },
+      getCookZone() { return cookMiniGame ? { ...cookMiniGame.zone } : null; },
+      isPlayerMoving() { return moveTarget !== null; },
+      getHeld() { return { heldDish, inventory: [...inventory], cookware: [...cookware], activeOrderTableId }; },
+      getKaren() { return karen ? { ...karen } : null; },
+      /** Seats a waiting customer at `tableId` right away (skipping the walk-in) wanting `dishName`. */
+      seatCustomerNow(tableId, dishName) {
+        pendingCustomers[tableId] = dishName;
+        customerLooks[tableId] = CUSTOMER_LOOK_KEYS[Math.floor(random() * CUSTOMER_LOOK_KEYS.length)];
+      },
+      setHeldDish(name) { heldDish = name; },
+      freeTableId() {
+        const level = currentTableUnlockLevel();
+        return TABLE_IDS.find((id) => isTableUnlocked(id, level) && !shiftState.tables[id].occupied
+          && !pendingCustomers[id] && !arrivingCustomers.some((c) => c.tableId === id) && !ghostAtTable(id)) ?? null;
+      },
+      setCookGauge(position) { if (cookMiniGame) cookMiniGame.gaugePosition = position; },
     };
   }
 
@@ -3903,6 +4810,7 @@ function bootstrap() {
     cookGauge: {
       root: document.getElementById('cooking-gauge'),
       fill: document.getElementById('cooking-gauge-fill'),
+      zone: document.getElementById('cooking-gauge-zone'),
       button: document.getElementById('cooking-gauge-button'),
     },
     stationPanel: {

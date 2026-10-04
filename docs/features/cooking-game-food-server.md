@@ -155,13 +155,79 @@ customer doc). Low sanity slows the player down:
 `walkSpeedMultiplierForSanity` scales walking speed linearly from 1.0x at
 full sanity down to a 0.6x floor at zero — tired, never stuck, matching
 this game's existing "no game-over state" design. A Coffee Machine
-station (near the front counter) restores sanity to full the moment the
-player arrives, no picker panel needed — same "auto-action on arrival"
-pattern as the fridge/cabinet, just instant. Purely a pacing/QoL
-mechanic: sanity has no effect on the shift paycheck itself, which stays
-governed entirely by mistake count (Shift paycheck rule above) — a
-player who never drinks coffee still gets paid the same for a clean
-shift, just walks slower by the end of it.
+station (near the front counter) restores it. Before v4 that was
+instant on arrival; v4 replaced it with the Coffee Pour minigame below.
+Before v4, Sanity had no effect on pay. v4's hallucinations (below) add
+a pay cut for time spent at 0.
+
+## Coffee Pour (v4)
+
+Ported from Library Shift (`rules.js` section 12). Arriving at the Coffee
+Machine opens an on-canvas pour:
+* Hold the mouse/touch, Space or Enter to pour. The cup fills to the brim
+  in `COFFEE_POUR_SECONDS_TO_BRIM` (2.2 s).
+* Release inside the gold band, which is drawn at a random height each
+  time (`coffeePourTargetBand`).
+
+Grades (`gradeCoffeePour`, applied by `engine-state.js`'s `brewCoffee`):
+
+| Grade | When | Sanity | Extra |
+|---|---|---|---|
+| Perfect | released inside the band | to full | +10g tip (bonus Gard) |
+| Good | within 0.1 of the band | +70 | |
+| Sloppy | anywhere else | +40 | |
+| Spilled | held until the brim | −50 | the player wears steaming coffee stains for 6 s |
+
+The player can't walk while the overlay is open; it closes 1.2 s after
+the result.
+
+## Hallucinations (v4)
+
+Ported from Library Shift v2.16 (`rules.js` section 13).
+`hallucinationIntensity` is 0 at 25+ Sanity, rising to 1 at 0.
+
+Below 25:
+* The player's face turns worried: a frown, eye bags, a sweat drop.
+* The diner starts playing tricks: shadow figures, whispers, a pulsing
+  purple vignette, and flickers.
+* Ghost customers sit at empty tables, shown translucent with a "???"
+  chip. Walk up to one and nobody's there: −5 Sanity, not a mistake.
+  Real customers never get seated at a ghost's table.
+* Shaky hands, scaling with intensity:
+  * The cook gauge's success zone shrinks to as little as half its width.
+  * Its sweep speeds up to 1.6×.
+  * The player can drop what they're carrying: the held dish, or one
+    random ingredient.
+
+Above 60% intensity the room shakes; the HUD doesn't. At full intensity
+(0 Sanity) there are also jump scares, plus a pay cut of −2% per 10 s
+spent at 0, capped at −30% (`hallucinationPayMultiplier`). All of it stops
+the moment Sanity climbs back to 25.
+
+## Gard counter (v4)
+
+Ported from Library Shift v2.15. A HUD pill beside the Sanity/Reputation
+bars shows:
+* This shift's Gard so far: Counter payments + bonus Gard (Karen's tip,
+  perfect pours) − complaint letters.
+* The month-to-date total.
+
+A floating "+N g" (or red "−N g") pops each time the shift's figure
+changes. The base paycheck isn't shown until Duke's office, since
+mistakes decide it.
+
+## Shift payout (v4)
+
+`engine-state.js`'s `shiftPayout`, Library Shift's formula:
+
+```
+gross  = max(0, shiftPaycheck(mistakes) + bonusGard − complaints × 25)
+payout = round(gross × hallucinationPayMultiplier × reputationPayMultiplier)
+```
+
+The paycheck outcome line itemizes each part: bonus, complaint letters,
+and the two pay cuts. Counter payments are still credited the moment
+each customer pays, as before.
 
 ## Mid-month resume
 

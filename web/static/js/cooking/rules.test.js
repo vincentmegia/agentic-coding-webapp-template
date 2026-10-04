@@ -16,6 +16,12 @@ import {
   shiftPaycheck,
   monthTotal,
   isKarenShift,
+  karenEncounter,
+  KAREN_SHIFT_NUMBERS,
+  KAREN_LINE,
+  KAREN_REMATCH_LINE,
+  KAREN_PATIENCE_SECONDS,
+  KAREN_TIP_GARD,
   inGameTimeLabel,
   SHIFT_PAYCHECK_FULL,
   SHIFT_PAYCHECK_PENALTY_PER_MISTAKE,
@@ -81,13 +87,19 @@ describe('RECIPE_BANDS ingredient and cookware names', () => {
     assert.equal(dish.cookware, null);
   });
 
-  test('every stove dish requires a Pan and every oven dish requires a Baking Tray', () => {
+  test('every stove dish requires a Pan, every oven dish a Baking Tray, and every rice-station dish a Rice Cooker', () => {
     for (const band of RECIPE_BANDS) {
       for (const dish of band.dishes) {
         if (dish.station === 'stove') assert.equal(dish.cookware, 'Pan', `${dish.name} should need a Pan`);
         if (dish.station === 'oven') assert.equal(dish.cookware, 'Baking Tray', `${dish.name} should need a Baking Tray`);
+        if (dish.station === 'rice-station') assert.equal(dish.cookware, 'Rice Cooker', `${dish.name} should need a Rice Cooker`);
       }
     }
+  });
+
+  test('every COOKWARE_ITEMS entry is required by at least one dish (the Rice Cooker is no longer flavor-only)', () => {
+    const required = new Set(RECIPE_BANDS.flatMap((band) => band.dishes.map((d) => d.cookware)).filter(Boolean));
+    for (const item of COOKWARE_ITEMS) assert.ok(required.has(item), `${item} is never required`);
   });
 });
 
@@ -108,7 +120,7 @@ describe('availableDishes', () => {
 
   test('shift 20 unlocks every band', () => {
     const names = availableDishes(20).map((d) => d.name);
-    assert.equal(names.length, 8);
+    assert.equal(names.length, RECIPE_BANDS.reduce((n, band) => n + band.dishes.length, 0));
   });
 
   test('out-of-range/non-finite input clamps into [1, 20]', () => {
@@ -457,15 +469,38 @@ describe('clampCustomerSanity', () => {
 });
 
 describe('isKarenShift', () => {
-  test('true only on KAREN_SHIFT_NUMBER', () => {
-    assert.equal(isKarenShift(KAREN_SHIFT_NUMBER), true);
-    assert.equal(isKarenShift(KAREN_SHIFT_NUMBER - 1), false);
-    assert.equal(isKarenShift(KAREN_SHIFT_NUMBER + 1), false);
+  test('true only on shifts 12 and 18', () => {
+    assert.deepEqual(KAREN_SHIFT_NUMBERS, [12, 18]);
+    for (let shift = 1; shift <= 30; shift++) {
+      assert.equal(isKarenShift(shift), shift === 12 || shift === 18, `shift ${shift}`);
+    }
   });
 
   test('out-of-range/non-finite input clamps before comparing', () => {
-    assert.equal(isKarenShift(999), KAREN_SHIFT_NUMBER === 20);
-    assert.equal(isKarenShift(NaN), KAREN_SHIFT_NUMBER === 1);
+    assert.equal(isKarenShift(999), false); // clamps to 30
+    assert.equal(isKarenShift(NaN), false); // clamps to 1
+  });
+});
+
+describe('karenEncounter', () => {
+  test('null on a non-Karen shift', () => {
+    assert.equal(karenEncounter(1), null);
+    assert.equal(karenEncounter(13), null);
+  });
+
+  test('shift 12 is the original encounter', () => {
+    assert.deepEqual(karenEncounter(12), {
+      rematch: false, line: KAREN_LINE, patienceSeconds: KAREN_PATIENCE_SECONDS, tipGard: KAREN_TIP_GARD,
+    });
+  });
+
+  test('shift 18 is an angrier rematch: shorter patience, a new line, a bigger tip', () => {
+    const first = karenEncounter(12);
+    const rematch = karenEncounter(18);
+    assert.equal(rematch.rematch, true);
+    assert.equal(rematch.line, KAREN_REMATCH_LINE);
+    assert.ok(rematch.patienceSeconds < first.patienceSeconds);
+    assert.ok(rematch.tipGard > first.tipGard);
   });
 });
 
@@ -597,5 +632,70 @@ describe('walkSpeedMultiplierForSanity', () => {
   test('out-of-range/non-finite input clamps before computing', () => {
     assert.equal(walkSpeedMultiplierForSanity(-50), walkSpeedMultiplierForSanity(0));
     assert.equal(walkSpeedMultiplierForSanity(SANITY_MAX + 50), walkSpeedMultiplierForSanity(SANITY_MAX));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v4 — Coffee Pour, hallucinations, 0-Reputation pay cut
+// ---------------------------------------------------------------------------
+
+import {
+  coffeePourTargetBand,
+  gradeCoffeePour,
+  COFFEE_POUR_BAND_WIDTH,
+  hallucinationIntensity,
+  shakyHandsZoneScale,
+  shakyHandsSweepMultiplier,
+  shakyCookSuccessZone,
+  hallucinationPayMultiplier,
+  reputationPayMultiplier,
+} from './rules.js';
+
+describe('Coffee Pour', () => {
+  test('the target band is COFFEE_POUR_BAND_WIDTH wide and stays inside the cup', () => {
+    for (const roll of [0, 0.5, 1, -3, 9, NaN]) {
+      const band = coffeePourTargetBand(roll);
+      assert.ok(Math.abs(band.max - band.min - COFFEE_POUR_BAND_WIDTH) < 1e-9);
+      assert.ok(band.min > 0 && band.max < 1);
+    }
+  });
+
+  test('grades: in band perfect, near it good, far sloppy, brim spilled', () => {
+    const band = { min: 0.7, max: 0.82 };
+    assert.equal(gradeCoffeePour(0.75, band), 'perfect');
+    assert.equal(gradeCoffeePour(0.65, band), 'good');
+    assert.equal(gradeCoffeePour(0.9, band), 'good');
+    assert.equal(gradeCoffeePour(0.3, band), 'sloppy');
+    assert.equal(gradeCoffeePour(1, band), 'spilled');
+  });
+});
+
+describe('hallucinations', () => {
+  test('intensity is 0 at 25+ Sanity and 1 at 0', () => {
+    assert.equal(hallucinationIntensity(100), 0);
+    assert.equal(hallucinationIntensity(25), 0);
+    assert.equal(hallucinationIntensity(12.5), 0.5);
+    assert.equal(hallucinationIntensity(0), 1);
+  });
+
+  test('shaky hands: the cook zone halves and the sweep is 1.6x at full intensity', () => {
+    assert.equal(shakyHandsZoneScale(0), 1);
+    assert.equal(shakyHandsZoneScale(1), 0.5);
+    assert.equal(shakyHandsSweepMultiplier(0), 1);
+    assert.ok(Math.abs(shakyHandsSweepMultiplier(1) - 1.6) < 1e-9);
+    const normal = cookSuccessZone(0);
+    const shaky = shakyCookSuccessZone(0, 0.5);
+    assert.ok(Math.abs((shaky.end - shaky.start) - (normal.end - normal.start) / 2) < 1e-9);
+    assert.equal((shaky.start + shaky.end) / 2, (normal.start + normal.end) / 2);
+  });
+
+  test('0-Sanity and 0-Reputation pay cuts: −2% per 10 s, capped at −30%', () => {
+    for (const fn of [hallucinationPayMultiplier, reputationPayMultiplier]) {
+      assert.equal(fn(0), 1);
+      assert.equal(fn(9.9), 1);
+      assert.ok(Math.abs(fn(10) - 0.98) < 1e-9);
+      assert.ok(Math.abs(fn(1000) - 0.7) < 1e-9);
+      assert.equal(fn(NaN), 1);
+    }
   });
 });

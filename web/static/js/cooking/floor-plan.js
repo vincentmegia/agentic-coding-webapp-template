@@ -335,6 +335,9 @@ export function buildStations(tableIds, level = FOOD_SERVER_MAX_LEVEL) {
     { id: 'cookware-closet', kind: 'cookware-closet', room: ROOM_KITCHEN, x: 200, y: 360, size: STATION_BOX_SIZE },
     { id: 'cleaning-closet', kind: 'cleaning-closet', room: ROOM_KITCHEN, x: 480, y: 360, size: STATION_BOX_SIZE },
     { id: 'stove', kind: 'stove', room: ROOM_KITCHEN, x: 760, y: 360, size: STATION_BOX_SIZE },
+    // The Rice Cooker's countertop plug-in spot (rules.js's 'rice-station'
+    // dishes) — bottom-right, under the stove, clear of the dining-door.
+    { id: 'rice-station', kind: 'rice-station', room: ROOM_KITCHEN, x: 760, y: 540, size: STATION_BOX_SIZE },
     { id: 'dining-door', kind: 'dining-door', room: ROOM_KITCHEN, x: 480, y: 540, size: STATION_BOX_SIZE },
   ];
 

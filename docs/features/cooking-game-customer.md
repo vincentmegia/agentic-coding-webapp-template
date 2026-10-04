@@ -178,6 +178,19 @@ Three named customers layered on top of the normal random-arrival pool
   reputation/Gard both take the hit twice) — she's rude enough to sour
   the mood for someone else, literally. Served correctly, no ripple,
   business as usual.
+  **v4 rematch**: Karen now comes on shifts 12 **and** 18
+  (`KAREN_SHIFT_NUMBERS`). `karenEncounter(shift)` returns that visit's
+  line, patience and tip:
+
+  | Visit | Line | Patience | Tip on a correct serve |
+  |---|---|---|---|
+  | Shift 12 | "HEY YOU THERE COME OVER HERE" | 12 s | 100g |
+  | Shift 18 (rematch) | "YOU AGAIN?! I remember you. Do NOT mess this up this time." | 9 s | 250g |
+
+  The tip goes to the shift's bonus Gard, paid at Duke's office, so it
+  shows on the Gard counter. Her ripple effect on a miss is unchanged.
+  She's drawn with the shared `karen` design and an angry red tint while
+  seated (and while walking in for the rematch).
 
 ## Customers walk in from the entrance (v3.36)
 
@@ -213,3 +226,21 @@ A stationary figure near the entrance/counter — "there's security to
 protect the place." Cosmetic only: not a `floor-plan.js` station, no
 click target, no interaction, no effect on Karen or anyone else. Present
 every shift, unconditionally.
+
+## Penalties at 0 Reputation (v4)
+
+Ported from Library Shift's 0-Mood penalties (`rules.js` section 14;
+`engine-state.js`'s `tick`). Before v4, 0 Reputation only meant shorter
+patience. Now, while it sits at 0:
+
+* **Storm-outs**: every `ZERO_REPUTATION_STORM_OUT_SECONDS` (20 s), the
+  customer with the least patience left walks out. That is a full mistake,
+  exactly like a timeout (`stormOuts` counts them). With nobody waiting,
+  the timer holds, so the next order taken storms out right away.
+* **Complaint letters**: one every `COMPLAINT_INTERVAL_SECONDS` (30 s),
+  each docking `COMPLAINT_GARD` (25g). The Gard counter drops live.
+* **Pay cut**: −2% per full 10 s spent at 0, capped at −30%
+  (`reputationPayMultiplier`).
+
+A toast announces each storm-out and letter. The paycheck line itemizes
+them too.

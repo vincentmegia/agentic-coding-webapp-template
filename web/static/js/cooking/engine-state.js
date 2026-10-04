@@ -17,6 +17,12 @@
 //     sanity: number,           // 0..SANITY_MAX; drains passively and per-upset, restored by the Coffee Machine
 //     mistakeCount: number,     // v3.11: every missed order or wrong-dish serve, counted (not just latched) — see rules.js's shiftPaycheck()
 //     reputation: number,       // v3.11: 0..REPUTATION_MAX; drains per mistake, scales every later order's patience — see rules.js's patienceMultiplierForReputation()
+//     bonusGard: number,        // Gard earned on top of the base paycheck this shift (Karen's tip, perfect coffee) — see earnBonusGard()
+//     zeroSanitySeconds: number,      // time spent at 0 Sanity this shift — rules.js's hallucinationPayMultiplier()
+//     zeroReputationSeconds: number,  // time spent at 0 Reputation this shift — rules.js's reputationPayMultiplier()
+//     reputationStormTimer: number,   // counts up to ZERO_REPUTATION_STORM_OUT_SECONDS while Reputation is 0
+//     complaints: number,       // complaint letters received at 0 Reputation (−COMPLAINT_GARD each)
+//     stormOuts: number,        // customers who stormed out at 0 Reputation
 //   }
 //   Order = {
 //     tableId: number, dishName: string,
@@ -47,6 +53,15 @@ import {
   CUSTOMER_SANITY_MAX,
   CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE,
   clampCustomerSanity,
+  shiftPaycheck,
+  COFFEE_SANITY_RESTORE,
+  COFFEE_PERFECT_TIP_GARD,
+  HALLUCINATION_STARTLE_SANITY,
+  hallucinationPayMultiplier,
+  ZERO_REPUTATION_STORM_OUT_SECONDS,
+  COMPLAINT_INTERVAL_SECONDS,
+  COMPLAINT_GARD,
+  reputationPayMultiplier,
 } from './rules.js';
 
 export { SHIFT_CLOCK_SECONDS, SANITY_MAX, REPUTATION_MAX };
@@ -73,6 +88,12 @@ export function createInitialState(tableIds, overrides = {}) {
     sanity: SANITY_MAX,
     mistakeCount: 0,
     reputation: REPUTATION_MAX,
+    bonusGard: 0,
+    zeroSanitySeconds: 0,
+    zeroReputationSeconds: 0,
+    reputationStormTimer: 0,
+    complaints: 0,
+    stormOuts: 0,
     ...overrides,
   };
 }
@@ -277,6 +298,45 @@ export function tick(state, deltaSeconds) {
     reputation = clampReputation(reputation - REPUTATION_DRAIN_PER_MISTAKE);
   }
 
+  // Time spent at 0 Sanity — only the part of this tick after it actually
+  // hit zero, so a single big tick doesn't over-count (Library Shift's
+  // same accounting).
+  let zeroSanitySeconds = state.zeroSanitySeconds ?? 0;
+  if (sanity <= 0) {
+    const secondsToZero = Math.max(0, state.sanity) / SANITY_DRAIN_PER_SECOND;
+    zeroSanitySeconds += Math.max(0, delta - secondsToZero);
+  }
+
+  // 0 Reputation penalties (rules.js section 14): pay-cut time, complaint
+  // letters, and storm-outs of whoever is closest to giving up anyway.
+  let zeroReputationSeconds = state.zeroReputationSeconds ?? 0;
+  let complaints = state.complaints ?? 0;
+  let stormOuts = state.stormOuts ?? 0;
+  let reputationStormTimer = 0;
+  if (reputation <= 0) {
+    zeroReputationSeconds += delta;
+    complaints = Math.max(complaints, Math.floor(zeroReputationSeconds / COMPLAINT_INTERVAL_SECONDS));
+    let timer = (state.reputationStormTimer ?? 0) + delta;
+    while (timer >= ZERO_REPUTATION_STORM_OUT_SECONDS) {
+      if (orders.length === 0) {
+        // Nobody to storm out yet — the next customer to order is first in line.
+        timer = ZERO_REPUTATION_STORM_OUT_SECONDS;
+        break;
+      }
+      const leaving = orders.reduce((a, b) => (b.patienceRemainingSeconds < a.patienceRemainingSeconds ? b : a));
+      const result = failOrder({ orders, tables }, leaving);
+      orders = result.orders;
+      tables = result.tables;
+      shiftUpset = true;
+      mistakeCount += 1;
+      stormOuts += 1;
+      sanity = clampSanity(sanity - SANITY_DRAIN_PER_UPSET);
+      timer -= ZERO_REPUTATION_STORM_OUT_SECONDS;
+    }
+    reputationStormTimer = timer;
+  }
+  const penaltyFields = { zeroSanitySeconds, zeroReputationSeconds, reputationStormTimer, complaints, stormOuts };
+
   const clockSeconds = Math.max(0, state.clockSeconds - delta);
 
   if (clockSeconds <= 0) {
@@ -294,10 +354,10 @@ export function tick(state, deltaSeconds) {
     // player to clean and cleanTable() below would never fire to check
     // that — skip straight past it rather than soft-locking the shift.
     const phase = allTablesClean(tables) ? 'closing-dishes' : 'closing-clean';
-    return { ...state, clockSeconds: 0, orders, tables, shiftUpset, mistakeCount, sanity, reputation, phase };
+    return { ...state, ...penaltyFields, clockSeconds: 0, orders, tables, shiftUpset, mistakeCount, sanity, reputation, phase };
   }
 
-  return { ...state, clockSeconds, orders, tables, shiftUpset, mistakeCount, sanity, reputation };
+  return { ...state, ...penaltyFields, clockSeconds, orders, tables, shiftUpset, mistakeCount, sanity, reputation };
 }
 
 /**
@@ -359,4 +419,77 @@ export function shutDown(state) {
 export function restoreSanity(state) {
   if (state.phase !== 'playing') return state;
   return { ...state, sanity: SANITY_MAX };
+}
+
+/**
+ * Applies one Coffee Pour result (rules.js's gradeCoffeePour) — Sanity
+ * changes by COFFEE_SANITY_RESTORE[grade] (a spill *drains* it), and a
+ * perfect pour tips COFFEE_PERFECT_TIP_GARD into `bonusGard`. An unknown
+ * grade counts as 'sloppy'. A no-op outside 'playing'.
+ *
+ * @param {ShiftState} state
+ * @param {'perfect'|'good'|'sloppy'|'spilled'} grade
+ * @returns {ShiftState}
+ */
+export function brewCoffee(state, grade) {
+  if (state.phase !== 'playing') return state;
+  const restore = COFFEE_SANITY_RESTORE[grade] ?? COFFEE_SANITY_RESTORE.sloppy;
+  return {
+    ...state,
+    sanity: clampSanity(state.sanity + restore),
+    bonusGard: (state.bonusGard ?? 0) + (grade === 'perfect' ? COFFEE_PERFECT_TIP_GARD : 0),
+  };
+}
+
+/**
+ * Adds `amount` Gard to this shift's `bonusGard` (paid on top of the base
+ * paycheck at Duke's office) — e.g. Karen's tip. Non-positive/non-finite
+ * amounts are ignored. Works in any phase: a tip earned during play is
+ * still owed if the clock runs out before payday.
+ *
+ * @param {ShiftState} state
+ * @param {number} amount
+ * @returns {ShiftState}
+ */
+export function earnBonusGard(state, amount) {
+  if (!Number.isFinite(amount) || amount <= 0) return state;
+  return { ...state, bonusGard: (state.bonusGard ?? 0) + amount };
+}
+
+/**
+ * Walking up to a ghost customer and finding nobody there: a jolt of fear
+ * (−HALLUCINATION_STARTLE_SANITY), not a mistake. A no-op outside 'playing'.
+ *
+ * @param {ShiftState} state
+ * @returns {ShiftState}
+ */
+export function startleFromHallucination(state) {
+  if (state.phase !== 'playing') return state;
+  return { ...state, sanity: clampSanity(state.sanity - HALLUCINATION_STARTLE_SANITY) };
+}
+
+/**
+ * The shift's payout at Duke's office, Library Shift's formula: flat Gard
+ * first (base paycheck for the mistake count, plus bonus Gard, minus
+ * complaint letters, floored at 0), then the 0-Sanity and 0-Reputation
+ * pay-cut multipliers. Returns the parts too, for the paycheck screen.
+ *
+ * @param {ShiftState} state
+ * @returns {{base: number, bonusGard: number, complaintGard: number, sanityMultiplier: number, reputationMultiplier: number, payout: number}}
+ */
+export function shiftPayout(state) {
+  const base = shiftPaycheck(state.mistakeCount);
+  const bonusGard = state.bonusGard ?? 0;
+  const complaintGard = (state.complaints ?? 0) * COMPLAINT_GARD;
+  const gross = Math.max(0, base + bonusGard - complaintGard);
+  const sanityMultiplier = hallucinationPayMultiplier(state.zeroSanitySeconds);
+  const reputationMultiplier = reputationPayMultiplier(state.zeroReputationSeconds);
+  return {
+    base,
+    bonusGard,
+    complaintGard,
+    sanityMultiplier,
+    reputationMultiplier,
+    payout: Math.round(gross * sanityMultiplier * reputationMultiplier),
+  };
 }

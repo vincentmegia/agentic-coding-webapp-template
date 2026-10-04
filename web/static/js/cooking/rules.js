@@ -75,9 +75,9 @@ function clampShift(shiftNumber) {
  * `cookware` is `null` for the one station-less dish (Garden Salad — no
  * cooking step, see Business Rules) and otherwise names the single
  * COOKWARE_ITEMS entry that dish's station requires — Pan for every Stove
- * dish, Baking Tray for every Oven dish (Rice Cooker exists in the
- * Cookware Closet but isn't required by any dish yet; the user asked for
- * it "e.g." alongside Pan, not as a strict requirement).
+ * dish, Baking Tray for every Oven dish, Rice Cooker for every Rice
+ * Station dish (the Rice Station is a Kitchen countertop the Rice Cooker
+ * plugs into — same station+cookware shape as Stove+Pan/Oven+Tray).
  */
 export const RECIPE_BANDS = [
   { minShift: 1, dishes: [
@@ -91,10 +91,12 @@ export const RECIPE_BANDS = [
   { minShift: 11, dishes: [
     { name: 'Roast Chicken', station: 'oven', cookware: 'Baking Tray', ingredients: ['Chicken', 'Herbs'] },
     { name: 'Pasta', station: 'stove', cookware: 'Pan', ingredients: ['Noodles', 'Sauce'] },
+    { name: 'Chicken Rice', station: 'rice-station', cookware: 'Rice Cooker', ingredients: ['Rice', 'Chicken', 'Herbs'] },
   ] },
   { minShift: 16, dishes: [
     { name: 'Steak Dinner', station: 'stove', cookware: 'Pan', ingredients: ['Steak', 'Potato', 'Herbs'] },
     { name: 'Soufflé', station: 'oven', cookware: 'Baking Tray', ingredients: ['Egg', 'Cheese', 'Flour'] },
+    { name: 'Omurice', station: 'rice-station', cookware: 'Rice Cooker', ingredients: ['Rice', 'Egg', 'Sauce'] },
   ] },
 ];
 
@@ -112,7 +114,7 @@ export const FRIDGE_INGREDIENTS = ['Cheese', 'Milk', 'Chicken', 'Patty', 'Steak'
  * Mel's-Usual-only, plain Cake is Olive & Oliver's-Order-only, same
  * scoping as Lemonade/Matcha above.
  */
-export const CABINET_INGREDIENTS = ['Bread', 'Flour', 'Noodles', 'Herbs', 'Buns', 'Sauce', 'Potato', 'Star Cake', 'Cake'];
+export const CABINET_INGREDIENTS = ['Bread', 'Flour', 'Noodles', 'Herbs', 'Buns', 'Sauce', 'Potato', 'Rice', 'Star Cake', 'Cake'];
 
 /**
  * Every cookware item available at the Cookware Closet. Acquiring one is a
@@ -363,32 +365,66 @@ export function monthTotal(shiftPaychecks) {
 export const COUNTER_PAYMENT_GARD = 50;
 
 // ---------------------------------------------------------------------------
-// 5. The Karen event — a one-time scripted customer on a single shift, not
-//    part of the normal random arrival pool. Picked as shift 12 out of the
-//    "12 or 18" the user offered, to keep this a single well-defined
-//    trigger rather than two; easy to move or duplicate later.
+// 5. The Karen event — a scripted customer on two shifts, not part of the
+//    normal random arrival pool. Shift 12 is the original encounter;
+//    shift 18 is a rematch: she remembers you, has an even shorter fuse,
+//    and tips more if you get her order right in time.
 // ---------------------------------------------------------------------------
 
-/** The one shift Karen shows up on. */
-export const KAREN_SHIFT_NUMBER = 12;
+/** The shifts Karen shows up on — her first visit, then the rematch. */
+export const KAREN_SHIFT_NUMBERS = [12, 18];
 
-/** Her opening line, shown the moment she's seated. */
+/** Her first visit's shift, kept as its own name for callers/tests that mean "the original encounter". */
+export const KAREN_SHIFT_NUMBER = KAREN_SHIFT_NUMBERS[0];
+
+/** Her opening line on her first visit, shown the moment she's seated. */
 export const KAREN_LINE = 'HEY YOU THERE COME OVER HERE';
 
+/** Her rematch opening line — she remembers shift 12. */
+export const KAREN_REMATCH_LINE = 'YOU AGAIN?! I remember you. Do NOT mess this up this time.';
+
 /**
- * Karen's patience is much shorter than a normal customer's at the same
- * shift (`customerPatienceSeconds`) — she's not here to wait.
+ * Karen's patience on her first visit — much shorter than a normal
+ * customer's at the same shift (`customerPatienceSeconds`).
  */
 export const KAREN_PATIENCE_SECONDS = 12;
 
+/** The rematch's patience — angrier, so shorter still. */
+export const KAREN_REMATCH_PATIENCE_SECONDS = 9;
+
+/** Gard Karen tips on a correct serve (paid on top of the normal Counter payment). */
+export const KAREN_TIP_GARD = 100;
+
+/** The rematch's bigger tip — handling her a second time is worth more. */
+export const KAREN_REMATCH_TIP_GARD = 250;
+
 /**
- * Whether this shift is Karen's shift.
+ * Whether this shift is one of Karen's shifts.
  *
  * @param {number} shiftNumber
  * @returns {boolean}
  */
 export function isKarenShift(shiftNumber) {
-  return clampShift(shiftNumber) === KAREN_SHIFT_NUMBER;
+  return KAREN_SHIFT_NUMBERS.includes(clampShift(shiftNumber));
+}
+
+/**
+ * Karen's encounter parameters for `shiftNumber`, or `null` when she isn't
+ * due. `rematch` is true on every visit after her first.
+ *
+ * @param {number} shiftNumber
+ * @returns {{rematch: boolean, line: string, patienceSeconds: number, tipGard: number} | null}
+ */
+export function karenEncounter(shiftNumber) {
+  const index = KAREN_SHIFT_NUMBERS.indexOf(clampShift(shiftNumber));
+  if (index === -1) return null;
+  const rematch = index > 0;
+  return {
+    rematch,
+    line: rematch ? KAREN_REMATCH_LINE : KAREN_LINE,
+    patienceSeconds: rematch ? KAREN_REMATCH_PATIENCE_SECONDS : KAREN_PATIENCE_SECONDS,
+    tipGard: rematch ? KAREN_REMATCH_TIP_GARD : KAREN_TIP_GARD,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -739,4 +775,171 @@ export function unlockedTableCountForShift(shiftNumber) {
  */
 export function baseCapacityForShift(shiftNumber) {
   return tableUnlockLevelForShift(shiftNumber);
+}
+
+// ---------------------------------------------------------------------------
+// 12. Coffee Pour minigame — ported from Library Shift (its rules.js section
+//     11). Arriving at the Coffee Machine no longer refills Sanity
+//     instantly: the player holds to pour and releases inside a target
+//     band. Overfilling to the brim spills hot coffee all over you.
+// ---------------------------------------------------------------------------
+
+/** Seconds of continuous pouring to go from an empty cup to the brim. */
+export const COFFEE_POUR_SECONDS_TO_BRIM = 2.2;
+
+/** Width of the target band, as a fraction of the cup. */
+export const COFFEE_POUR_BAND_WIDTH = 0.12;
+
+/** How far outside the band a release still counts as "good". */
+export const COFFEE_POUR_GOOD_MARGIN = 0.1;
+
+/** Gard tipped (into the shift's bonus Gard) for a perfect pour. */
+export const COFFEE_PERFECT_TIP_GARD = 10;
+
+/** Sanity change per pour grade — a spill burns you instead of helping. */
+export const COFFEE_SANITY_RESTORE = {
+  perfect: SANITY_MAX,
+  good: 70,
+  sloppy: 40,
+  spilled: -50,
+};
+
+/**
+ * The target band for one pour, from a 0..1 roll — centered somewhere in
+ * the upper-middle of the cup so it's never trivially "just fill it".
+ *
+ * @param {number} roll - 0..1 (out-of-range/non-finite clamped).
+ * @returns {{min: number, max: number}}
+ */
+export function coffeePourTargetBand(roll) {
+  const r = clamp(Number.isFinite(roll) ? roll : 0.5, 0, 1);
+  const center = 0.62 + r * 0.24;
+  return { min: center - COFFEE_POUR_BAND_WIDTH / 2, max: center + COFFEE_POUR_BAND_WIDTH / 2 };
+}
+
+/**
+ * Grades a pour released at `fill` (0..1 of the cup) against `band`.
+ *
+ * @param {number} fill
+ * @param {{min: number, max: number}} band
+ * @returns {'perfect'|'good'|'sloppy'|'spilled'}
+ */
+export function gradeCoffeePour(fill, band) {
+  if (!Number.isFinite(fill)) return 'sloppy';
+  if (fill >= 1) return 'spilled';
+  if (fill >= band.min && fill <= band.max) return 'perfect';
+  if (fill >= band.min - COFFEE_POUR_GOOD_MARGIN && fill <= band.max + COFFEE_POUR_GOOD_MARGIN) return 'good';
+  return 'sloppy';
+}
+
+// ---------------------------------------------------------------------------
+// 13. Hallucinations at low Sanity — ported from Library Shift (its section
+//     15). Below HALLUCINATION_START_SANITY the player's face turns
+//     worried and the restaurant starts playing tricks: shadow figures,
+//     whispers, ghost customers at empty tables. At 0 Sanity it's at full
+//     strength, with real costs: shaky hands (a narrower, faster cook
+//     gauge), dropping what you carry, and a pay cut for time spent there.
+// ---------------------------------------------------------------------------
+
+/** Hallucinations start creeping in below this Sanity. */
+export const HALLUCINATION_START_SANITY = 25;
+
+/**
+ * 0 at or above HALLUCINATION_START_SANITY, rising linearly to 1 at 0.
+ *
+ * @param {number} sanity
+ * @returns {number}
+ */
+export function hallucinationIntensity(sanity) {
+  const s = clampSanity(sanity);
+  return s >= HALLUCINATION_START_SANITY ? 0 : (HALLUCINATION_START_SANITY - s) / HALLUCINATION_START_SANITY;
+}
+
+const SHAKY_HANDS_MIN_ZONE_SCALE = 0.5;
+const SHAKY_HANDS_MAX_SWEEP_MULTIPLIER = 1.6;
+
+/**
+ * How much the cook gauge's success window shrinks: 1 (no change) at
+ * intensity 0, down to SHAKY_HANDS_MIN_ZONE_SCALE at full intensity.
+ *
+ * @param {number} intensity - 0..1.
+ * @returns {number}
+ */
+export function shakyHandsZoneScale(intensity) {
+  return 1 - (1 - SHAKY_HANDS_MIN_ZONE_SCALE) * clamp(Number.isFinite(intensity) ? intensity : 0, 0, 1);
+}
+
+/**
+ * How much faster the cook gauge sweeps: 1 at intensity 0, up to
+ * SHAKY_HANDS_MAX_SWEEP_MULTIPLIER at full intensity.
+ *
+ * @param {number} intensity - 0..1.
+ * @returns {number}
+ */
+export function shakyHandsSweepMultiplier(intensity) {
+  return 1 + (SHAKY_HANDS_MAX_SWEEP_MULTIPLIER - 1) * clamp(Number.isFinite(intensity) ? intensity : 0, 0, 1);
+}
+
+/**
+ * `cookSuccessZone(sharpKnifeLevel)` shrunk around its own center by
+ * `scale` (shakyHandsZoneScale) — the gauge zone actually used at low Sanity.
+ *
+ * @param {number} sharpKnifeLevel
+ * @param {number} scale - 0..1.
+ * @returns {{start: number, end: number}}
+ */
+export function shakyCookSuccessZone(sharpKnifeLevel, scale) {
+  const zone = cookSuccessZone(sharpKnifeLevel);
+  const center = (zone.start + zone.end) / 2;
+  const half = ((zone.end - zone.start) / 2) * clamp(Number.isFinite(scale) ? scale : 1, 0, 1);
+  return { start: center - half, end: center + half, width: half * 2 };
+}
+
+/** Per-second chance (scaled by intensity) of dropping what you're carrying. */
+export const CARRY_DROP_CHANCE_PER_SECOND = 0.06;
+
+/** Sanity lost when you walk up to a ghost customer and nobody's there. */
+export const HALLUCINATION_STARTLE_SANITY = 5;
+
+export const ZERO_SANITY_PAY_CUT_PER_10S = 0.02;
+export const ZERO_SANITY_PAY_CUT_MAX = 0.3;
+
+/**
+ * Pay multiplier for `zeroSanitySeconds` spent at 0 Sanity this shift:
+ * −2% per full 10 seconds, capped at −30%.
+ *
+ * @param {number} zeroSanitySeconds
+ * @returns {number}
+ */
+export function hallucinationPayMultiplier(zeroSanitySeconds) {
+  const seconds = Number.isFinite(zeroSanitySeconds) && zeroSanitySeconds > 0 ? zeroSanitySeconds : 0;
+  return 1 - Math.min(ZERO_SANITY_PAY_CUT_MAX, Math.floor(seconds / 10) * ZERO_SANITY_PAY_CUT_PER_10S);
+}
+
+// ---------------------------------------------------------------------------
+// 14. Penalties at 0 Reputation — ported from Library Shift's 0-Mood
+//     penalties (its section 16). Before this, 0 Reputation only meant
+//     shorter patience. Now, while it sits at 0: every
+//     ZERO_REPUTATION_STORM_OUT_SECONDS the customer closest to giving up
+//     storms out (a mistake, like a timeout), every
+//     COMPLAINT_INTERVAL_SECONDS Duke gets a complaint letter (−Gard), and
+//     the shift's pay is cut for the time spent there.
+// ---------------------------------------------------------------------------
+
+export const ZERO_REPUTATION_STORM_OUT_SECONDS = 20;
+export const COMPLAINT_INTERVAL_SECONDS = 30;
+export const COMPLAINT_GARD = 25;
+export const ZERO_REPUTATION_PAY_CUT_PER_10S = 0.02;
+export const ZERO_REPUTATION_PAY_CUT_MAX = 0.3;
+
+/**
+ * Pay multiplier for `zeroReputationSeconds` spent at 0 Reputation this
+ * shift: −2% per full 10 seconds, capped at −30%.
+ *
+ * @param {number} zeroReputationSeconds
+ * @returns {number}
+ */
+export function reputationPayMultiplier(zeroReputationSeconds) {
+  const seconds = Number.isFinite(zeroReputationSeconds) && zeroReputationSeconds > 0 ? zeroReputationSeconds : 0;
+  return 1 - Math.min(ZERO_REPUTATION_PAY_CUT_MAX, Math.floor(seconds / 10) * ZERO_REPUTATION_PAY_CUT_PER_10S);
 }

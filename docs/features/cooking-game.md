@@ -935,6 +935,75 @@ depends on Coffee Machine/Counter's exact position (checked). Verified
 live via Playwright. `npm run test:unit` stayed at 271/271 (position-only
 change, no logic touched).
 
+**v4 Library-style art + Library Shift's mechanics** — the user asked to
+"work on improvements of the kitchen game" and picked every option
+offered: cookware icons, a real use for the Rice Cooker, Karen on shift 18
+too, porting Library Shift's newer mechanics, and "make the art style
+similar to the library game." Then they chose all four mechanics,
+an angrier Karen rematch, and a full art pass. See the rules docs for
+detail; the short version:
+
+* **Art pass** (rendering only, `cooking-game.js`). Every person is now
+  drawn by `web/static/js/shared/people.js`'s `drawPerson`. That is
+  Library Shift's renderer, extracted so both games share it:
+  `library-game.js` keeps `drawLibraryPerson` as a thin wrapper, and
+  the generic patron designs moved there as `PEOPLE_TEMPLATES`.
+  * Regular customers get one of those designs, picked when they walk in
+    and kept through their walk-out (`customerLooks`).
+  * The player, Mel, Olive & Oliver, the counter employee and the guard
+    get Kitchen-specific looks (`KITCHEN_PEOPLE`; new `apron`/`uniform`
+    outfits and a `ribbon` accessory in `people.js`).
+  * The player's face turns worried below 25 Sanity.
+  * Floors: the pink checkerboard became Library's wooden planks
+    (Dining) and warm glazed tiles (Kitchen), both with a vignette.
+  * Every station got a Library-style detail drawer (`STATION_DETAIL_DRAWERS`):
+    * Library's own coffee machine and paneled office door, with a
+      "DUKE" plaque and a padlock until payday.
+    * Fridge (it shows stocked shelves while open), wood cabinet (jars
+      while open), and the cookware shelf.
+    * Stove (a burner glows under a pan while cooking) and wall oven
+      (the LCD reads 350° and the window glows while baking).
+    * Swing doors, restroom and cleaning closet. The dirty-dish count
+      is now a red badge.
+  * Tables are wood with a cream cloth (crumbs and a plate when dirty).
+  * Also from Library: label chips, outline colors (blue hover, amber
+    target), a decorative wall clock, and the Sanity label in Caprasimo.
+  * Seated customers, labels and badges now draw in a second pass
+    (`drawStationOverlay`). This fixed customers being covered by the
+    next table row, and a Tier 3 table hiding the "To Kitchen" label.
+* **Cookware icons**: Pan/Baking Tray/Rice Cooker (`COOKWARE_ICON_DRAWERS`)
+  now show in the Cookware Closet panel.
+* **Rice Station**: a new Kitchen station (`floor-plan.js`, x 760 y 540)
+  that the Rice Cooker plugs into. It has the same station+cookware shape
+  as Stove+Pan and Oven+Baking Tray.
+  * New dishes: **Chicken Rice** (Rice + Chicken + Herbs, from shift 11)
+    and **Omurice** (Rice + Egg + Sauce, from shift 16).
+  * Rice is a new Cabinet ingredient. The Rice Cooker is no longer
+    flavor-only (kitchen rules doc).
+* **Karen's rematch on shift 18** (customer rules doc): she remembers you.
+  She has a new line, 9 s patience instead of 12, and tips 250g on a
+  correct serve (100g on shift 12).
+* **Ported from Library Shift**: the Coffee Pour minigame (a spill is
+  −50 Sanity), low-Sanity hallucinations, 0-Reputation penalties, and
+  the Gard counter HUD pill. See the food-server and customer rules docs.
+  * The paycheck is now Library's formula (`engine-state.js`'s
+    `shiftPayout`): base paycheck + bonus Gard − complaint letters, then
+    the 0-Sanity/0-Reputation pay cuts.
+  * The paycheck outcome line itemizes each part.
+* **Cook gauge**: it now shows its gold success zone
+  (`#cooking-gauge-zone`), which matters now that shaky hands narrow it.
+
+Tests:
+* Unit: 209/209 (`node --test web/static/js/cooking/*.test.js`).
+* New `e2e/cooking-game.spec.js`, run together with `projects.spec.js`
+  and `library-game.spec.js` on Chromium + WebKit: 110/110.
+  * It covers the Rice Station flow, the Karen rematch tip, the Coffee
+    Pour (a perfect pour, and a Space-key spill), hallucinations,
+    0 Reputation, the Gard counter, and no console errors.
+  * The Library Shift suite confirms the shared-renderer extraction
+    changed nothing there.
+* The `/projects` screenshot was recaptured.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,
@@ -1962,6 +2031,8 @@ bounds, etc.) is covered in Security Considerations below.
   no icon and no carrying indicator at all yet — it was never shown as
   text either (unlike ingredients before v3.9), so this wasn't a
   regression to fix, but is a gap should the user want full parity.
+  **Addressed (v4)**: cookware icons in the Cookware Closet panel, and
+  the Rice Cooker visibly sits on the Rice Station once picked up.
 * **Resolved (v3.1)**: the Kitchen/Dining room split (see Status and the
   kitchen rules doc) closes out the "fridge/cabinet/stove/oven in random
   places in the dining [room]" request. **Resolved (v3.2)**: the one-time
@@ -1983,14 +2054,15 @@ bounds, etc.) is covered in Security Considerations below.
   `overflow-hidden` silently clipped the excess, including the Close
   button, leaving it unclickable. Fixed by capping the whole card
   (`max-h-full overflow-y-auto`), not just its inner list, on both panels.
-* Rice Cooker sits in the Cookware Closet but no current dish requires it
-  (kitchen rules doc) — the user asked for it "e.g." alongside Pan, not as a
-  strict requirement; whether a future dish should use it, or whether it's
-  purely flavor/future-proofing, is left open.
-* Karen's shift was picked as 12 out of the "12 or 18" the user offered,
-  to keep this a single well-defined trigger; whether 18 should also get a
-  (the same or a different) scripted event, or Karen should move/duplicate
-  there instead, is left open.
+* **Resolved (v4)**: the Rice Cooker is now required by the Rice
+  Station's two dishes (Chicken Rice, Omurice).
+* **Resolved (v4)**: Karen now appears on shift 18 too, as an angrier
+  rematch (customer rules doc).
+* The leaderboard's `cookingScoreEarningsMax` (150,000) was sized for the
+  base paycheck alone. v4's bonus Gard is small (at most 350g/month from
+  Karen, plus 10g per perfect pour), but Counter payments (50g per
+  served customer) already pushed a strong month toward that cap. Worth
+  re-checking against a real playthrough.
 
 ---
 

@@ -469,6 +469,22 @@ Sanity", and Coral wears steaming coffee stains for 6 s
 (`drawCoffeeSplash`). Tests that encoded "every grade restores
 something" now cover the spill drain instead. Unit 221/221, e2e 68/68.
 
+**v2.20 shared character renderer** — no behavior change. Kitchen Shift's
+v4 art pass (docs/features/cooking-game.md) wanted this game's
+characters, so the renderer moved out of `library-game.js` into
+`web/static/js/shared/people.js`:
+* `drawPerson` with the face, hair, outfit, accessory and stress helpers,
+  plus `shadeColor`.
+* The generic patron designs, as `PEOPLE_TEMPLATES`.
+
+What stays here:
+* `drawLibraryPerson`, a thin wrapper that applies `LIBRARY_PERSON_SCALE`.
+* `PERSONALITY_TEMPLATES`, which is now `PEOPLE_TEMPLATES` plus the
+  player's `librarian` look.
+
+Unit 221/221 and every `e2e/library-game.spec.js` test pass unchanged on
+Chromium + WebKit.
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the

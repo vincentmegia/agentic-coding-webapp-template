@@ -25,12 +25,14 @@ paycheck rule for why:
 | 6–10            | Pancakes                | Stove     | Pan | Flour + Egg + Milk                    |
 | 11–15           | Roast Chicken           | Oven      | Baking Tray | Chicken + Herbs                       |
 | 11–15           | Pasta                   | Stove     | Pan | Noodles + Sauce                       |
+| 11–15           | Chicken Rice (v4)       | Rice Station | Rice Cooker | Rice + Chicken + Herbs          |
 | 16–20           | Steak Dinner            | Stove     | Pan | Steak + Potato + Herbs                |
 | 16–20           | Soufflé (signature)      | Oven      | Baking Tray | Egg + Cheese + Flour                  |
+| 16–20           | Omurice (v4)             | Rice Station | Rice Cooker | Rice + Egg + Sauce                 |
 
 A dish's ingredients come from the Fridge (cold: Cheese, Milk, Chicken,
 Patty, Steak, Lettuce, Tomato, Egg, Lemonade, Matcha) or the Cabinet (dry:
-Bread, Flour, Noodles, Herbs, Buns, Sauce, Potato, Star Cake, Cake).
+Bread, Flour, Noodles, Herbs, Buns, Sauce, Potato, Rice, Star Cake, Cake).
 Which dishes customers can order is drawn only from bands unlocked up to
 the current shift, same "grows, never shrinks" shape as the Fishing
 Game's fish-band gating. Lemonade/Matcha/Star Cake/Cake exist only for
@@ -40,9 +42,11 @@ customer's order.
 
 ## Cookware
 
-Every Stove dish needs a Pan and every Oven dish needs a Baking Tray (a
-Rice Cooker also lives in the Cookware Closet, present for flavor but not
-required by any current dish). Unlike ingredients, cookware is a one-time
+Every Stove dish needs a Pan, every Oven dish a Baking Tray, and (v4)
+every Rice Station dish a Rice Cooker. The Rice Station is a Kitchen
+countertop (bottom-right, `floor-plan.js`'s `rice-station`) that the Rice
+Cooker plugs into. It shows the cooker sitting on it once the player has
+picked one up, and an empty dashed spot until then. Unlike ingredients, cookware is a one-time
 pickup per shift — acquired once from the Cookware Closet, it's available
 for every dish that needs it for the rest of the shift, never consumed or
 re-gathered, and a burned/ruined dish only loses its ingredients, not its
@@ -57,6 +61,11 @@ re-gather). Sharp Knife gear (food-server doc's Gear upgrades) widens the
 success window per level. Sweep speed scales up slightly with shift
 number, the cooking-side equivalent of descent speed ramping with depth
 in the Fishing Game.
+
+v4: the gauge now shows its gold success zone (`#cooking-gauge-zone`,
+sized by `cooking-game.js` per cook). At low Sanity, "shaky hands" make
+it narrower and faster: `rules.js`'s `shakyCookSuccessZone` /
+`shakyHandsSweepMultiplier` (food-server doc's Hallucinations).
 
 ## Kitchen station sprites (v3.30)
 
