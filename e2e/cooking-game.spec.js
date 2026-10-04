@@ -84,6 +84,21 @@ async function walkToStation(page, id) {
 	await waitUntilArrived(page);
 }
 
+async function clickCanvasPoint(page, point) {
+	const p = await canvasToPage(page, point);
+	await page.mouse.click(p.x, p.y);
+}
+
+/** Walks to a waiting customer's table, then writes their order down on the order pad by clicking the dish they asked for. */
+async function takeOrder(page, tableId) {
+	await walkToStation(page, `table-${tableId}`);
+	await page.waitForFunction(() => window.__cookingGameTestHooks.getOrderPad() !== null, null, { timeout: 5000 });
+	const pad = await page.evaluate(() => window.__cookingGameTestHooks.getOrderPad());
+	const rows = await page.evaluate(() => window.__cookingGameTestHooks.orderPadRows());
+	await clickCanvasPoint(page, rows.find((r) => r.name === pad.dishName));
+	await page.waitForFunction(() => window.__cookingGameTestHooks.getOrderPad() === null);
+}
+
 async function pickFromPanel(page, item) {
 	await expect(page.locator('#cooking-station-panel')).toBeVisible();
 	await page.locator('#cooking-station-panel-list button', { hasText: item }).first().click();
@@ -91,6 +106,57 @@ async function pickFromPanel(page, item) {
 }
 
 const hooks = (page, fn, arg) => page.evaluate(fn, arg);
+
+test.describe('order pad', () => {
+	test('arriving at a waiting customer opens the pad; the right pick places the order', async ({ page }) => {
+		await startShift(page, 11);
+		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Pasta'), tableId);
+		await walkToStation(page, `table-${tableId}`);
+		const pad = await hooks(page, () => window.__cookingGameTestHooks.getOrderPad());
+		expect(pad).toMatchObject({ tableId, dishName: 'Pasta' });
+		expect(pad.choices).toHaveLength(4);
+		expect(pad.choices).toContain('Pasta');
+		// Nothing is ordered until it's written down.
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getShiftState())).orders).toHaveLength(0);
+
+		const rows = await hooks(page, () => window.__cookingGameTestHooks.orderPadRows());
+		await clickCanvasPoint(page, rows.find((r) => r.name === 'Pasta'));
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getOrderPad())).toBeNull();
+		const order = (await hooks(page, () => window.__cookingGameTestHooks.getShiftState())).orders[0];
+		expect(order).toMatchObject({ tableId, dishName: 'Pasta', customerSanityRemaining: 100 });
+		await expect(page.locator('#cooking-toast')).toContainText('Wrote down: Pasta');
+	});
+
+	test('a wrong pick is crossed out and costs an annoyance; number keys pick too', async ({ page }) => {
+		await startShift(page, 11);
+		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Pasta'), tableId);
+		await walkToStation(page, `table-${tableId}`);
+		const pad = await hooks(page, () => window.__cookingGameTestHooks.getOrderPad());
+		const wrongIndex = pad.choices.findIndex((name) => name !== 'Pasta');
+		await page.keyboard.press(String(wrongIndex + 1));
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getOrderPad())).wrong).toEqual([pad.choices[wrongIndex]]);
+		await expect(page.locator('#cooking-toast')).toContainText('No, I said the Pasta');
+
+		await page.keyboard.press(String(pad.choices.indexOf('Pasta') + 1));
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getOrderPad())).toBeNull();
+		const order = (await hooks(page, () => window.__cookingGameTestHooks.getShiftState())).orders[0];
+		expect(order.customerSanityRemaining).toBe(75);
+	});
+
+	// The ✕ rather than Escape: in fullscreen, Safari (WebKit) spends
+	// Escape on exiting fullscreen and the page never receives it.
+	test('the ✕ walks away without taking the order', async ({ page }) => {
+		await startShift(page, 11);
+		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Pasta'), tableId);
+		await walkToStation(page, `table-${tableId}`);
+		await clickCanvasPoint(page, await hooks(page, () => window.__cookingGameTestHooks.orderPadClosePoint()));
+		expect(await hooks(page, () => window.__cookingGameTestHooks.getOrderPad())).toBeNull();
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getShiftState())).orders).toHaveLength(0);
+	});
+});
 
 test.describe('Rice Station', () => {
 	test('the Recipe Book lists both rice dishes, and Chicken Rice cooks at the Rice Station with the Rice Cooker', async ({ page }) => {
@@ -103,7 +169,7 @@ test.describe('Rice Station', () => {
 
 		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
 		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Chicken Rice'), tableId);
-		await walkToStation(page, `table-${tableId}`);
+		await takeOrder(page, tableId);
 		expect((await hooks(page, () => window.__cookingGameTestHooks.getHeld())).activeOrderTableId).toBe(tableId);
 
 		// Arriving without the Rice Cooker explains what's missing.
@@ -141,7 +207,7 @@ test.describe("Karen's shift-18 rematch", () => {
 		// (tables 1-18 — see floor-plan.js's isTableUnlocked).
 		expect(tableId).toBeLessThanOrEqual(18);
 
-		await walkToStation(page, `table-${tableId}`);
+		await takeOrder(page, tableId);
 		const order = await hooks(page, (id) => window.__cookingGameTestHooks.getShiftState().orders.find((o) => o.tableId === id), tableId);
 		expect(order.patienceMaxSeconds).toBeLessThanOrEqual(9);
 
@@ -204,7 +270,7 @@ test.describe('hallucinations', () => {
 		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ sanity: 100 }));
 		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
 		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Grilled Cheese'), tableId);
-		await walkToStation(page, `table-${tableId}`);
+		await takeOrder(page, tableId);
 		await walkToStation(page, 'cookware-closet');
 		await pickFromPanel(page, 'Pan');
 		await walkToStation(page, 'cabinet');
@@ -226,7 +292,7 @@ test.describe('zero Reputation', () => {
 		await startShift(page);
 		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
 		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Garden Salad'), tableId);
-		await walkToStation(page, `table-${tableId}`);
+		await takeOrder(page, tableId);
 		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ reputation: 0, reputationStormTimer: 19.9, zeroReputationSeconds: 29.9 }));
 
 		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getShiftState().stormOuts)).toBe(1);

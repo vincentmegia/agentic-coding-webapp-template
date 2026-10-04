@@ -134,6 +134,8 @@ import {
   shakyCookSuccessZone,
   CARRY_DROP_CHANCE_PER_SECOND,
   COMPLAINT_GARD,
+  orderPadChoices,
+  CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE,
 } from './cooking/rules.js';
 import {
   createInitialState,
@@ -2015,6 +2017,7 @@ export function init(canvas, elements) {
     lastSeenShiftGard = 0;
     gardPops = [];
     coffeePour = null;
+    orderPad = null;
     coffeeSplashSeconds = 0;
     resetHallucinations();
     inventory = [];
@@ -2474,6 +2477,233 @@ export function init(canvas, elements) {
     ctx.restore();
   }
 
+  // -- Order pad (v4.2) ---------------------------------------------------
+  //
+  // The user: "make it so we go to the customers table and [write] down
+  // their order." Arriving at a waiting customer opens a notepad: they say
+  // what they want in a speech bubble, and the player taps that dish among
+  // ORDER_PAD_CHOICE_COUNT choices (or presses 1-4). A wrong pick is
+  // crossed out and they repeat themselves; each wrong pick becomes one
+  // customer-sanity annoyance once the order is placed (v3.18's existing
+  // mechanic), so four wrong picks and they walk out. Escape, or clicking
+  // off the pad, walks away without taking the order.
+
+  let orderPad = null; // { tableId, dishName, appearance, choices, wrong: string[], hover }
+
+  const ORDER_PAD = { x: 480 - 150, y: 168, w: 300, rowH: 50, rowGap: 10, firstRowY: 226 };
+
+  function orderPadAppearance(tableId) {
+    if (karen && karen.tableId === tableId) return 'karen';
+    if (mel && mel.tableId === tableId) return 'mel';
+    if (couple && couple.tableId === tableId) return 'couple';
+    return 'regular';
+  }
+
+  function openOrderPad(tableId) {
+    const maxOrders = tableCapacity(currentShiftNumber, save.gear.extraTableService);
+    if (shiftState.orders.length >= maxOrders) {
+      showToast('Too many open orders — serve someone first');
+      return;
+    }
+    const dishName = pendingCustomers[tableId];
+    const pool = availableDishes(currentShiftNumber).map((d) => d.name);
+    orderPad = {
+      tableId,
+      dishName,
+      appearance: orderPadAppearance(tableId),
+      choices: orderPadChoices(dishName, pool, random),
+      wrong: [],
+      hover: -1,
+    };
+    moveTarget = null;
+  }
+
+  function closeOrderPad() {
+    orderPad = null;
+  }
+
+  function orderPadRowRects() {
+    if (!orderPad) return [];
+    return orderPad.choices.map((name, i) => ({
+      name,
+      index: i,
+      x: ORDER_PAD.x + 20,
+      y: ORDER_PAD.firstRowY + i * (ORDER_PAD.rowH + ORDER_PAD.rowGap),
+      w: ORDER_PAD.w - 40,
+      h: ORDER_PAD.rowH,
+    }));
+  }
+
+  function orderPadPanelRect() {
+    const rows = orderPad ? orderPad.choices.length : 0;
+    const h = ORDER_PAD.firstRowY - ORDER_PAD.y + rows * (ORDER_PAD.rowH + ORDER_PAD.rowGap) + 34;
+    return { x: ORDER_PAD.x, y: ORDER_PAD.y, w: ORDER_PAD.w, h };
+  }
+
+  /** The pad's ✕ close button — Escape alone isn't enough: in fullscreen, Safari spends Escape on exiting fullscreen and the page never sees it. */
+  function orderPadCloseRect() {
+    const panel = orderPadPanelRect();
+    return { x: panel.x + panel.w - 34, y: panel.y + 14, w: 24, h: 24 };
+  }
+
+  function orderPadRowAt(x, y) {
+    return orderPadRowRects().find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) || null;
+  }
+
+  function pickOrderPadChoice(name) {
+    if (!orderPad || orderPad.wrong.includes(name)) return;
+    const { tableId, dishName } = orderPad;
+    if (name !== dishName) {
+      orderPad.wrong.push(name);
+      if (orderPad.wrong.length < CUSTOMER_SANITY_MAX / CUSTOMER_SANITY_DRAIN_PER_ANNOYANCE) {
+        showToast(orderPad.appearance === 'karen'
+          ? `"ARE YOU EVEN LISTENING? The ${dishName}!"`
+          : `"No, I said the ${dishName}!"`, 2.5);
+        return;
+      }
+      // Out of patience for being misheard: the order goes down anyway, and
+      // the annoyances below walk them straight out (a mistake, like a
+      // timeout) — same path as v3.18's re-visit annoyances.
+    }
+    const wrongCount = orderPad.wrong.length;
+    closeOrderPad();
+    if (!placeOrder(tableId)) return;
+    showToast(wrongCount === 0 ? `✎ Wrote down: ${dishName}` : `✎ Wrote down: ${dishName} (after ${wrongCount} mix-up${wrongCount === 1 ? '' : 's'})`, 2);
+    for (let i = 0; i < wrongCount; i++) annoyCustomerAt(tableId);
+  }
+
+  /** Called every frame: the pad closes itself if its customer is gone or the shift moved on. */
+  function updateOrderPad() {
+    if (!orderPad) return;
+    if (shiftState.phase !== 'playing' || pendingCustomers[orderPad.tableId] !== orderPad.dishName) closeOrderPad();
+  }
+
+  function orderPadLine() {
+    const dish = orderPad.dishName;
+    if (orderPad.appearance === 'karen') return `I want the ${dish}. NOW.`;
+    if (orderPad.appearance === 'mel') return 'Just my usual, please!';
+    if (orderPad.appearance === 'couple') return "We'll share our usual, please!";
+    return `I'll have the ${dish}, please!`;
+  }
+
+  function drawOrderPadOverlay() {
+    if (!orderPad) return;
+    const W = world.width;
+    ctx.save();
+    ctx.fillStyle = 'rgba(40,28,20,0.4)';
+    ctx.fillRect(0, 0, W, world.height);
+
+    // The customer's speech bubble, with the dish's icon(s) next to the line.
+    const line = orderPadLine();
+    ctx.font = 'bold 15px sans-serif';
+    const textW = ctx.measureText(line).width;
+    const composite = orderPad.dishName === MEL_DISH.name ? MEL_DISH.ingredients
+      : orderPad.dishName === COUPLE_DISH.name ? COUPLE_DISH.ingredients : null;
+    const iconCount = composite ? composite.length : 1;
+    const iconsW = iconCount * 30;
+    const bubbleW = textW + iconsW + 44;
+    const bx = W / 2 - bubbleW / 2;
+    const by = 92;
+    drawRoundRect(ctx, bx, by, bubbleW, 48, 16, '#fffbf6');
+    ctx.strokeStyle = 'rgba(58,42,42,0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bubbleW, 48, 16);
+    ctx.stroke();
+    ctx.fillStyle = '#fffbf6';
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - 10, by + 47);
+    ctx.lineTo(W / 2, by + 62);
+    ctx.lineTo(W / 2 + 10, by + 47);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = orderPad.appearance === 'karen' ? '#c0392b' : LABEL_TEXT_COLOR;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`“${line}”`, bx + 18, by + 24);
+    const iconStart = bx + 18 + textW + 26;
+    if (composite) composite.forEach((name, i) => drawIngredientIcon(ctx, iconStart + i * 30, by + 24, name, 26));
+    else drawDishIcon(ctx, iconStart, by + 24, orderPad.dishName, 30);
+
+    // The notepad: yellow lined paper, a red margin, spiral rings on top.
+    const panel = orderPadPanelRect();
+    ctx.fillStyle = 'rgba(58,42,42,0.18)';
+    ctx.beginPath();
+    ctx.roundRect(panel.x + 4, panel.y + 6, panel.w, panel.h, 10);
+    ctx.fill();
+    drawRoundRect(ctx, panel.x, panel.y, panel.w, panel.h, 10, '#fff7d6');
+    ctx.strokeStyle = 'rgba(120,150,200,0.35)';
+    ctx.lineWidth = 1;
+    for (let ly = panel.y + 52; ly < panel.y + panel.h - 8; ly += 20) {
+      ctx.beginPath();
+      ctx.moveTo(panel.x + 8, ly);
+      ctx.lineTo(panel.x + panel.w - 8, ly);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(224,106,91,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(panel.x + 14, panel.y + 30);
+    ctx.lineTo(panel.x + 14, panel.y + panel.h - 6);
+    ctx.stroke();
+    for (let rx = panel.x + 24; rx < panel.x + panel.w - 16; rx += 26) {
+      ctx.strokeStyle = '#8a8f96';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(rx, panel.y + 2, 6, Math.PI * 0.15, Math.PI * 0.85, true);
+      ctx.stroke();
+    }
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.font = displayFontReady ? 'bold 16px "Caprasimo", sans-serif' : 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Order Pad — Table ${orderPad.tableId}`, W / 2, panel.y + 30);
+    const close = orderPadCloseRect();
+    drawRoundRect(ctx, close.x, close.y, close.w, close.h, 12, 'rgba(58,42,42,0.12)');
+    ctx.strokeStyle = LABEL_TEXT_COLOR;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(close.x + 8, close.y + 8);
+    ctx.lineTo(close.x + close.w - 8, close.y + close.h - 8);
+    ctx.moveTo(close.x + close.w - 8, close.y + 8);
+    ctx.lineTo(close.x + 8, close.y + close.h - 8);
+    ctx.stroke();
+
+    for (const row of orderPadRowRects()) {
+      const wrong = orderPad.wrong.includes(row.name);
+      const hovered = orderPad.hover === row.index && !wrong;
+      drawRoundRect(ctx, row.x, row.y, row.w, row.h, 10, hovered ? 'rgba(232,185,90,0.35)' : 'rgba(255,255,255,0.65)');
+      ctx.strokeStyle = hovered ? '#e0a83a' : 'rgba(58,42,42,0.2)';
+      ctx.lineWidth = hovered ? 2 : 1;
+      ctx.beginPath();
+      ctx.roundRect(row.x, row.y, row.w, row.h, 10);
+      ctx.stroke();
+      ctx.globalAlpha = wrong ? 0.4 : 1;
+      ctx.fillStyle = 'rgba(58,42,42,0.55)';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(row.index + 1), row.x + 14, row.y + row.h / 2);
+      drawDishIcon(ctx, row.x + 46, row.y + row.h / 2, row.name, 36);
+      ctx.fillStyle = LABEL_TEXT_COLOR;
+      ctx.font = 'italic 16px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive';
+      ctx.textAlign = 'left';
+      ctx.fillText(row.name, row.x + 74, row.y + row.h / 2 + 1);
+      ctx.globalAlpha = 1;
+      if (wrong) {
+        ctx.strokeStyle = '#c0392b';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(row.x + 8, row.y + row.h / 2 + 2);
+        ctx.lineTo(row.x + row.w - 8, row.y + row.h / 2 - 2);
+        ctx.stroke();
+      }
+    }
+
+    ctx.fillStyle = 'rgba(58,42,42,0.65)';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Tap the dish they asked for (or press 1–4) · ✕ to walk away', W / 2, panel.y + panel.h - 14);
+    ctx.restore();
+  }
+
   // -- Hallucinations (v4, ported from Library Shift v2.16) ---------------
   //
   // Below HALLUCINATION_START_SANITY the diner starts playing tricks —
@@ -2721,6 +2951,15 @@ export function init(canvas, elements) {
   function onCanvasClick(e) {
     if (activePanel || recipeBookOpen || coffeePour || !running) return;
     const { x, y } = canvasCoordsFromEvent(e);
+    if (orderPad) {
+      const row = orderPadRowAt(x, y);
+      const panel = orderPadPanelRect();
+      const close = orderPadCloseRect();
+      if (x >= close.x && x <= close.x + close.w && y >= close.y && y <= close.y + close.h) closeOrderPad();
+      else if (row) pickOrderPadChoice(row.name);
+      else if (x < panel.x || x > panel.x + panel.w || y < panel.y - 80 || y > panel.y + panel.h) closeOrderPad();
+      return;
+    }
 
     // v3.24: clicking directly on a food icon sitting on the tray removes
     // it — checked before normal station targeting, since the tray icons
@@ -2749,6 +2988,12 @@ export function init(canvas, elements) {
 
   function onCanvasMouseMove(e) {
     const { x, y } = canvasCoordsFromEvent(e);
+    if (orderPad) {
+      const row = orderPadRowAt(x, y);
+      orderPad.hover = row ? row.index : -1;
+      hoverStation = null;
+      return;
+    }
     hoverStation = stationAtPoint(x, y, unlockedStations(stationsInRoom(stations, currentRoom), currentTableUnlockLevel()));
   }
 
@@ -2769,6 +3014,17 @@ export function init(canvas, elements) {
   // where `running` is already false and Enter should submit that form
   // normally, not be intercepted here.
   function onKeyDown(e) {
+    if (orderPad) {
+      const index = Number(e.key) - 1;
+      if (Number.isInteger(index) && index >= 0 && index < orderPad.choices.length) {
+        e.preventDefault();
+        pickOrderPadChoice(orderPad.choices[index]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeOrderPad();
+      }
+      return;
+    }
     if (coffeePour && (e.key === ' ' || e.key === 'Enter')) {
       e.preventDefault();
       if (!e.repeat) startCoffeePour();
@@ -2850,8 +3106,26 @@ export function init(canvas, elements) {
       showToast("…there's no one there. Your heart pounds.", 3);
       return;
     }
+    if (pendingCustomers[tableId]) {
+      openOrderPad(tableId);
+      return;
+    }
+
+    const order = shiftState.orders.find((o) => o.tableId === tableId);
+    if (!order) return;
+    serveOrRevisit(tableId, order);
+  }
+
+  /**
+   * Places `tableId`'s waiting customer's order — what arriving at their
+   * table used to do directly, before v4.2's order pad: patience for this
+   * customer (Karen/Mel adjusted, Reputation-scaled), `addOrder`, and the
+   * v3.12 speech bubble. Returns whether the order was actually placed.
+   */
+  function placeOrder(tableId) {
     const pendingDish = pendingCustomers[tableId];
-    if (pendingDish) {
+    if (!pendingDish) return false;
+    {
       const isKarenTable = karen && karen.tableId === tableId;
       const isMelTable = mel && mel.tableId === tableId;
       let patience = customerPatienceSeconds(currentShiftNumber, save.gear.regularsPatience);
@@ -2874,12 +3148,13 @@ export function init(canvas, elements) {
         // "wants to order" text just disappearing and a patience bar
         // appearing in its place) with a clearer, in-the-moment cue.
         orderBubble = { tableId, dishName: pendingDish, remaining: ORDER_BUBBLE_SECONDS };
+        return true;
       }
-      return;
+      return false;
     }
+  }
 
-    const order = shiftState.orders.find((o) => o.tableId === tableId);
-    if (!order) return;
+  function serveOrRevisit(tableId, order) {
     if (heldDish) {
       const isKarenTable = karen && karen.tableId === tableId;
       const isMelTable = mel && mel.tableId === tableId;
@@ -4521,6 +4796,7 @@ export function init(canvas, elements) {
     drawReputationBar();
     drawGardCounter();
     drawCoffeePourOverlay();
+    drawOrderPadOverlay();
   }
 
   // -- Game loop ------------------------------------------------------
@@ -4531,7 +4807,7 @@ export function init(canvas, elements) {
     const deltaSeconds = Math.min(0.1, (timestamp - lastTimestamp) / 1000);
     lastTimestamp = timestamp;
 
-    if (!activePanel && !recipeBookOpen && !coffeePour) updatePlayer(deltaSeconds);
+    if (!activePanel && !recipeBookOpen && !coffeePour && !orderPad) updatePlayer(deltaSeconds);
 
     if (shiftState.phase === 'playing') {
       const beforeTick = shiftState;
@@ -4576,6 +4852,7 @@ export function init(canvas, elements) {
     updateOrderBubble(deltaSeconds);
     updatePayingCustomers(deltaSeconds);
     updateCoffeePour(deltaSeconds);
+    updateOrderPad();
     updateHallucinations(deltaSeconds);
     trackGardPops(deltaSeconds);
     updateHoverHint();
@@ -4778,6 +5055,12 @@ export function init(canvas, elements) {
       getKarenEncounter() { return karenThisShift; },
       getCookZone() { return cookMiniGame ? { ...cookMiniGame.zone } : null; },
       isPlayerMoving() { return moveTarget !== null; },
+      getOrderPad() {
+        return orderPad ? { tableId: orderPad.tableId, dishName: orderPad.dishName, choices: [...orderPad.choices], wrong: [...orderPad.wrong] } : null;
+      },
+      /** Canvas-space centers of the order pad's rows, for clicking them like a player would. */
+      orderPadRows() { return orderPadRowRects().map((r) => ({ name: r.name, x: r.x + r.w / 2, y: r.y + r.h / 2 })); },
+      orderPadClosePoint() { const r = orderPadCloseRect(); return { x: r.x + r.w / 2, y: r.y + r.h / 2 }; },
       getHeld() { return { heldDish, inventory: [...inventory], cookware: [...cookware], activeOrderTableId }; },
       getKaren() { return karen ? { ...karen } : null; },
       /** Seats a waiting customer at `tableId` right away (skipping the walk-in) wanting `dishName`; `appearance` 'mel'/'couple' seats that regular instead. */

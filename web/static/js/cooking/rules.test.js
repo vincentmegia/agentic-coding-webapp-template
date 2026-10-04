@@ -699,3 +699,29 @@ describe('hallucinations', () => {
     }
   });
 });
+
+import { orderPadChoices, ORDER_PAD_CHOICE_COUNT } from './rules.js';
+
+describe('orderPadChoices (order pad)', () => {
+  const pool = availableDishes(30).map((d) => d.name);
+
+  test('always includes the right dish, plus distinct decoys, ORDER_PAD_CHOICE_COUNT in all', () => {
+    for (let seed = 0; seed < 50; seed++) {
+      let n = seed;
+      const random = () => { n = (n * 9301 + 49297) % 233280; return n / 233280; };
+      const choices = orderPadChoices('Burger', pool, random);
+      assert.equal(choices.length, ORDER_PAD_CHOICE_COUNT);
+      assert.equal(new Set(choices).size, choices.length);
+      assert.ok(choices.includes('Burger'));
+    }
+  });
+
+  test("a dish outside the pool (Mel's Usual) is still offered", () => {
+    const choices = orderPadChoices("Mel's Usual", pool, Math.random);
+    assert.ok(choices.includes("Mel's Usual"));
+  });
+
+  test('a small pool gives fewer choices instead of repeating', () => {
+    assert.deepEqual(orderPadChoices('Garden Salad', ['Garden Salad', 'Grilled Cheese'], () => 0).sort(), ['Garden Salad', 'Grilled Cheese']);
+  });
+});

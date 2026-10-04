@@ -943,3 +943,39 @@ export function reputationPayMultiplier(zeroReputationSeconds) {
   const seconds = Number.isFinite(zeroReputationSeconds) && zeroReputationSeconds > 0 ? zeroReputationSeconds : 0;
   return 1 - Math.min(ZERO_REPUTATION_PAY_CUT_MAX, Math.floor(seconds / 10) * ZERO_REPUTATION_PAY_CUT_PER_10S);
 }
+
+// ---------------------------------------------------------------------------
+// 15. The order pad (v4.2) — the user: "make it so we go to the customers
+//     table and [write] down their order." Arriving at a waiting customer
+//     opens a notepad: they say what they want, and the player picks it
+//     from ORDER_PAD_CHOICE_COUNT dishes. A wrong pick is crossed out and
+//     annoys them (cooking-game.js applies it as a customer-sanity
+//     annoyance once the order is placed).
+// ---------------------------------------------------------------------------
+
+/** How many dishes the order pad offers (the right one plus decoys). */
+export const ORDER_PAD_CHOICE_COUNT = 4;
+
+/**
+ * The order pad's choices: `correctName` plus up to
+ * ORDER_PAD_CHOICE_COUNT - 1 distinct decoys from `poolNames`, in a
+ * shuffled order. `random` is a 0..1 generator (Math.random in play).
+ *
+ * @param {string} correctName
+ * @param {string[]} poolNames - dish names to draw decoys from (duplicates and `correctName` are ignored).
+ * @param {() => number} random
+ * @returns {string[]}
+ */
+export function orderPadChoices(correctName, poolNames, random) {
+  const decoys = [...new Set(poolNames)].filter((name) => name !== correctName);
+  const picked = [];
+  while (picked.length < ORDER_PAD_CHOICE_COUNT - 1 && decoys.length > 0) {
+    picked.push(decoys.splice(Math.floor(random() * decoys.length), 1)[0]);
+  }
+  const choices = [correctName, ...picked];
+  for (let i = choices.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [choices[i], choices[j]] = [choices[j], choices[i]];
+  }
+  return choices;
+}

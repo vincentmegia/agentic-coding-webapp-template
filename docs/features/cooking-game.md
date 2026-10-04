@@ -1038,6 +1038,35 @@ change mels design."
     pass.
 * `seatCustomerNow` (test hook) can now seat Mel or the couple.
 
+**v4.2 order pad** — the user: "make it so we go to the customers table
+and [write] down their order." They picked the notepad option over an
+automatic ticket rail.
+* **How it plays.** Arriving at a waiting customer no longer takes the
+  order instantly. Instead, an on-canvas order pad opens:
+  * The customer says their order in a speech bubble, with its icon.
+    Karen is curt, and Mel and the couple ask for "the usual".
+  * The pad lists four dishes: the right one plus decoys from what's
+    available this shift (`rules.js`'s `orderPadChoices`).
+  * Tap the right one, or press 1–4, to write it down. That places the
+    order (`placeOrder`, the old arrival logic unchanged).
+  * A wrong pick is crossed out and the customer repeats themselves.
+    Each wrong pick becomes one customer-sanity annoyance once the order
+    is placed, so four mix-ups and they walk out (a mistake).
+  * The ✕, clicking off the pad, or Escape walks away without ordering.
+    The ✕ exists because in fullscreen Safari spends Escape on exiting
+    fullscreen, so the page never sees it.
+* **Other effects.**
+  * The player can't walk while the pad is open; the rest of the shift
+    keeps running.
+  * Arriving when already at order capacity now explains itself ("Too
+    many open orders") instead of silently doing nothing.
+* **Tests.**
+  * e2e: three new order-pad tests (a right pick, a wrong pick plus the
+    number keys, the ✕). Every test that takes an order now writes it
+    down through the pad (`takeOrder`).
+  * Unit: 212/212. e2e: 116/116 across Kitchen, Projects and Library,
+    Chromium + WebKit.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,

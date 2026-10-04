@@ -246,3 +246,23 @@ since a month is a much longer investment to fully discard.
 Top N (e.g. 20) by `total_earnings`, descending; submission is optional
 and only offered on the Final Paycheck screen (shift 20), never
 automatic, never mid-month.
+
+## Taking an order: the order pad (v4.2)
+
+Walking up to a waiting customer opens an on-canvas notepad instead of
+taking the order on the spot:
+* The customer states their order in a speech bubble.
+* The pad offers `ORDER_PAD_CHOICE_COUNT` (4) dishes: the right one plus
+  decoys from the dishes available this shift.
+* Picking the right one (click/tap, or keys 1–4) writes it down and
+  places the order, with the usual patience and order bubble.
+
+Each wrong pick:
+* is crossed out, and the customer repeats themselves;
+* counts as one customer-sanity annoyance (customer doc), applied when
+  the order is placed. Four wrong picks and they walk out, a mistake
+  like any timeout.
+
+The ✕, clicking off the pad, or Escape leaves without taking the order.
+While the pad is open the player stands still, but the shift clock and
+every other order keep running.
