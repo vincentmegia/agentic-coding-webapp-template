@@ -1487,7 +1487,8 @@ function drawMel(ctx, x, y, scale) {
  *
  * DOM contract:
  *   hud: { shift, clock, status } — Sanity is drawn on-canvas (drawSanityBar), not in the HUD.
- *   orderQueue                    — <ul> repopulated with the active order/pending-customer list every frame.
+ *   orderQueue                    — the order notepad's <ul> of written-down orders (renderOrderQueue).
+ *   orderWaiting (optional)       — the notepad's "Waiting to order: T5, T9" line.
  *   hoverHint                     — shown/hidden with the hovered station's name/status (mouse-hover tooltip, not a "press key" prompt).
  *   toast                         — brief transient message banner (e.g. missing-ingredient hints, Karen's line).
  *   introScreen: { root, line, continueButton } — the one-time walk-in intro dialogue box (see playIntro()).
@@ -1690,46 +1691,112 @@ export function init(canvas, elements) {
     elements.hud.status.textContent = shiftState.shiftUpset ? 'Customer upset' : 'Going well';
   }
 
+  /**
+   * v4.3 order notepad ("i want to see the order notepad on the side"):
+   * every written-down order as a ticket — table, dish icon and name in
+   * handwriting, who it's for (Karen/Mel/Olive & Oliver), and a patience
+   * bar — with the order being cooked marked ▶. Clicking a ticket makes it
+   * the active order (no walk back to the table, so no annoyance).
+   * Customers still waiting to order are listed by table only: their dish
+   * is what the order pad asks the player to catch, so it isn't shown.
+   *
+   * The ticket list is rebuilt only when the set of orders (or the active
+   * one) changes; the patience bars update in place every frame.
+   */
+  let orderQueueSignature = null;
+
+  function orderTag(tableId) {
+    if (karen && karen.tableId === tableId) return 'Karen!';
+    if (mel && mel.tableId === tableId) return 'Mel';
+    if (couple && couple.tableId === tableId) return 'Olive & Oliver';
+    return '';
+  }
+
+  function patienceColor(frac) {
+    return frac > 0.5 ? '#7fd68a' : (frac > 0.25 ? '#e0a83a' : '#e06a5b');
+  }
+
   function renderOrderQueue() {
-    const items = [];
-    for (const tableId of TABLE_IDS) {
-      const pendingDish = pendingCustomers[tableId];
-      if (pendingDish) {
-        const isKarenTable = karen && karen.tableId === tableId;
-        const isMelTable = mel && mel.tableId === tableId;
-        const isCoupleTable = couple && couple.tableId === tableId;
-        const suffix = isKarenTable ? ' — looks upset already' : (isMelTable ? ' — it\'s Mel!' : (isCoupleTable ? ' — Olive & Oliver' : ''));
-        items.push({ text: `Table ${tableId}: wants to order (${pendingDish})${suffix}`, active: false });
+    const orders = shiftState.orders;
+    const signature = JSON.stringify([activeOrderTableId, orders.map((o) => [o.tableId, o.dishName, orderTag(o.tableId)])]);
+    if (signature !== orderQueueSignature) {
+      orderQueueSignature = signature;
+      elements.orderQueue.textContent = '';
+      if (orders.length === 0) {
+        const li = document.createElement('li');
+        li.className = 'px-1 text-muted';
+        li.textContent = 'No orders yet — take one at a table.';
+        elements.orderQueue.appendChild(li);
+      }
+      for (const order of orders) {
+        const active = order.tableId === activeOrderTableId;
+        const li = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.orderTable = String(order.tableId);
+        button.className = `flex w-full flex-col gap-1 rounded-card border px-2 py-1.5 text-left transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${active ? 'border-[#e0a83a] bg-white/80' : 'border-transparent hover:bg-white/50'}`;
+        button.setAttribute('aria-pressed', String(active));
+
+        const top = document.createElement('span');
+        top.className = 'flex items-center gap-1.5';
+        const table = document.createElement('span');
+        table.className = 'shrink-0 rounded-full bg-[#8a6a4a] px-1.5 text-xs font-semibold text-white';
+        table.textContent = `${active ? '▶ ' : ''}T${order.tableId}`;
+        // Drawn at the screen's pixel density so the icon stays crisp.
+        const icon = document.createElement('canvas');
+        const dpr = Math.min(3, window.devicePixelRatio || 1);
+        icon.width = 34 * dpr;
+        icon.height = 34 * dpr;
+        icon.style.width = '34px';
+        icon.style.height = '34px';
+        icon.className = 'shrink-0';
+        const iconCtx = icon.getContext('2d');
+        iconCtx.scale(dpr, dpr);
+        drawDishIcon(iconCtx, 17, 17, order.dishName, 32);
+        const name = document.createElement('span');
+        name.className = 'order-notepad-hand min-w-0 truncate text-sm text-ink';
+        name.textContent = order.dishName;
+        top.append(table, icon, name);
+        button.appendChild(top);
+
+        const tag = orderTag(order.tableId);
+        if (tag) {
+          const tagEl = document.createElement('span');
+          tagEl.className = `text-[11px] font-medium ${tag === 'Karen!' ? 'text-[#c0392b]' : 'text-muted'}`;
+          tagEl.textContent = tag;
+          button.appendChild(tagEl);
+        }
+
+        const track = document.createElement('span');
+        track.className = 'block h-1.5 w-full overflow-hidden rounded-full bg-[rgba(58,42,42,0.12)]';
+        const fill = document.createElement('span');
+        fill.className = 'block h-full rounded-full';
+        fill.dataset.patienceFill = String(order.tableId);
+        track.appendChild(fill);
+        button.appendChild(track);
+
+        button.addEventListener('click', () => {
+          activeOrderTableId = order.tableId;
+          showToast(`Now working on Table ${order.tableId}: ${order.dishName}`, 1.8);
+        });
+        li.appendChild(button);
+        elements.orderQueue.appendChild(li);
       }
     }
-    for (const order of shiftState.orders) {
-      const secondsLeft = Math.max(0, Math.ceil(order.patienceRemainingSeconds));
-      const isKarenTable = karen && karen.tableId === order.tableId;
-      const isMelTable = mel && mel.tableId === order.tableId;
-      const isCoupleTable = couple && couple.tableId === order.tableId;
-      let label = `Table ${order.tableId}: `;
-      if (isKarenTable) label = `Table ${order.tableId} (Karen!): `;
-      else if (isMelTable) label = `Table ${order.tableId} (Mel): `;
-      else if (isCoupleTable) label = `Table ${order.tableId} (Olive & Oliver): `;
-      items.push({
-        text: `${label}${order.dishName} — ${secondsLeft}s`,
-        active: order.tableId === activeOrderTableId,
-      });
+
+    for (const order of orders) {
+      const fill = elements.orderQueue.querySelector(`[data-patience-fill="${order.tableId}"]`);
+      if (!fill) continue;
+      const frac = Math.max(0, Math.min(1, order.patienceRemainingSeconds / order.patienceMaxSeconds));
+      fill.style.width = `${(frac * 100).toFixed(1)}%`;
+      fill.style.backgroundColor = patienceColor(frac);
     }
 
-    elements.orderQueue.textContent = '';
-    if (items.length === 0) {
-      const li = document.createElement('li');
-      li.className = 'text-muted';
-      li.textContent = 'No orders yet.';
-      elements.orderQueue.appendChild(li);
-      return;
-    }
-    for (const item of items) {
-      const li = document.createElement('li');
-      if (item.active) li.className = 'font-semibold text-ink';
-      li.textContent = item.text;
-      elements.orderQueue.appendChild(li);
+    if (elements.orderWaiting) {
+      const waiting = TABLE_IDS.filter((id) => pendingCustomers[id]);
+      elements.orderWaiting.classList.toggle('hidden', waiting.length === 0);
+      const text = `Waiting to order: ${waiting.map((id) => `T${id}`).join(', ')}`;
+      if (elements.orderWaiting.textContent !== text) elements.orderWaiting.textContent = text;
     }
   }
 
@@ -2018,6 +2085,7 @@ export function init(canvas, elements) {
     gardPops = [];
     coffeePour = null;
     orderPad = null;
+    orderQueueSignature = null;
     coffeeSplashSeconds = 0;
     resetHallucinations();
     inventory = [];
@@ -5118,6 +5186,7 @@ function bootstrap() {
       status: document.getElementById('cooking-hud-status'),
     },
     orderQueue: document.getElementById('cooking-order-queue'),
+    orderWaiting: document.getElementById('cooking-order-waiting'),
     hoverHint: document.getElementById('cooking-interact-hint'),
     toast: document.getElementById('cooking-toast'),
     introScreen: {

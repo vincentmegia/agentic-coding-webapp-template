@@ -1067,6 +1067,40 @@ automatic ticket rail.
   * Unit: 212/212. e2e: 116/116 across Kitchen, Projects and Library,
     Chromium + WebKit.
 
+**v4.3 order notepad on the side** — the user: "i want to see the order
+notepad on the side." They picked an always-visible notepad of all
+orders over moving the pick-a-dish pad.
+* **Layout.**
+  * The "Orders" text bar above the canvas is gone.
+  * `#cooking-play-area` puts the canvas and `#cooking-order-notepad`
+    side by side on sm+ screens and stacks the notepad below on phones.
+  * The notepad's content is absolutely positioned on sm+, so a long
+    list scrolls instead of growing taller than the canvas.
+  * It stays visible in fullscreen: app.css's `:fullscreen` override now
+    flex-fills `#cooking-play-area` instead of the canvas wrapper.
+  * Its look comes from app.css's `.order-notepad*` rules: yellow lined
+    paper with a red margin, spiral rings, a Caprasimo title, and dish
+    names in a handwriting face.
+  * The container's leftover pink background (seen as letterbox bars in
+    fullscreen) is now wood-toned.
+* **Tickets.** Each written-down order is a ticket showing:
+  * the table number;
+  * the dish's icon, drawn at device pixel density, and its name;
+  * who it's for (Karen!/Mel/Olive & Oliver);
+  * a live patience bar, green to amber to red.
+
+  The order being cooked is marked ▶. Clicking a ticket makes it the
+  active order. Unlike walking back to the table, that's not an
+  annoyance.
+* **Waiting customers.** They're listed by table only ("Waiting to
+  order: T4, T5"). The old Orders bar showed what each waiting customer
+  wanted, which would give away the order pad's answer.
+* **Rendering.** `renderOrderQueue` rebuilds the tickets only when the
+  set of orders or the active order changes; the patience bars update
+  in place every frame.
+* **Tests.** New e2e test "order notepad". Kitchen, Projects and Library
+  suites: 118/118 on Chromium + WebKit.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,

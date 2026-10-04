@@ -158,6 +158,38 @@ test.describe('order pad', () => {
 	});
 });
 
+test.describe('order notepad', () => {
+	test('written orders show on the side notepad; clicking one makes it the active order', async ({ page }) => {
+		await startShift(page, 11);
+		const notepad = page.locator('#cooking-order-notepad');
+		await expect(notepad).toBeVisible();
+		await expect(notepad).toContainText('No orders yet');
+
+		const first = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Pasta'), first);
+		// A waiting customer is listed by table only — never by dish, which
+		// is what the order pad asks you to catch.
+		await expect(page.locator('#cooking-order-waiting')).toContainText(`T${first}`);
+		await expect(page.locator('#cooking-order-waiting')).not.toContainText('Pasta');
+		await takeOrder(page, first);
+		const second = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Burger'), second);
+		await takeOrder(page, second);
+
+		const tickets = page.locator('#cooking-order-queue [data-order-table]');
+		await expect(tickets).toHaveCount(2);
+		await expect(page.locator(`[data-order-table="${first}"]`)).toContainText('Pasta');
+		await expect(page.locator(`[data-order-table="${second}"]`)).toHaveAttribute('aria-pressed', 'true');
+
+		await page.locator(`[data-order-table="${first}"]`).click();
+		await expect(page.locator(`[data-order-table="${first}"]`)).toHaveAttribute('aria-pressed', 'true');
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getHeld())).activeOrderTableId).toBe(first);
+		// Switching from the notepad isn't a table re-visit — no annoyance.
+		const order = (await hooks(page, () => window.__cookingGameTestHooks.getShiftState())).orders.find((o) => o.tableId === first);
+		expect(order.customerSanityRemaining).toBe(100);
+	});
+});
+
 test.describe('Rice Station', () => {
 	test('the Recipe Book lists both rice dishes, and Chicken Rice cooks at the Rice Station with the Rice Cooker', async ({ page }) => {
 		await startShift(page, 11);

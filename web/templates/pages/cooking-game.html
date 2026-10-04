@@ -111,7 +111,7 @@
 				     touch input from also scrolling the page on mobile;
 				     cursor-pointer signals the whole scene is clickable, since v2
 				     has no keyboard controls at all. */}}
-				<div id="cooking-game-container" class="relative mx-auto flex w-full max-w-[900px] flex-col overflow-hidden rounded-card border border-line bg-[#fbeef1] shadow-sm">
+				<div id="cooking-game-container" class="relative mx-auto flex w-full max-w-[900px] flex-col overflow-hidden rounded-card border border-line bg-[#e9d6b8] shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2/95 px-3 py-2">
 						<dl class="grid flex-1 grid-cols-3 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
 							<div>
@@ -150,28 +150,19 @@
 						>Fullscreen</button>
 					</div>
 
-					{{/* Order queue: variable-length, so cooking-game.js repopulates
-					     this list's innerHTML directly (unlike the fixed HUD numbers
-					     above the canvas) rather than this template pre-rendering any
-					     rows. Empty by default until a customer places an order. A slim
-					     bar above the canvas, not an overlay on top of it — the floor
-					     plan's top row of stations already fills that space, and an
-					     opaque overlay there would block clicks from ever reaching
-					     them. */}}
-					<div class="flex items-start gap-3 border-b border-line bg-surface-2/95 px-4 py-2.5">
-						<p class="shrink-0 pt-0.5 text-xs font-medium uppercase tracking-wide text-muted sm:text-sm">Orders</p>
-						<ul id="cooking-order-queue" class="max-h-28 flex-1 space-y-1 overflow-y-auto text-sm text-ink sm:text-base">
-							<li class="text-muted">No orders yet.</li>
-						</ul>
-					</div>
-
 					{{/* Everything below — canvas + every overlay screen — lives inside
 					     this aspect-locked inner wrapper (id needed so app.css's
 					     :fullscreen override can target it directly rather than
 					     `#cooking-game-container > div`), so the Orders bar above stays
 					     a fixed-height sibling rather than getting stretched by
 					     flex/aspect-ratio math meant for the canvas. */}}
-					<div id="cooking-canvas-wrapper" class="relative aspect-[960/600] w-full overflow-hidden">
+					{{/* v4.3 ("i want to see the order notepad on the side"): the
+					     canvas and the order notepad sit side by side (stacked on
+					     narrow screens). #cooking-play-area is what flex-fills the
+					     screen in fullscreen (app.css), so the notepad stays visible
+					     there too. */}}
+					<div id="cooking-play-area" class="flex flex-col sm:flex-row">
+					<div id="cooking-canvas-wrapper" class="relative aspect-[960/600] w-full min-w-0 flex-1 overflow-hidden">
 						<canvas
 							id="cooking-canvas"
 							width="960"
@@ -411,6 +402,27 @@
 						</div>
 
 						{{template "cooking-shop" .}}
+					</div>
+
+						{{/* The order notepad (v4.3): every order written down on the
+						     order pad, with its table, dish, a patience bar and which
+						     one is being cooked. cooking-game.js's renderOrderQueue()
+						     repopulates #cooking-order-queue (rebuilding only when the
+						     orders change; the bars update every frame). Clicking an
+						     order makes it the active one, with no walk back to the
+						     table. Customers still waiting to order are listed below. */}}
+						<aside id="cooking-order-notepad" class="order-notepad relative w-full shrink-0 border-t border-line sm:w-52 sm:border-l sm:border-t-0" aria-label="Order notepad">
+							{{/* Absolutely positioned on sm+ so a long list never makes the
+							     notepad taller than the canvas beside it — it scrolls instead. */}}
+							<div class="flex max-h-48 flex-col sm:absolute sm:inset-0 sm:max-h-none">
+								<div class="order-notepad-rings" aria-hidden="true"></div>
+								<p class="order-notepad-title px-4 pt-5 pb-1 text-base text-ink">✎ Orders</p>
+								<ul id="cooking-order-queue" class="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 pb-2 text-sm text-ink">
+									<li class="px-1 text-muted">No orders yet.</li>
+								</ul>
+								<p id="cooking-order-waiting" class="hidden border-t border-dashed border-line px-4 py-2 text-xs text-muted"></p>
+							</div>
+						</aside>
 					</div>
 			</div>
 			</div>
