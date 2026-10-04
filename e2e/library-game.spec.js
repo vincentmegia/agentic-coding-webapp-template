@@ -612,6 +612,25 @@ test.describe('hallucinations', () => {
 	});
 });
 
+test.describe('zero Mood', () => {
+	test('a patron storms out and a complaint letter docks Gard while Mood is at 0', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await page.evaluate(() => {
+			const h = window.__libraryGameTestHooks;
+			h.spawnFineNow(30);
+			const s = h.getShiftState();
+			s.libraryMood = 0;
+			// Fast-forward the 0-Mood clocks to just before both penalties fire.
+			s.moodStormTimer = 19.9;
+			s.zeroMoodSeconds = 29.9;
+		});
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().complaints)).toBe(1);
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().walkouts)).toBe(1);
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().finesQueue)).toHaveLength(0);
+	});
+});
+
 test.describe('star rating', () => {
 	test('a queued patron who waits too long walks out, costs 1.5 stars, and the paycheck shows the rating-scaled pay', async ({ page }) => {
 		await page.goto('/library-game');

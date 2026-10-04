@@ -440,6 +440,15 @@ spends most of it at 0 Sanity. New hooks: `getHallucinations`,
 test). One run hit a WebKit timeout in the Karen test under parallel
 load; it passed 3/3 alone and in a full rerun.
 
+**v2.17 penalties at 0 Mood** — the user asked what happens at 0 Mood
+(answer: only indirectly, via shorter patience) and then "yes add
+penalty". Asked to choose, they picked all three: a pay cut, storm-outs
+and complaint letters. See Business Rules' Library Mood. `rules.js`
+section 16; `engine-state.js`: `zeroMoodSeconds`/`moodStormTimer`/
+`complaints`, `stormOutLongestWaiting`, and the payout subtracting
+complaints then applying `moodPayMultiplier`. Unit 217/217;
+e2e 66/66 (new zero-Mood test).
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the
@@ -793,8 +802,19 @@ established precedent.
   patienceMultiplierForLibraryMood(mood)` (1.0 at 100 mood, down to 0.6 at
   0), fixed when the patron arrives (`addBorrowRequest`), the same
   fold-in-at-spawn shape as Kitchen Shift's Reputation. It also drives the
-  HUD status text (Calm > 70, Tense > 30, else Frustrated patrons). It does
-  not affect the paycheck, which depends on `mistakeCount` only.
+  HUD status text (Calm > 70, Tense > 30, else Frustrated patrons). The
+  Reading Nook (+20) is the only way to raise it mid-shift. **At 0 Mood**
+  (v2.17), three penalties run:
+  - **Pay cut:** −2% per full 10 s, capped at 30% (`moodPayMultiplier`,
+    tracked in `zeroMoodSeconds`).
+  - **Storm-outs:** every 20 s the queued patron with the least wait left
+    storms out, a walk-out worth −1.5★. If nobody is in line, the next
+    arrival storms out immediately.
+  - **Complaint letters:** one every 30 s, each taking 25 Gard off the
+    payout (`complaints`; the Gard counter shows the net, with a red
+    "−25g" pop).
+
+  The paycheck lists each penalty that applied.
 * **Star rating** (v2.9): every shift starts at 5★ (`RATING_MAX`). Every
   queued patron, borrow and fine alike, has a wait timer:
   `queueWaitSecondsForShift` (90 s, shrinking to a 45 s floor), scaled by

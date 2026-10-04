@@ -50,6 +50,10 @@ import {
   READING_COOLDOWN_SECONDS,
   HALLUCINATION_STARTLE_SANITY,
   hallucinationPayMultiplier,
+  moodPayMultiplier,
+  ZERO_MOOD_STORM_OUT_SECONDS,
+  COMPLAINT_INTERVAL_SECONDS,
+  COMPLAINT_GARD,
 } from './rules.js';
 
 const SHIFT_1 = 1;
@@ -758,5 +762,46 @@ describe('Hallucinations (v2.16)', () => {
   test('startleFromHallucination costs a little Sanity, never below 0', () => {
     assert.equal(startleFromHallucination({ ...playingState(), sanity: 50 }).sanity, 50 - HALLUCINATION_STARTLE_SANITY);
     assert.equal(startleFromHallucination({ ...playingState(), sanity: 2 }).sanity, 0);
+  });
+});
+
+describe('Zero-Mood penalties (v2.17)', () => {
+  test('time at 0 Mood accumulates; above 0 it does not', () => {
+    assert.equal(tick({ ...playingState(), sanity: 100 }, 5).zeroMoodSeconds, 0);
+    assert.equal(tick({ ...playingState(), libraryMood: 0 }, 5).zeroMoodSeconds, 5);
+  });
+
+  test('every ZERO_MOOD_STORM_OUT_SECONDS at 0 Mood, the patron closest to giving up storms out (a walk-out)', () => {
+    let state = { ...playingState(), libraryMood: 0 };
+    state = addFineToQueue(state, { id: 'f1', amountGard: 20, waitSeconds: 200 });
+    state = addBorrowRequest(state, { id: 'r1', bookId: 'b', patienceSeconds: 30, waitSeconds: 100 });
+    state = tick(state, ZERO_MOOD_STORM_OUT_SECONDS + 0.5);
+    assert.equal(state.borrowQueue.length, 0, 'the borrow patron had less wait left');
+    assert.equal(state.finesQueue.length, 1);
+    assert.equal(state.walkouts, 1);
+    assert.equal(state.rating, RATING_MAX - RATING_PENALTY_PER_WALKOUT);
+  });
+
+  test('with nobody in line, the next arrival storms out right away', () => {
+    let state = tick({ ...playingState(), libraryMood: 0 }, ZERO_MOOD_STORM_OUT_SECONDS * 2);
+    assert.equal(state.walkouts, 0);
+    state = addFineToQueue(state, { id: 'f1', amountGard: 20, waitSeconds: 200 });
+    state = tick(state, 0.1);
+    assert.equal(state.finesQueue.length, 0);
+    assert.equal(state.walkouts, 1);
+  });
+
+  test('a complaint letter every COMPLAINT_INTERVAL_SECONDS at 0 Mood', () => {
+    const state = tick({ ...playingState(), libraryMood: 0 }, COMPLAINT_INTERVAL_SECONDS * 2 + 1);
+    assert.equal(state.complaints, 2);
+  });
+
+  test('payout subtracts complaints and applies the 0-Mood pay cut', () => {
+    let state = { ...playingState(), complaints: 2, zeroMoodSeconds: 50 };
+    state = tick({ ...state, libraryMood: 1 }, state.totalClockSeconds);
+    state = tick(state, CLOSING_WAIT_SECONDS);
+    state = enterBossOffice({ ...state, zeroSanitySeconds: 0 });
+    const gross = shiftPaycheckForRating(0) - 2 * COMPLAINT_GARD;
+    assert.equal(state.payout, Math.round(gross * moodPayMultiplier(50)));
   });
 });

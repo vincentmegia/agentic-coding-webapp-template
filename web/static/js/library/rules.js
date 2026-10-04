@@ -784,3 +784,34 @@ export function hallucinationPayMultiplier(zeroSanitySeconds) {
   const seconds = Number.isFinite(zeroSanitySeconds) && zeroSanitySeconds > 0 ? zeroSanitySeconds : 0;
   return 1 - Math.min(ZERO_SANITY_PAY_CUT_MAX, Math.floor(seconds / 10) * ZERO_SANITY_PAY_CUT_PER_10S);
 }
+
+// ---------------------------------------------------------------------------
+// 16. Zero-Mood penalties (v2.17) — "add [a] penalty" for Library Mood at
+//     0. While Mood sits at 0: the boss docks pay (like time at 0 Sanity),
+//     the longest-waiting patron in line storms out every
+//     ZERO_MOOD_STORM_OUT_SECONDS (a walk-out: −1.5★), and a complaint
+//     letter costs COMPLAINT_GARD every COMPLAINT_INTERVAL_SECONDS.
+// ---------------------------------------------------------------------------
+
+/** Pay cut per full 10 s at 0 Mood, capped at ZERO_MOOD_PAY_CUT_MAX. */
+export const ZERO_MOOD_PAY_CUT_PER_10S = 0.02;
+export const ZERO_MOOD_PAY_CUT_MAX = 0.3;
+
+/**
+ * Paycheck multiplier for time spent at 0 Library Mood this shift (1 = no cut).
+ *
+ * @param {number} zeroMoodSeconds
+ * @returns {number}
+ */
+export function moodPayMultiplier(zeroMoodSeconds) {
+  const seconds = Number.isFinite(zeroMoodSeconds) && zeroMoodSeconds > 0 ? zeroMoodSeconds : 0;
+  return 1 - Math.min(ZERO_MOOD_PAY_CUT_MAX, Math.floor(seconds / 10) * ZERO_MOOD_PAY_CUT_PER_10S);
+}
+
+/** At 0 Mood, a waiting patron storms out every this many seconds. */
+export const ZERO_MOOD_STORM_OUT_SECONDS = 20;
+
+/** At 0 Mood, a complaint letter arrives every this many seconds... */
+export const COMPLAINT_INTERVAL_SECONDS = 30;
+/** ...each costing this much Gard off the paycheck. */
+export const COMPLAINT_GARD = 25;

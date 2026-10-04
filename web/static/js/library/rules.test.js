@@ -2,6 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  moodPayMultiplier,
   hallucinationIntensity,
   shakyHandsZoneScale,
   shakyHandsSweepMultiplier,
@@ -552,5 +553,13 @@ describe('hallucination rules (v2.16)', () => {
     assert.equal(hallucinationPayMultiplier(9), 1);
     assert.equal(hallucinationPayMultiplier(10), 0.98);
     assert.ok(Math.abs(hallucinationPayMultiplier(1000) - 0.7) < 1e-9);
+  });
+});
+
+describe('zero-Mood pay cut (v2.17)', () => {
+  test('2% per full 10 s at 0 Mood, capped at 30%', () => {
+    assert.equal(moodPayMultiplier(0), 1);
+    assert.equal(moodPayMultiplier(10), 0.98);
+    assert.ok(Math.abs(moodPayMultiplier(10000) - 0.7) < 1e-9);
   });
 });

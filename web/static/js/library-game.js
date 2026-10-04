@@ -77,6 +77,8 @@ import {
   BOOK_DROP_CHANCE_PER_SECOND,
   HALLUCINATION_START_SANITY,
   hallucinationPayMultiplier,
+  moodPayMultiplier,
+  COMPLAINT_GARD,
   READING_PAGES,
   READING_SECONDS_PER_PAGE,
   TILL_DENOMINATIONS,
@@ -2434,8 +2436,11 @@ export function init(canvas, elements) {
     // v2.9: the star rating scales the payout — say so on the paycheck.
     const payPercent = Math.round(paycheckMultiplierForRating(shiftState.rating) * 100);
     const hallucinationCut = Math.round((1 - hallucinationPayMultiplier(shiftState.zeroSanitySeconds)) * 100);
+    const moodCut = Math.round((1 - moodPayMultiplier(shiftState.zeroMoodSeconds)) * 100);
     elements.paycheckScreen.outcome.textContent = `${mistakesText} · ${shiftState.rating}★ rating (${payPercent}% pay)`
-      + (hallucinationCut > 0 ? ` · −${hallucinationCut}% for hallucinating` : '');
+      + (hallucinationCut > 0 ? ` · −${hallucinationCut}% for hallucinating` : '')
+      + (moodCut > 0 ? ` · −${moodCut}% for a frustrated library` : '')
+      + ((shiftState.complaints ?? 0) > 0 ? ` · ${shiftState.complaints} complaint letter${shiftState.complaints === 1 ? '' : 's'} (−${shiftState.complaints * COMPLAINT_GARD}g)` : '');
     elements.paycheckScreen.shiftTotal.textContent = `${payout} Gard`;
     elements.paycheckScreen.monthTotal.textContent = `${save.monthToDateGard} Gard`;
     elements.paycheckScreen.nextShiftButton.classList.toggle('hidden', isFinalShift);
@@ -3202,15 +3207,20 @@ export function init(canvas, elements) {
   let lastSeenBonusGard = 0;
   let gardPops = [];
 
+  /** This shift's Gard so far: bonuses minus complaint letters (v2.17). */
+  function netShiftGard() {
+    return shiftState ? shiftState.bonusGard - (shiftState.complaints ?? 0) * COMPLAINT_GARD : 0;
+  }
+
   function trackGardPops(deltaSeconds) {
-    const bonus = shiftState ? shiftState.bonusGard : 0;
-    if (bonus > lastSeenBonusGard) gardPops.push({ amount: bonus - lastSeenBonusGard, age: 0 });
-    lastSeenBonusGard = bonus;
+    const net = netShiftGard();
+    if (net !== lastSeenBonusGard) gardPops.push({ amount: net - lastSeenBonusGard, age: 0 });
+    lastSeenBonusGard = net;
     gardPops = gardPops.map((pop) => ({ ...pop, age: pop.age + deltaSeconds })).filter((pop) => pop.age < 1.4);
   }
 
   function drawGardCounter() {
-    const bonus = shiftState ? shiftState.bonusGard : 0;
+    const bonus = netShiftGard();
     const x = 264;
     const y = 14;
     const w = 176;
@@ -3233,7 +3243,7 @@ export function init(canvas, elements) {
     ctx.fillStyle = LABEL_TEXT_COLOR;
     ctx.textAlign = 'left';
     ctx.font = 'bold 11px sans-serif';
-    ctx.fillText(`+${bonus}g shift`, x + 26, y + 11.5);
+    ctx.fillText(`${bonus >= 0 ? '+' : '−'}${Math.abs(bonus)}g shift`, x + 26, y + 11.5);
     ctx.font = '10px sans-serif';
     ctx.fillStyle = 'rgba(58,42,42,0.7)';
     ctx.textAlign = 'right';
@@ -3248,9 +3258,10 @@ export function init(canvas, elements) {
       ctx.strokeStyle = '#fdf8ee';
       ctx.lineWidth = 3.5;
       ctx.lineJoin = 'round';
-      ctx.strokeText(`+${pop.amount}g`, x + 26, popY);
-      ctx.fillStyle = '#b07a1e';
-      ctx.fillText(`+${pop.amount}g`, x + 26, popY);
+      const popText = `${pop.amount >= 0 ? '+' : '−'}${Math.abs(pop.amount)}g`;
+      ctx.strokeText(popText, x + 26, popY);
+      ctx.fillStyle = pop.amount >= 0 ? '#b07a1e' : '#c0392b';
+      ctx.fillText(popText, x + 26, popY);
       ctx.globalAlpha = 1;
     }
   }
@@ -4010,6 +4021,7 @@ export function init(canvas, elements) {
     const beforeBorrowStage = shiftState.activeBorrow?.stage;
     const beforeKarenActive = shiftState.karen.active;
     const beforeWalkouts = shiftState.walkouts;
+    const beforeComplaints = shiftState.complaints ?? 0;
     shiftState = tick(shiftState, deltaSeconds, { pauseBorrowPatience: overlay?.kind === 'find-the-book' });
 
     if (beforeBorrowStage === 'searching' && !shiftState.activeBorrow && overlay?.kind === 'find-the-book') {
@@ -4032,8 +4044,12 @@ export function init(canvas, elements) {
       waitingAtBossOffice = false;
     }
 
-    if (shiftState.walkouts > beforeWalkouts) {
-      showToast(`A patron got tired of waiting and left — −${RATING_PENALTY_PER_WALKOUT}★`);
+    if ((shiftState.complaints ?? 0) > beforeComplaints) {
+      showToast(`📨 A complaint letter from the boss — −${COMPLAINT_GARD} Gard. The library's mood is at rock bottom.`);
+    } else if (shiftState.walkouts > beforeWalkouts) {
+      showToast(shiftState.libraryMood <= 0
+        ? `A frustrated patron stormed out — −${RATING_PENALTY_PER_WALKOUT}★`
+        : `A patron got tired of waiting and left — −${RATING_PENALTY_PER_WALKOUT}★`);
     }
 
     if (shiftState.phase === 'playing') processScheduledEvents();

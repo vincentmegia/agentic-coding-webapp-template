@@ -20,6 +20,9 @@
 //     shelfCheck: { kind: 'skill-check' | 'coin-hunt' } | null, // active once arriveAtShelf starts one
 //
 //     rating: number,               // v2.9: 0..RATING_MAX stars; −RATING_PENALTY_PER_WALKOUT per patron who walks out; scales the payout
+//     zeroMoodSeconds: number,      // v2.17: seconds at 0 Library Mood this shift (cuts pay — moodPayMultiplier)
+//     moodStormTimer: number,       // v2.17: seconds toward the next 0-Mood storm-out
+//     complaints: number,           // v2.17: complaint letters this shift (COMPLAINT_GARD each, off the payout)
 //     zeroSanitySeconds: number,    // v2.16: seconds spent at 0 Sanity this shift (cuts pay — rules.js's hallucinationPayMultiplier)
 //     readingCooldownSeconds: number, // v2.10: seconds until the Reading Nook can be used again (0 = ready)
 //     walkouts: number,             // v2.9: patrons who left after waiting too long this shift
@@ -101,6 +104,10 @@ import {
   READING_COOLDOWN_SECONDS,
   HALLUCINATION_STARTLE_SANITY,
   hallucinationPayMultiplier,
+  moodPayMultiplier,
+  ZERO_MOOD_STORM_OUT_SECONDS,
+  COMPLAINT_INTERVAL_SECONDS,
+  COMPLAINT_GARD,
 } from './rules.js';
 
 export { LIBRARY_MOOD_MAX, SANITY_MAX, RATING_MAX };
@@ -130,6 +137,9 @@ export function createInitialState(shiftNumber, karenShiftNumber, overrides = {}
     walkouts: 0,
     readingCooldownSeconds: 0,
     zeroSanitySeconds: 0,
+    zeroMoodSeconds: 0,
+    moodStormTimer: 0,
+    complaints: 0,
 
     finesQueue: [],
     activeFine: null,
@@ -230,6 +240,21 @@ export function arriveAtShelf(state, genreId) {
     ...state,
     shelfCheck: { kind: state.carriedBook.isCoinHunt ? 'coin-hunt' : 'skill-check' },
   };
+}
+
+/**
+ * Removes the queued patron (borrow or fine line) with the least wait left
+ * — the one closest to giving up anyway. Returns null if nobody is queued.
+ */
+function stormOutLongestWaiting(state) {
+  const remaining = (entry) => entry.waitRemainingSeconds ?? Infinity;
+  const candidates = [
+    ...state.borrowQueue.map((e, i) => ({ queue: 'borrowQueue', i, left: remaining(e) })),
+    ...state.finesQueue.map((e, i) => ({ queue: 'finesQueue', i, left: remaining(e) })),
+  ];
+  if (candidates.length === 0) return null;
+  const target = candidates.reduce((a, b) => (b.left < a.left ? b : a));
+  return { ...state, [target.queue]: state[target.queue].filter((_, i) => i !== target.i) };
 }
 
 /** A patron walked out after waiting too long (v2.9): costs stars. */
@@ -657,6 +682,23 @@ export function tick(state, deltaSeconds, { pauseBorrowPatience = false } = {}) 
     }
   }
 
+  // v2.17 zero-Mood penalties: pay-cut clock, storm-outs, complaint letters.
+  if (next.libraryMood <= 0) {
+    const zeroMood = (state.zeroMoodSeconds ?? 0) + delta;
+    const complaints = Math.floor(zeroMood / COMPLAINT_INTERVAL_SECONDS);
+    next = { ...next, zeroMoodSeconds: zeroMood, complaints: Math.max(next.complaints ?? 0, complaints) };
+    let timer = (state.moodStormTimer ?? 0) + delta;
+    while (timer >= ZERO_MOOD_STORM_OUT_SECONDS) {
+      const stormed = stormOutLongestWaiting(next);
+      if (!stormed) { timer = ZERO_MOOD_STORM_OUT_SECONDS; break; } // nobody in line: the next arrival storms out right away
+      next = { ...stormed, ...applyWalkout(stormed) };
+      timer -= ZERO_MOOD_STORM_OUT_SECONDS;
+    }
+    next.moodStormTimer = timer;
+  } else {
+    next.moodStormTimer = 0;
+  }
+
   // Queued patrons (not yet being helped) walk out when their wait runs out.
   const borrows = tickQueue(next.borrowQueue, delta);
   const fines = tickQueue(next.finesQueue, delta);
@@ -707,8 +749,11 @@ export function enterBossOffice(state) {
   if (!isBossOfficeReady(state)) return state;
   // v2.9: the star rating scales the whole payout (5★ = 100%).
   // v2.16: time spent at 0 Sanity (hallucinating) cuts it further.
-  const gross = shiftPaycheck(state.mistakeCount) + state.bonusGard;
-  const multiplier = paycheckMultiplierForRating(state.rating) * hallucinationPayMultiplier(state.zeroSanitySeconds);
+  // v2.17: complaint letters come off the gross, 0-Mood time cuts it too.
+  const gross = Math.max(0, shiftPaycheck(state.mistakeCount) + state.bonusGard - (state.complaints ?? 0) * COMPLAINT_GARD);
+  const multiplier = paycheckMultiplierForRating(state.rating)
+    * hallucinationPayMultiplier(state.zeroSanitySeconds)
+    * moodPayMultiplier(state.zeroMoodSeconds);
   return { ...state, phase: 'paycheck', payout: Math.round(gross * multiplier) };
 }
 
