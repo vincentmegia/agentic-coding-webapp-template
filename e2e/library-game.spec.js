@@ -631,6 +631,24 @@ test.describe('zero Mood', () => {
 	});
 });
 
+test.describe('shelving incentives', () => {
+	test('a messy cart (more than 8 books) drains Mood, and unshelved books are docked at closing', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await page.evaluate(() => {
+			const h = window.__libraryGameTestHooks;
+			h.getShiftState().returnCart.length = 0;
+			for (let i = 0; i < 10; i++) h.spawnBookNow(false);
+		});
+		await expect.poll(async () => page.evaluate(() => window.__libraryGameTestHooks.getShiftState().libraryMood)).toBeLessThan(100);
+
+		await page.evaluate(() => window.__libraryGameTestHooks.skipToClosing());
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().unshelvedAtClose)).toBeGreaterThanOrEqual(10);
+		await walkToStation(page, 'boss-office');
+		await expect(page.locator('#library-paycheck-outcome')).toContainText('left unshelved');
+	});
+});
+
 test.describe('star rating', () => {
 	test('a queued patron who waits too long walks out, costs 1.5 stars, and the paycheck shows the rating-scaled pay', async ({ page }) => {
 		await page.goto('/library-game');

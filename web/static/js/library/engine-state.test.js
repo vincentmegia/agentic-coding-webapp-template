@@ -54,6 +54,10 @@ import {
   ZERO_MOOD_STORM_OUT_SECONDS,
   COMPLAINT_INTERVAL_SECONDS,
   COMPLAINT_GARD,
+  SHELVED_BOOK_TIP_GARD,
+  UNSHELVED_BOOK_PENALTY_GARD,
+  MESSY_CART_THRESHOLD,
+  MESSY_CART_MOOD_DRAIN_PER_SECOND,
 } from './rules.js';
 
 const SHIFT_1 = 1;
@@ -179,7 +183,7 @@ describe('Return Cart / shelving flow', () => {
     const next = resolveCoinHunt(state, 75);
     assert.equal(next.carriedBook, null);
     assert.equal(next.shelfCheck, null);
-    assert.equal(next.bonusGard, 75);
+    assert.equal(next.bonusGard, 75 + SHELVED_BOOK_TIP_GARD); // found Gard + v2.18 shelving tip
     assert.equal(next.mistakeCount, 0);
   });
 
@@ -190,7 +194,7 @@ describe('Return Cart / shelving flow', () => {
     state = pickUpBook(state, 'b3');
     state = arriveAtShelf(state, 'scifi');
     const next = resolveCoinHunt(state, -10);
-    assert.equal(next.bonusGard, 0);
+    assert.equal(next.bonusGard, SHELVED_BOOK_TIP_GARD); // just the shelving tip — never subtracted
   });
 
   test('resolveShelfSkillCheck is a no-op if there is no active skill-check', () => {
@@ -599,7 +603,9 @@ describe('shift-clock tick / closing-wait / paycheck lifecycle', () => {
     state = tick(state, CLOSING_WAIT_SECONDS);
     state = enterBossOffice({ ...state, zeroSanitySeconds: 0 }); // isolate from the 0-Sanity pay cut
 
-    assert.equal(state.payout, shiftPaycheck(1) + 30);
+    // The failed shelf check leaves the book in hand at closing: docked (v2.18).
+    assert.equal(state.unshelvedAtClose, 1);
+    assert.equal(state.payout, shiftPaycheck(1) + 30 - UNSHELVED_BOOK_PENALTY_GARD);
   });
 
   test('tick is a no-op in every phase except playing and closing-wait', () => {
@@ -803,5 +809,35 @@ describe('Zero-Mood penalties (v2.17)', () => {
     state = enterBossOffice({ ...state, zeroSanitySeconds: 0 });
     const gross = shiftPaycheckForRating(0) - 2 * COMPLAINT_GARD;
     assert.equal(state.payout, Math.round(gross * moodPayMultiplier(50)));
+  });
+});
+
+describe('Shelving incentives (v2.18)', () => {
+  test('a successful shelf check tips SHELVED_BOOK_TIP_GARD', () => {
+    let state = playingState();
+    state = addBookToCart(state, { id: 'b1', genreId: 'kids', isCoinHunt: false });
+    state = pickUpBook(state, 'b1');
+    state = arriveAtShelf(state, 'kids');
+    state = resolveShelfSkillCheck(state, true);
+    assert.equal(state.bonusGard, SHELVED_BOOK_TIP_GARD);
+  });
+
+  test('a cart past MESSY_CART_THRESHOLD drains Library Mood; at the threshold it does not', () => {
+    let state = playingState();
+    for (let i = 0; i < MESSY_CART_THRESHOLD; i++) state = addBookToCart(state, { id: `b${i}`, genreId: 'kids', isCoinHunt: false });
+    assert.equal(tick(state, 10).libraryMood, LIBRARY_MOOD_MAX);
+    state = addBookToCart(state, { id: 'extra', genreId: 'kids', isCoinHunt: false });
+    assert.equal(tick(state, 10).libraryMood, LIBRARY_MOOD_MAX - MESSY_CART_MOOD_DRAIN_PER_SECOND * 10);
+  });
+
+  test('books unshelved when the clock runs out are counted and docked at payout', () => {
+    let state = playingState();
+    for (let i = 0; i < 3; i++) state = addBookToCart(state, { id: `b${i}`, genreId: 'kids', isCoinHunt: false });
+    state = pickUpBook(state, 'b0');
+    state = tick(state, state.totalClockSeconds);
+    assert.equal(state.unshelvedAtClose, 3); // 2 on the cart + 1 in hand
+    state = tick(state, CLOSING_WAIT_SECONDS);
+    state = enterBossOffice({ ...state, zeroSanitySeconds: 0, zeroMoodSeconds: 0, complaints: 0 });
+    assert.equal(state.payout, shiftPaycheck(0) - 3 * UNSHELVED_BOOK_PENALTY_GARD);
   });
 });

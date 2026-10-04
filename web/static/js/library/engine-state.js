@@ -20,6 +20,7 @@
 //     shelfCheck: { kind: 'skill-check' | 'coin-hunt' } | null, // active once arriveAtShelf starts one
 //
 //     rating: number,               // v2.9: 0..RATING_MAX stars; −RATING_PENALTY_PER_WALKOUT per patron who walks out; scales the payout
+//     unshelvedAtClose: number,     // v2.18: books on the cart/in hand when the clock ran out (UNSHELVED_BOOK_PENALTY_GARD each)
 //     zeroMoodSeconds: number,      // v2.17: seconds at 0 Library Mood this shift (cuts pay — moodPayMultiplier)
 //     moodStormTimer: number,       // v2.17: seconds toward the next 0-Mood storm-out
 //     complaints: number,           // v2.17: complaint letters this shift (COMPLAINT_GARD each, off the payout)
@@ -108,6 +109,10 @@ import {
   ZERO_MOOD_STORM_OUT_SECONDS,
   COMPLAINT_INTERVAL_SECONDS,
   COMPLAINT_GARD,
+  SHELVED_BOOK_TIP_GARD,
+  UNSHELVED_BOOK_PENALTY_GARD,
+  MESSY_CART_THRESHOLD,
+  MESSY_CART_MOOD_DRAIN_PER_SECOND,
 } from './rules.js';
 
 export { LIBRARY_MOOD_MAX, SANITY_MAX, RATING_MAX };
@@ -138,6 +143,7 @@ export function createInitialState(shiftNumber, karenShiftNumber, overrides = {}
     readingCooldownSeconds: 0,
     zeroSanitySeconds: 0,
     zeroMoodSeconds: 0,
+    unshelvedAtClose: 0,
     moodStormTimer: 0,
     complaints: 0,
 
@@ -310,7 +316,7 @@ export function resolveShelfSkillCheck(state, success) {
   if (state.phase !== 'playing' || state.shelfCheck?.kind !== 'skill-check') return state;
 
   if (success) {
-    return { ...state, carriedBook: null, shelfCheck: null };
+    return { ...state, carriedBook: null, shelfCheck: null, bonusGard: state.bonusGard + SHELVED_BOOK_TIP_GARD };
   }
   return { ...state, shelfCheck: null, ...applyMistake(state) };
 }
@@ -335,7 +341,7 @@ export function resolveCoinHunt(state, foundGard) {
     ...state,
     carriedBook: null,
     shelfCheck: null,
-    bonusGard: state.bonusGard + found,
+    bonusGard: state.bonusGard + found + SHELVED_BOOK_TIP_GARD,
   };
 }
 
@@ -682,6 +688,11 @@ export function tick(state, deltaSeconds, { pauseBorrowPatience = false } = {}) 
     }
   }
 
+  // v2.18: a messy cart (too many unshelved returns) drains Library Mood.
+  if (next.returnCart.length > MESSY_CART_THRESHOLD) {
+    next = { ...next, libraryMood: clampLibraryMood(next.libraryMood - MESSY_CART_MOOD_DRAIN_PER_SECOND * delta) };
+  }
+
   // v2.17 zero-Mood penalties: pay-cut clock, storm-outs, complaint letters.
   if (next.libraryMood <= 0) {
     const zeroMood = (state.zeroMoodSeconds ?? 0) + delta;
@@ -716,7 +727,9 @@ export function tick(state, deltaSeconds, { pauseBorrowPatience = false } = {}) 
 
   const clockSeconds = Math.max(0, next.clockSeconds - delta);
   if (clockSeconds <= 0) {
-    return { ...next, clockSeconds: 0, phase: 'closing-wait', closingWaitSecondsRemaining: CLOSING_WAIT_SECONDS };
+    // v2.18: whatever's still unshelved at closing is docked at payout.
+    const unshelvedAtClose = next.returnCart.length + (next.carriedBook ? 1 : 0);
+    return { ...next, clockSeconds: 0, phase: 'closing-wait', closingWaitSecondsRemaining: CLOSING_WAIT_SECONDS, unshelvedAtClose };
   }
   return { ...next, clockSeconds };
 }
@@ -750,7 +763,9 @@ export function enterBossOffice(state) {
   // v2.9: the star rating scales the whole payout (5★ = 100%).
   // v2.16: time spent at 0 Sanity (hallucinating) cuts it further.
   // v2.17: complaint letters come off the gross, 0-Mood time cuts it too.
-  const gross = Math.max(0, shiftPaycheck(state.mistakeCount) + state.bonusGard - (state.complaints ?? 0) * COMPLAINT_GARD);
+  const gross = Math.max(0, shiftPaycheck(state.mistakeCount) + state.bonusGard
+    - (state.complaints ?? 0) * COMPLAINT_GARD
+    - (state.unshelvedAtClose ?? 0) * UNSHELVED_BOOK_PENALTY_GARD);
   const multiplier = paycheckMultiplierForRating(state.rating)
     * hallucinationPayMultiplier(state.zeroSanitySeconds)
     * moodPayMultiplier(state.zeroMoodSeconds);

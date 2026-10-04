@@ -449,6 +449,18 @@ section 16; `engine-state.js`: `zeroMoodSeconds`/`moodStormTimer`/
 complaints then applying `moodPayMultiplier`. Unit 217/217;
 e2e 66/66 (new zero-Mood test).
 
+**v2.18 shelving incentives** — the user asked "what happens when I
+leave the library books" (answer: nothing; ignoring the cart was even
+safer than shelving, since a failed check is a mistake) and then said
+"yes" to adding all three suggestions: a shelving tip, a messy-cart Mood
+drain and an unshelved-books penalty. See Business Rules' Shelving
+incentives. `rules.js` section 17; `engine-state.js` adds the tip in
+`resolveShelfSkillCheck`/`resolveCoinHunt`, the drain in `tick`,
+`unshelvedAtClose` at the closing transition, and the payout deduction.
+Coin Hunt/payout test expectations updated for the tip and the docked
+book. The "+N more" cart chip moved down 12px to clear the taller
+covers. Unit 220/220, e2e 68/68 (new shelving-incentives test).
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the
@@ -858,6 +870,16 @@ established precedent.
     on `drawLibraryPerson`): worried brows, a frown, smaller pupils, eye
     bags and a sweat drop, plus stray hairs near 0.
   - **Recovery:** restoring Sanity (coffee) ends everything.
+* **Shelving incentives** (v2.18):
+  - **Tip:** every shelved book tips +5 Gard (`SHELVED_BOOK_TIP_GARD`, on
+    a successful Shelf Skill-Check or a finished Coin Hunt).
+  - **Messy cart:** with more than 8 books waiting
+    (`MESSY_CART_THRESHOLD`), Library Mood drains 0.25/s
+    (`MESSY_CART_MOOD_DRAIN_PER_SECOND`), with a pulsing "Messy cart!"
+    warning under the cart.
+  - **Docked at closing:** books still on the cart or in hand when the
+    shift clock runs out (`unshelvedAtClose`) cost 10 Gard each at payout
+    (`UNSHELVED_BOOK_PENALTY_GARD`), listed on the paycheck.
 * **Sanity/Coffee Machine**: Sanity drains passively and per-mistake
   exactly as Kitchen Shift's does (same constants, reused). Since v2.2,
   visiting the Coffee Machine opens the **Coffee Pour** minigame instead of

@@ -79,6 +79,9 @@ import {
   hallucinationPayMultiplier,
   moodPayMultiplier,
   COMPLAINT_GARD,
+  SHELVED_BOOK_TIP_GARD,
+  UNSHELVED_BOOK_PENALTY_GARD,
+  MESSY_CART_THRESHOLD,
   READING_PAGES,
   READING_SECONDS_PER_PAGE,
   TILL_DENOMINATIONS,
@@ -2146,7 +2149,7 @@ export function init(canvas, elements) {
     const success = isSkillCheckSuccess(overlay.gaugePosition, skillCheckSuccessZone(shakyHandsZoneScale(currentIntensity())));
     if (overlay.context === 'shelf') {
       shiftState = resolveShelfSkillCheck(shiftState, success);
-      showToast(success ? 'Shelved!' : 'Missed the mark — try again.');
+      showToast(success ? `Shelved! +${SHELVED_BOOK_TIP_GARD}g` : 'Missed the mark — try again.');
       if (success) overlay = null;
       else { overlay.gaugePosition = 0; overlay.direction = 1; } // immediate retry, still carrying the book
     } else {
@@ -2164,7 +2167,7 @@ export function init(canvas, elements) {
     if (overlay.items.every((it) => it.found)) {
       const total = overlay.items.length * COIN_HUNT_ITEM_VALUE_GARD;
       shiftState = resolveCoinHunt(shiftState, total);
-      showToast(`Found every coin — +${total} Gard!`);
+      showToast(`Found every coin — +${total + SHELVED_BOOK_TIP_GARD} Gard (incl. the shelving tip)!`);
       overlay = null;
     }
   }
@@ -2440,6 +2443,7 @@ export function init(canvas, elements) {
     elements.paycheckScreen.outcome.textContent = `${mistakesText} · ${shiftState.rating}★ rating (${payPercent}% pay)`
       + (hallucinationCut > 0 ? ` · −${hallucinationCut}% for hallucinating` : '')
       + (moodCut > 0 ? ` · −${moodCut}% for a frustrated library` : '')
+      + ((shiftState.unshelvedAtClose ?? 0) > 0 ? ` · ${shiftState.unshelvedAtClose} book${shiftState.unshelvedAtClose === 1 ? '' : 's'} left unshelved (−${shiftState.unshelvedAtClose * UNSHELVED_BOOK_PENALTY_GARD}g)` : '')
       + ((shiftState.complaints ?? 0) > 0 ? ` · ${shiftState.complaints} complaint letter${shiftState.complaints === 1 ? '' : 's'} (−${shiftState.complaints * COMPLAINT_GARD}g)` : '');
     elements.paycheckScreen.shiftTotal.textContent = `${payout} Gard`;
     elements.paycheckScreen.monthTotal.textContent = `${save.monthToDateGard} Gard`;
@@ -3060,7 +3064,21 @@ export function init(canvas, elements) {
     }
     const cart = stations.find((s) => s.kind === 'return-cart');
     if (shiftState && shiftState.returnCart.length > 5) {
-      drawLabelChip(ctx, cart.x, cart.y + cart.size / 2 + 60, `+${shiftState.returnCart.length - 5} more`, 'bold 10px sans-serif');
+      drawLabelChip(ctx, cart.x, cart.y + cart.size / 2 + 72, `+${shiftState.returnCart.length - 5} more`, 'bold 10px sans-serif');
+    }
+    // v2.18: a messy cart drains Mood — say so, pulsing red.
+    if (shiftState && shiftState.phase === 'playing' && shiftState.returnCart.length > MESSY_CART_THRESHOLD) {
+      const pulse = 0.85 + 0.15 * Math.sin(performance.now() / 200);
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      const warnY = cart.y + cart.size / 2 + 94; // below the covers and the "+N more" chip
+      drawRoundRect(ctx, cart.x - 70, warnY - 9, 140, 18, 9, '#e06a5b');
+      ctx.fillStyle = '#fdf8ee';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Messy cart! Mood dropping', cart.x, warnY);
+      ctx.restore();
     }
   }
 

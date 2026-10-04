@@ -815,3 +815,22 @@ export const ZERO_MOOD_STORM_OUT_SECONDS = 20;
 export const COMPLAINT_INTERVAL_SECONDS = 30;
 /** ...each costing this much Gard off the paycheck. */
 export const COMPLAINT_GARD = 25;
+
+// ---------------------------------------------------------------------------
+// 17. Shelving incentives (v2.18) — "what happens when I leave the library
+//     books" (answer: nothing, and shelving only risked a mistake). Now:
+//     every shelved book earns a small tip, a cart piled past
+//     MESSY_CART_THRESHOLD drains Library Mood while it stays messy, and
+//     books still unshelved at closing are docked from the paycheck.
+// ---------------------------------------------------------------------------
+
+/** Gard tip for each book shelved (skill check or Coin Hunt). */
+export const SHELVED_BOOK_TIP_GARD = 5;
+
+/** Gard docked at payout for each book left unshelved at closing (on the cart or still in hand). */
+export const UNSHELVED_BOOK_PENALTY_GARD = 10;
+
+/** More books than this on the Return Cart counts as a messy library... */
+export const MESSY_CART_THRESHOLD = 8;
+/** ...draining this much Library Mood per second while it stays that way. */
+export const MESSY_CART_MOOD_DRAIN_PER_SECOND = 0.25;
