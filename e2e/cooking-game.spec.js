@@ -29,6 +29,24 @@ async function startShift(page, shift = 1) {
 	await page.goto('/kitchen-shift');
 	await page.locator('#cooking-start-shift-button').click();
 	await page.waitForFunction(() => window.__cookingGameTestHooks?.getShiftState()?.phase === 'playing');
+	await waitForStableCanvas(page);
+}
+
+/**
+ * "Start Shift" requests fullscreen, which resizes the canvas a moment
+ * later. A click aimed from a bounding box read mid-transition lands on
+ * the wrong world point (a real flake, most visible under parallel load),
+ * so wait until two reads 150 ms apart agree.
+ */
+async function waitForStableCanvas(page) {
+	let previous = null;
+	for (let i = 0; i < 20; i++) {
+		const box = await page.locator('#cooking-canvas').boundingBox();
+		if (previous && Math.abs(box.width - previous.width) < 0.5 && Math.abs(box.height - previous.height) < 0.5
+			&& Math.abs(box.x - previous.x) < 0.5 && Math.abs(box.y - previous.y) < 0.5) return;
+		previous = box;
+		await page.waitForTimeout(150);
+	}
 }
 
 /** Canvas-space (960x600) to page coordinates — letterbox-aware, the inverse of cooking-game.js's canvasCoordsFromEvent (see library-game.spec.js's identical helper for why fullscreen makes this necessary). */
@@ -119,6 +137,9 @@ test.describe("Karen's shift-18 rematch", () => {
 		await page.waitForFunction(() => window.__cookingGameTestHooks.getKaren() !== null, null, { timeout: 30000 });
 		await expect(page.locator('#cooking-toast')).toContainText('YOU AGAIN');
 		const { tableId } = await hooks(page, () => window.__cookingGameTestHooks.getKaren());
+		// Regression: she must sit at a table Tier 2 has actually unlocked
+		// (tables 1-18 — see floor-plan.js's isTableUnlocked).
+		expect(tableId).toBeLessThanOrEqual(18);
 
 		await walkToStation(page, `table-${tableId}`);
 		const order = await hooks(page, (id) => window.__cookingGameTestHooks.getShiftState().orders.find((o) => o.tableId === id), tableId);

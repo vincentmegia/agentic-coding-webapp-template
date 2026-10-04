@@ -1353,10 +1353,15 @@ const KITCHEN_PEOPLE = {
     eyeColor: '#2a2a2a', eyeShape: 'bigRound', browAngle: 0.3, mouthCurve: 1.1, blush: true,
     hairStyle: 'bun', outfit: 'apron', accessory: 'ribbon', shoeColor: '#5a3a2a',
   },
+  // v4.1 redesign (the user: "change mels design"): a sunny yellow
+  // sundress with a daisy print and a white sash instead of v4's
+  // shirt-and-skirt, long honey-brown hair with her white ribbon, white
+  // tights and shoes — still her favorite yellow and white, still the
+  // dandelion and yellow clip (drawMel adds those details).
   mel: {
-    bodyColor: '#fff3c4', pantsColor: '#ffffff', headColor: '#f6dcb8', hairColor: '#e8b84b', accentColor: '#ffffff',
-    eyeColor: '#3a2a2a', eyeShape: 'bigRound', browAngle: 0.5, mouthCurve: 1.5, blush: true,
-    hairStyle: 'bun', outfit: 'none', accessory: 'ribbon', shoeColor: '#e8b84b',
+    bodyColor: '#ffe08a', pantsColor: '#fdf8ee', headColor: '#f6dcb8', hairColor: '#b9783e', accentColor: '#ffffff',
+    eyeColor: '#5a3a2a', eyeShape: 'bigRound', browAngle: 0.5, mouthCurve: 1.5, blush: true,
+    hairStyle: 'long', outfit: 'dress', accessory: 'ribbon', shoeColor: '#ffffff',
   },
   olive: {
     bodyColor: OLIVE_FAVORITE_COLOR, pantsColor: '#fdf1e4', headColor: '#f6dcc0', hairColor: '#7a4a2e', accentColor: '#ffffff',
@@ -1380,6 +1385,20 @@ const KITCHEN_PEOPLE = {
   },
 };
 
+/**
+ * v4.1 character sizes ("make the character designs more like the
+ * library one"): Library Shift draws people at LIBRARY_PERSON_SCALE
+ * (1.55); Kitchen's v4 sizes (1.0-1.25) read noticeably smaller and
+ * flatter next to it. The player now matches Library's player exactly;
+ * customers are a step smaller so seated diners still fit the tightest
+ * Tier 3 table grid.
+ */
+const PLAYER_SCALE = 1.55;
+const WALKING_CUSTOMER_SCALE = 1.3;
+const SEATED_CUSTOMER_SCALE = 1.2;
+const COUPLE_SCALE = 1.05;
+const GUARD_SCALE = 1.45;
+
 /** Designs a regular (non-scripted) customer can have — every shared design except Karen. */
 const CUSTOMER_LOOK_KEYS = Object.keys(PEOPLE_TEMPLATES).filter((key) => key !== 'karen');
 
@@ -1390,51 +1409,69 @@ function drawKitchenPerson(ctx, x, y, key, opts = {}) {
 
 /**
  * Mel: sweet, kind, and caring — favorite color a soft creamy light
- * yellow and white, favorite flowers dandelions/tulips/roses. Her usual
- * outfit (all per the user's description): a dandelion tucked behind her
- * ear, a yellow hair clip, her hair tied up in a white ribbon, a yellow
- * shirt with a small flower pattern, and a plain white skirt — drawn on
- * top of the shared body (shared/people.js's head sits at y - 34*s).
+ * yellow and white, favorite flowers dandelions/tulips/roses, favorite
+ * hobby drawing and cycling. v4.1 redesign: a yellow sundress (shared
+ * `dress` outfit) with a white sash and a little white daisy print, long
+ * honey-brown hair with a white ribbon, a yellow hair clip, and a
+ * dandelion tucked behind her ear — drawn on top of the shared body
+ * (shared/people.js's head sits at y - 34*s, radius 10*s).
  */
 function drawMel(ctx, x, y, scale) {
   const s = scale;
   drawKitchenPerson(ctx, x, y, 'mel', { scale: s });
   const headY = y - 34 * s;
 
-  // Plain white skirt over the hips.
+  // White sash at the waist, tied in a small bow at the side.
+  drawRoundRect(ctx, x - 11 * s, y - 9.5 * s, 22 * s, 2.6 * s, 1.2 * s, '#ffffff');
   ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.moveTo(x - 10 * s, y - 8 * s);
-  ctx.lineTo(x + 10 * s, y - 8 * s);
-  ctx.lineTo(x + 13 * s, y + 1 * s);
-  ctx.lineTo(x - 13 * s, y + 1 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  // Small flower pattern on her shirt.
-  ctx.fillStyle = '#f6a6c1';
-  [[-5, -20], [4, -16], [-2, -12]].forEach(([dx, dy]) => {
+  for (const dir of [-1, 1]) {
     ctx.beginPath();
-    ctx.arc(x + dx * s, y + dy * s, 1.3 * s, 0, Math.PI * 2);
+    ctx.moveTo(x + 7 * s, y - 8.2 * s);
+    ctx.lineTo(x + 7 * s + dir * 3 * s, y - 10.5 * s);
+    ctx.lineTo(x + 7 * s + dir * 3 * s, y - 6 * s);
+    ctx.closePath();
     ctx.fill();
-  });
+  }
+
+  // Daisy print — white petals around a yellow center — on the bodice
+  // and the skirt.
+  for (const [dx, dy] of [[-5, -20], [4, -15], [-6, -2], [3, -3], [9, -1]]) {
+    const cx = x + dx * s;
+    const cy = y + dy * s;
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * 1.1 * s, cy + Math.sin(a) * 1.1 * s, 0.8 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#e8a83a';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 0.6 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   // Yellow hair clip.
-  drawRoundRect(ctx, x - 6 * s, headY - 8 * s, 4.5 * s, 2 * s, 1 * s, MEL_FAVORITE_COLOR);
+  drawRoundRect(ctx, x - 7 * s, headY - 8 * s, 5 * s, 2.2 * s, 1 * s, MEL_FAVORITE_COLOR);
 
-  // A dandelion tucked behind her ear — a small cream puff with a few wisps.
-  const fx = x - 11 * s;
-  const fy = headY - 2 * s;
+  // A dandelion tucked behind her ear — a cream puff with a few wisps.
+  const fx = x - 11.5 * s;
+  const fy = headY - 1 * s;
+  ctx.strokeStyle = '#7aa865';
+  ctx.lineWidth = Math.max(1, s * 0.6);
+  ctx.beginPath();
+  ctx.moveTo(fx, fy);
+  ctx.lineTo(fx + 1.5 * s, fy + 5 * s);
+  ctx.stroke();
   ctx.fillStyle = '#fdfaf0';
   ctx.beginPath();
   ctx.arc(fx, fy, 3 * s, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = '#fdfaf0';
-  ctx.lineWidth = Math.max(1, s * 0.6);
-  for (const angle of [-0.6, 0, 0.6]) {
+  ctx.strokeStyle = 'rgba(200,190,160,0.9)';
+  for (const angle of [-0.9, -0.3, 0.3, 0.9]) {
     ctx.beginPath();
     ctx.moveTo(fx, fy);
-    ctx.lineTo(fx - Math.sin(angle) * 4 * s, fy - Math.cos(angle) * 4 * s);
+    ctx.lineTo(fx - Math.sin(angle) * 3.6 * s, fy - Math.cos(angle) * 3.6 * s);
     ctx.stroke();
   }
 }
@@ -1860,7 +1897,11 @@ export function init(canvas, elements) {
     karen = null;
     karenThisShift = karenEncounter(currentShiftNumber);
     if (!karenThisShift) return;
-    const availableTableIds = TABLE_IDS.filter((id) => !shiftState.tables[id].occupied);
+    // Only tables this tier has unlocked — a real bug until v4.1: Karen's
+    // shifts (12, 18) are Tier 2, where only 18 of the 30 tables exist, so
+    // she was seated at an invisible, unclickable table ~40% of the time.
+    const level = currentTableUnlockLevel();
+    const availableTableIds = TABLE_IDS.filter((id) => isTableUnlocked(id, level) && !shiftState.tables[id].occupied);
     if (availableTableIds.length === 0) return;
     const tableId = availableTableIds[Math.floor(random() * availableTableIds.length)];
     const dishes = availableDishes(currentShiftNumber);
@@ -2554,7 +2595,7 @@ export function init(canvas, elements) {
     const t = performance.now();
     ctx.save();
     ctx.globalAlpha = 0.35 + 0.2 * Math.sin(t / 90);
-    drawKitchenPerson(ctx, Math.sin(t / 37) * 1.5, half + 8, ghost.look, { scale: 1.0 });
+    drawKitchenPerson(ctx, Math.sin(t / 37) * 1.5, half + 8, ghost.look, { scale: SEATED_CUSTOMER_SCALE });
     ctx.restore();
     drawLabelChip(ctx, 0, -half - 10, '???', 'bold 10px sans-serif');
   }
@@ -2986,8 +3027,8 @@ export function init(canvas, elements) {
     // head center sits around y-32*scale) — a small, mostly-stationary
     // bob reads as "taking a bite" much better than a long plate-to-mouth
     // travel would on a figure this small (~50px tall).
-    const iconX = c.x + 10;
-    const iconY = c.y - 34 - bob * 4;
+    const iconX = c.x + 12 * SEATED_CUSTOMER_SCALE;
+    const iconY = c.y - 34 * SEATED_CUSTOMER_SCALE - bob * 4;
     const iconSize = 13 + bob * 2;
     drawDishIcon(ctx, iconX, iconY, c.dishName, iconSize);
   }
@@ -3000,14 +3041,14 @@ export function init(canvas, elements) {
    */
   function drawCustomerFigure(x, y, appearance, look) {
     if (appearance === 'mel') {
-      drawMel(ctx, x, y, 1.0);
+      drawMel(ctx, x, y, WALKING_CUSTOMER_SCALE);
     } else if (appearance === 'couple') {
-      drawKitchenPerson(ctx, x - 13, y, 'olive', { scale: 0.85 });
-      drawKitchenPerson(ctx, x + 13, y, 'oliver', { scale: 0.85 });
+      drawKitchenPerson(ctx, x - 16, y, 'olive', { scale: COUPLE_SCALE });
+      drawKitchenPerson(ctx, x + 16, y, 'oliver', { scale: COUPLE_SCALE });
     } else if (appearance === 'karen') {
-      drawKitchenPerson(ctx, x, y, 'karen', { scale: 1.0, angryTint: Boolean(karenThisShift && karenThisShift.rematch) });
+      drawKitchenPerson(ctx, x, y, 'karen', { scale: WALKING_CUSTOMER_SCALE, angryTint: Boolean(karenThisShift && karenThisShift.rematch) });
     } else {
-      drawKitchenPerson(ctx, x, y, look || CUSTOMER_LOOK_KEYS[0], { scale: 1.0 });
+      drawKitchenPerson(ctx, x, y, look || CUSTOMER_LOOK_KEYS[0], { scale: WALKING_CUSTOMER_SCALE });
     }
   }
 
@@ -3499,16 +3540,16 @@ export function init(canvas, elements) {
 
     if (pendingDish || order) {
       if (isMelTable) {
-        drawMel(ctx, 0, half + 8, 1.0);
+        drawMel(ctx, 0, half + 8, SEATED_CUSTOMER_SCALE);
       } else if (isCoupleTable) {
         // Olive & Oliver: a couple sharing one table — two people, not one.
-        drawKitchenPerson(ctx, -17, half + 8, 'olive', { scale: 0.9 });
-        drawKitchenPerson(ctx, 17, half + 8, 'oliver', { scale: 0.9 });
+        drawKitchenPerson(ctx, -18, half + 8, 'olive', { scale: COUPLE_SCALE });
+        drawKitchenPerson(ctx, 18, half + 8, 'oliver', { scale: COUPLE_SCALE });
       } else if (isKarenTable) {
         // Already fuming the moment she sits down.
-        drawKitchenPerson(ctx, 0, half + 8, 'karen', { scale: 1.0, angryTint: true });
+        drawKitchenPerson(ctx, 0, half + 8, 'karen', { scale: SEATED_CUSTOMER_SCALE, angryTint: true });
       } else {
-        drawKitchenPerson(ctx, 0, half + 8, customerLooks[tableId] || CUSTOMER_LOOK_KEYS[0], { scale: 1.0 });
+        drawKitchenPerson(ctx, 0, half + 8, customerLooks[tableId] || CUSTOMER_LOOK_KEYS[0], { scale: SEATED_CUSTOMER_SCALE });
       }
     }
 
@@ -4237,7 +4278,7 @@ export function init(canvas, elements) {
 
   /** Pure geometry half of drawPlayerHolding — just the trayX/trayY/s a given pose produces, without drawing anything. */
   function drawPlayerHoldingPose(x, y, bobOffset) {
-    const s = 1.25;
+    const s = PLAYER_SCALE;
     const uy = y + bobOffset;
     return { trayX: x, trayY: uy - 12 * s, s };
   }
@@ -4301,8 +4342,8 @@ export function init(canvas, elements) {
       return;
     }
 
-    drawKitchenPerson(ctx, x, y, 'server', { scale: 1.25, stress: playerStress() });
-    drawCoffeeSplash(x, y, 1.25);
+    drawKitchenPerson(ctx, x, y, 'server', { scale: PLAYER_SCALE, stress: playerStress() });
+    drawCoffeeSplash(x, y, PLAYER_SCALE);
   }
 
   /** The player's low-Sanity stress (0..1) — Library Shift's worried face, eye bags and sweat drop below HALLUCINATION_START_SANITY. */
@@ -4318,7 +4359,7 @@ export function init(canvas, elements) {
   const SECURITY_GUARD_POSITION = { x: 560, y: 545 };
 
   function drawSecurityGuard() {
-    drawKitchenPerson(ctx, SECURITY_GUARD_POSITION.x, SECURITY_GUARD_POSITION.y, 'guard', { scale: 1.1 });
+    drawKitchenPerson(ctx, SECURITY_GUARD_POSITION.x, SECURITY_GUARD_POSITION.y, 'guard', { scale: GUARD_SCALE });
     drawLabelChip(ctx, SECURITY_GUARD_POSITION.x, SECURITY_GUARD_POSITION.y + 26, 'Security', 'bold 10px sans-serif');
   }
 
@@ -4739,8 +4780,10 @@ export function init(canvas, elements) {
       isPlayerMoving() { return moveTarget !== null; },
       getHeld() { return { heldDish, inventory: [...inventory], cookware: [...cookware], activeOrderTableId }; },
       getKaren() { return karen ? { ...karen } : null; },
-      /** Seats a waiting customer at `tableId` right away (skipping the walk-in) wanting `dishName`. */
-      seatCustomerNow(tableId, dishName) {
+      /** Seats a waiting customer at `tableId` right away (skipping the walk-in) wanting `dishName`; `appearance` 'mel'/'couple' seats that regular instead. */
+      seatCustomerNow(tableId, dishName, appearance) {
+        if (appearance === 'mel') { mel = { tableId }; melSpawnedThisShift = true; }
+        if (appearance === 'couple') { couple = { tableId }; coupleSpawnedThisShift = true; }
         pendingCustomers[tableId] = dishName;
         customerLooks[tableId] = CUSTOMER_LOOK_KEYS[Math.floor(random() * CUSTOMER_LOOK_KEYS.length)];
       },

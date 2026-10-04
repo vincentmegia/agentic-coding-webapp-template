@@ -244,3 +244,15 @@ patience. Now, while it sits at 0:
 
 A toast announces each storm-out and letter. The paycheck line itemizes
 them too.
+
+## Mel's look (v4.1)
+
+Redesigned at the user's request:
+* A yellow sundress with a white sash and a white-daisy print.
+* Long honey-brown hair tied with her white ribbon, plus her yellow hair
+  clip.
+* A dandelion tucked behind her ear.
+* White tights and shoes.
+
+It's drawn by `cooking-game.js`'s `drawMel`, on top of the shared
+`dress` outfit in `shared/people.js`.

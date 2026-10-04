@@ -1004,6 +1004,40 @@ Tests:
     changed nothing there.
 * The `/projects` screenshot was recaptured.
 
+**v4.1 Library-sized characters, Mel redesign, and a Karen bug fix** —
+the user: "i want the character designs more like the liabry one and
+change mels design."
+* **Sizes.** Both games already shared one renderer, but Kitchen drew
+  people at 1.0–1.25× while Library draws them at
+  `LIBRARY_PERSON_SCALE` (1.55×), so Kitchen's read small and flat.
+  New constants in `cooking-game.js`:
+
+  | Constant | Scale |
+  |---|---|
+  | `PLAYER_SCALE` | 1.55 (exactly Library's player) |
+  | `WALKING_CUSTOMER_SCALE` | 1.3 |
+  | `SEATED_CUSTOMER_SCALE` | 1.2 (still fits the tight Tier 3 grid) |
+  | `COUPLE_SCALE` | 1.05 each |
+  | `GUARD_SCALE` | 1.45 |
+
+  The tray and eating-bite geometry scale with them.
+* **Mel**: a yellow sundress (the shared `dress` outfit) with a white
+  sash and a white-daisy print. She has long honey-brown hair with her
+  white ribbon, and white tights and shoes. She keeps her yellow clip
+  and a dandelion behind her ear, now with a green stem.
+* **Real bug fixed**: `spawnKarenIfDue` picked Karen's table from all 30
+  tables, ignoring the tier's unlocked set. Both her shifts are Tier 2,
+  where only tables 1–18 exist, so about 40% of the time she sat at an
+  invisible, unclickable table and the event silently never happened.
+  This dates from v3.14's round tiers and affected her original shift-12
+  visit too.
+  * It was caught by `e2e/cooking-game.spec.js`'s rematch test failing
+    about half the time.
+  * The fix filters by `isTableUnlocked`.
+  * The test now asserts her table is unlocked; 16/16 repeated runs
+    pass.
+* `seatCustomerNow` (test hook) can now seat Mel or the couple.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,
