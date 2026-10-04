@@ -1101,6 +1101,30 @@ orders over moving the pick-a-dish pad.
 * **Tests.** New e2e test "order notepad". Kitchen, Projects and Library
   suites: 118/118 on Chromium + WebKit.
 
+**v4.4 toasts visible in fullscreen; tray status in the panel** — the
+user: "when i try to use the materials its not working", then "Can't
+pick them up". The pickup flow itself worked with real clicks, in
+Chromium and WebKit, against both a fresh server and the user's own.
+* **The real bug.** `#cooking-toast` and `#cooking-interact-hint` sat in
+  the page above `#cooking-game-container`, outside the Fullscreen API
+  target. The game enters fullscreen on "Start Shift", so during play
+  every toast was invisible:
+  * "Tray full", so with 3 items already on the tray (the base
+    capacity, leftovers included), clicking a Fridge/Cabinet item did
+    nothing visible;
+  * "Take an order first" and "Need: …";
+  * Karen's lines and the coffee results.
+* **The fix.** Both are now overlays inside `#cooking-canvas-wrapper`
+  (`pointer-events-none`, so they never block a click). The toast is
+  top-center and the hint bottom-left.
+* **Panel tray status.** The Fridge/Cabinet panel now shows
+  `#cooking-station-panel-tray` ("Tray: 2/3"). When the tray is full it
+  says so in red, explains how to make room (click an item on your tray
+  to set it down), and disables the item buttons.
+* **Tests.** New e2e "picking up ingredients" test (the toast/hint live
+  inside the container; a full tray reports itself and disables items).
+  Kitchen, Projects and Library suites: 120/120 on Chromium + WebKit.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,

@@ -1862,13 +1862,26 @@ export function init(canvas, elements) {
     if (!activePanel) return;
     elements.stationPanel.title.textContent = PANEL_TITLES[activePanel];
     elements.stationPanel.list.textContent = '';
+    // v4.4: say how full the tray is — a full tray used to make clicking an
+    // item look broken (its "Tray full" toast was invisible in fullscreen).
+    const capacity = carryCapacityForSave(save);
+    const trayFull = activePanel !== 'cookware' && inventory.length >= capacity;
+    if (elements.stationPanel.tray) {
+      elements.stationPanel.tray.textContent = activePanel === 'cookware'
+        ? "Cookware stays with you all shift — it doesn't take tray space."
+        : trayFull
+          ? `Tray full (${inventory.length}/${capacity}). Click an item on your tray to set it down.`
+          : `Tray: ${inventory.length}/${capacity}`;
+      elements.stationPanel.tray.classList.toggle('text-[#c0392b]', trayFull);
+      elements.stationPanel.tray.classList.toggle('font-medium', trayFull);
+    }
     for (const item of PANEL_ITEMS[activePanel]) {
       const li = document.createElement('li');
       const button = document.createElement('button');
       button.type = 'button';
       const owned = activePanel === 'cookware' && cookware.has(item);
       button.className = 'flex w-full items-center gap-2 rounded-card border border-line bg-surface px-3 py-2 text-left text-sm text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50';
-      if (owned) button.disabled = true;
+      if (owned || trayFull) button.disabled = true;
 
       // Fridge/Cabinet items reuse the same canvas-drawn icons already used
       // on the tray/order bubble (this project has no image-generation
@@ -5211,6 +5224,7 @@ function bootstrap() {
     stationPanel: {
       root: document.getElementById('cooking-station-panel'),
       title: document.getElementById('cooking-station-panel-title'),
+      tray: document.getElementById('cooking-station-panel-tray'),
       list: document.getElementById('cooking-station-panel-list'),
       closeButton: document.getElementById('cooking-station-panel-close-button'),
     },

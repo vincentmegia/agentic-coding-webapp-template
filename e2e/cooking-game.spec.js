@@ -158,6 +158,26 @@ test.describe('order pad', () => {
 	});
 });
 
+test.describe('picking up ingredients', () => {
+	// Regression: the toast used to live outside #cooking-game-container
+	// (the fullscreen target), so in fullscreen "Tray full" was invisible
+	// and a full tray made the Fridge/Cabinet look broken.
+	test('toasts render inside the fullscreen container, and a full tray says so in the panel', async ({ page }) => {
+		await startShift(page);
+		await expect(page.locator('#cooking-game-container #cooking-toast')).toHaveCount(1);
+		await expect(page.locator('#cooking-game-container #cooking-interact-hint')).toHaveCount(1);
+
+		await walkToStation(page, 'fridge');
+		await expect(page.locator('#cooking-station-panel-tray')).toHaveText('Tray: 0/3');
+		for (const item of ['Cheese', 'Milk', 'Egg']) {
+			await page.locator('#cooking-station-panel-list button', { hasText: item }).first().click();
+		}
+		await expect(page.locator('#cooking-station-panel-tray')).toContainText('Tray full (3/3)');
+		await expect(page.locator('#cooking-station-panel-list button', { hasText: 'Lettuce' })).toBeDisabled();
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getHeld())).inventory).toEqual(['Cheese', 'Milk', 'Egg']);
+	});
+});
+
 test.describe('order notepad', () => {
 	test('written orders show on the side notepad; clicking one makes it the active order', async ({ page }) => {
 		await startShift(page, 11);

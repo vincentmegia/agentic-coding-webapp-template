@@ -72,19 +72,6 @@
 				     here in the surrounding page chrome would disappear behind
 				     it. */}}
 
-				{{/* Hover tooltip — hidden by default, shown by cooking-game.js
-				     when the mouse hovers a station (not a "press key" prompt;
-				     controls are click-only, see the file header comment).
-				     role="status"/aria-live so it's announced without requiring
-				     focus, mirroring the Fishing Game's Sonar callout. */}}
-				<p id="cooking-interact-hint" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
-
-				{{/* Toast: brief transient messages (missing-ingredient hints,
-				     Karen's line, the ripple-effect notice). Hidden by default;
-				     cooking-game.js's showToast() unhides it and re-hides it after
-				     a timeout. */}}
-				<p id="cooking-toast" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
-
 				{{/* Canvas game box: a fixed warm "diner" scene regardless of the
 				     site's light/dark mode toggle (docs/features/cooking-game.md's
 				     Visual Direction), same fixed-palette-scene pattern as the
@@ -163,6 +150,18 @@
 					     there too. */}}
 					<div id="cooking-play-area" class="flex flex-col sm:flex-row">
 					<div id="cooking-canvas-wrapper" class="relative aspect-[960/600] w-full min-w-0 flex-1 overflow-hidden">
+						{{/* Hover tooltip and toast: overlays inside the canvas wrapper
+						     (v4.4). They used to sit above #cooking-game-container in
+						     the page, which is outside the Fullscreen API target, and
+						     the game enters fullscreen on "Start Shift". So during play
+						     every toast ("Tray full", "Need: Cheese", Karen's line, the
+						     coffee result) was invisible, and a full tray made picking
+						     up items look broken. pointer-events-none so neither ever
+						     blocks a click on the scene. The hint (a station's name
+						     under the mouse) sits bottom-left; the toast top-center. */}}
+						<p id="cooking-interact-hint" class="hidden pointer-events-none absolute bottom-3 left-3 z-10 rounded-card border border-line bg-surface-2/95 px-2 py-1 text-xs font-medium text-ink shadow-sm sm:text-sm" role="status" aria-live="polite"></p>
+						<p id="cooking-toast" class="hidden pointer-events-none absolute inset-x-0 top-16 z-10 mx-auto w-fit max-w-[80%] rounded-card border border-line bg-surface-2/95 px-3 py-1.5 text-center text-sm font-medium text-ink shadow-md" role="status" aria-live="polite"></p>
+
 						<canvas
 							id="cooking-canvas"
 							width="960"
@@ -236,6 +235,8 @@
 										class="shrink-0 rounded-card border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
 									>Close</button>
 								</div>
+								{{/* v4.4: how full the tray is, and what to do when it's full. */}}
+								<p id="cooking-station-panel-tray" class="text-sm text-muted"></p>
 								<ul id="cooking-station-panel-list" class="space-y-2"></ul>
 							</div>
 						</div>
