@@ -25,6 +25,8 @@ import {
   enterBossOffice,
   brewCoffee,
   canReadBook,
+  dropCarriedBook,
+  startleFromHallucination,
   finishReading,
   LIBRARY_MOOD_MAX,
   SANITY_MAX,
@@ -46,6 +48,8 @@ import {
   shiftPaycheck as shiftPaycheckForRating,
   READING_MOOD_RESTORE,
   READING_COOLDOWN_SECONDS,
+  HALLUCINATION_STARTLE_SANITY,
+  hallucinationPayMultiplier,
 } from './rules.js';
 
 const SHIFT_1 = 1;
@@ -567,7 +571,9 @@ describe('shift-clock tick / closing-wait / paycheck lifecycle', () => {
     state = tick(state, CLOSING_WAIT_SECONDS);
     assert.equal(isBossOfficeReady(state), true);
 
-    state = enterBossOffice(state);
+    // Isolate the base formula from v2.16's 0-Sanity pay cut (fast-forwarding
+    // a whole shift with no coffee spends most of it at 0 Sanity).
+    state = enterBossOffice({ ...state, zeroSanitySeconds: 0 });
     assert.equal(state.phase, 'paycheck');
     assert.equal(state.payout, shiftPaycheck(0) + 0);
   });
@@ -587,7 +593,7 @@ describe('shift-clock tick / closing-wait / paycheck lifecycle', () => {
 
     state = tick(state, state.totalClockSeconds);
     state = tick(state, CLOSING_WAIT_SECONDS);
-    state = enterBossOffice(state);
+    state = enterBossOffice({ ...state, zeroSanitySeconds: 0 }); // isolate from the 0-Sanity pay cut
 
     assert.equal(state.payout, shiftPaycheck(1) + 30);
   });
@@ -676,7 +682,7 @@ describe('Star rating (v2.9)', () => {
     let state = { ...playingState(), rating: 3.5 };
     state = tick(state, state.totalClockSeconds);
     state = tick(state, CLOSING_WAIT_SECONDS);
-    state = enterBossOffice(state);
+    state = enterBossOffice({ ...state, zeroSanitySeconds: 0 }); // isolate from the 0-Sanity pay cut
     assert.equal(state.payout, Math.round(shiftPaycheckForRating(0) * 0.7));
   });
 });
@@ -709,5 +715,48 @@ describe('Reading Nook (v2.10)', () => {
     const state = createInitialState(SHIFT_1, KAREN_SHIFT);
     assert.equal(canReadBook(state), false);
     assert.deepEqual(finishReading(state), state);
+  });
+});
+
+describe('Hallucinations (v2.16)', () => {
+  test('time at 0 Sanity accumulates and cuts the payout', () => {
+    let state = { ...playingState(), sanity: 0 };
+    state = tick(state, 35);
+    assert.ok(state.zeroSanitySeconds >= 35);
+    state = tick(state, state.totalClockSeconds);
+    state = tick(state, CLOSING_WAIT_SECONDS);
+    const zero = state.zeroSanitySeconds;
+    state = enterBossOffice(state);
+    assert.equal(state.payout, Math.round(shiftPaycheckForRating(0) * hallucinationPayMultiplier(zero)));
+    assert.ok(state.payout < shiftPaycheckForRating(0));
+  });
+
+  test('time above 0 Sanity does not count', () => {
+    const state = tick(playingState(), 5);
+    assert.equal(state.zeroSanitySeconds, 0);
+  });
+
+  test('dropCarriedBook puts the carried book back at the front of the Return Cart', () => {
+    let state = playingState();
+    state = addBookToCart(state, { id: 'b1', genreId: 'kids', isCoinHunt: false });
+    state = addBookToCart(state, { id: 'b2', genreId: 'kids', isCoinHunt: false });
+    state = pickUpBook(state, 'b2');
+    state = dropCarriedBook(state);
+    assert.equal(state.carriedBook, null);
+    assert.deepEqual(state.returnCart.map((b) => b.id), ['b2', 'b1']);
+  });
+
+  test('dropCarriedBook is a no-op mid shelf-check or with nothing carried', () => {
+    let state = playingState();
+    assert.deepEqual(dropCarriedBook(state), state);
+    state = addBookToCart(state, { id: 'b1', genreId: 'kids', isCoinHunt: false });
+    state = pickUpBook(state, 'b1');
+    state = arriveAtShelf(state, 'kids');
+    assert.deepEqual(dropCarriedBook(state), state);
+  });
+
+  test('startleFromHallucination costs a little Sanity, never below 0', () => {
+    assert.equal(startleFromHallucination({ ...playingState(), sanity: 50 }).sanity, 50 - HALLUCINATION_STARTLE_SANITY);
+    assert.equal(startleFromHallucination({ ...playingState(), sanity: 2 }).sanity, 0);
   });
 });

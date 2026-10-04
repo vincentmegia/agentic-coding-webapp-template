@@ -71,6 +71,12 @@ import {
   RATING_PENALTY_PER_WALKOUT,
   paycheckMultiplierForRating,
   READING_MOOD_RESTORE,
+  hallucinationIntensity,
+  shakyHandsZoneScale,
+  shakyHandsSweepMultiplier,
+  BOOK_DROP_CHANCE_PER_SECOND,
+  HALLUCINATION_START_SANITY,
+  hallucinationPayMultiplier,
   READING_PAGES,
   READING_SECONDS_PER_PAGE,
   TILL_DENOMINATIONS,
@@ -105,6 +111,8 @@ import {
   brewCoffee,
   canReadBook,
   finishReading,
+  dropCarriedBook,
+  startleFromHallucination,
 } from './library/engine-state.js';
 import {
   buildStations,
@@ -839,7 +847,21 @@ function drawGlasses(ctx, x, headY, s) {
  * @param {{personalityKey?: string, scale?: number, angryTint?: boolean}} [opts]
  */
 export function drawLibraryPerson(ctx, x, y, opts = {}) {
-  const personality = PERSONALITY_TEMPLATES[opts.personalityKey] || PERSONALITY_TEMPLATES.shyStudent;
+  const base = PERSONALITY_TEMPLATES[opts.personalityKey] || PERSONALITY_TEMPLATES.shyStudent;
+  // v2.16 `opts.stress` (0..1, the player's low-Sanity stress): worried
+  // brows, a growing frown and smaller pupils, plus eye bags and a sweat
+  // drop drawn after the face (user: "when sanity drops below 25 make the
+  // facial expression change").
+  const stress = Math.max(0, Math.min(1, opts.stress ?? 0));
+  const personality = stress > 0
+    ? {
+      ...base,
+      browAngle: base.browAngle + (1.1 - base.browAngle) * stress,
+      mouthCurve: base.mouthCurve + (-1.3 - base.mouthCurve) * stress,
+      eyeShape: stress > 0.6 ? 'roundSmall' : base.eyeShape,
+      blush: base.blush && stress < 0.5,
+    }
+    : base;
   const s = (opts.scale ?? 1) * LIBRARY_PERSON_SCALE;
   const pants = personality.pantsColor || personality.bodyColor;
   const headY = y - 34 * s;
@@ -892,6 +914,38 @@ export function drawLibraryPerson(ctx, x, y, opts = {}) {
   drawLibraryFace(ctx, x, y, s, personality, Boolean(opts.angryTint));
   if (personality.glasses) drawGlasses(ctx, x, headY, s);
   if (personality.accessory) drawAccessory(ctx, x, headY, s, personality);
+  if (stress > 0) drawStressMarks(ctx, x, headY, s, stress);
+}
+
+/** Eye bags and a sweat drop for a stressed (low-Sanity) face. */
+function drawStressMarks(ctx, x, headY, s, stress) {
+  ctx.strokeStyle = `rgba(90,60,110,${0.25 + 0.45 * stress})`;
+  ctx.lineWidth = Math.max(1, 0.8 * s);
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(x + dir * 3.7 * s, headY + 2.6 * s, 2 * s, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+  }
+  // Sweat drop at the temple.
+  ctx.fillStyle = 'rgba(140,200,240,0.9)';
+  ctx.beginPath();
+  const dx = x + 8.5 * s;
+  const dy = headY - 3 * s;
+  ctx.moveTo(dx, dy - 3 * s);
+  ctx.quadraticCurveTo(dx + 2.4 * s, dy + 0.5 * s, dx, dy + 1.8 * s);
+  ctx.quadraticCurveTo(dx - 2.4 * s, dy + 0.5 * s, dx, dy - 3 * s);
+  ctx.fill();
+  if (stress > 0.85) {
+    // Frazzled: a couple of stray hairs sticking up.
+    ctx.strokeStyle = 'rgba(58,42,42,0.7)';
+    ctx.lineWidth = Math.max(1, 0.7 * s);
+    for (const [ox, oy] of [[-3, -12], [2, -13], [6, -11]]) {
+      ctx.beginPath();
+      ctx.moveTo(x + ox * s, headY + oy * s);
+      ctx.lineTo(x + (ox + 1.5) * s, headY + (oy - 3.5) * s);
+      ctx.stroke();
+    }
+  }
 }
 
 /** Head accessories drawn last, over the face/hair (v2.12). */
@@ -1448,6 +1502,8 @@ export function init(canvas, elements) {
       });
     }
     shiftState.borrowQueue.slice(0, SLOT_VISIBLE_MAX).forEach((r) => slots.push({ kind: 'borrow', id: r.id, bookId: r.bookId, waitFraction: waitFractionOf(r) }));
+    // v2.16 hallucinated patrons — not really there.
+    halluc.ghosts.forEach((g) => slots.push({ kind: 'ghost', id: g.id }));
     return slots.map((slot, i) => {
       const desk = stations.find((s) => s.kind === 'front-desk');
       const totalWidth = (slots.length - 1) * 46;
@@ -1714,6 +1770,124 @@ export function init(canvas, elements) {
     overlay = { kind: 'karen' };
   }
 
+  // -- Hallucinations (v2.16) -----------------------------------------------
+  // Below HALLUCINATION_START_SANITY the library turns creepy, scaled by
+  // rules.js's hallucinationIntensity: a pulsing vignette, shadow figures,
+  // whispers, light flickers, screen shake, and at full intensity the odd
+  // jump scare. Work suffers too: shaky hands (skill checks), dropped
+  // books, and ghost patrons in the Front Desk line who aren't really
+  // there (walking up to one costs Sanity). Coffee ends it.
+
+  const WHISPERS = ['shhh…', 'overdue…', "they're watching", 'you missed one', 'turn around', 'quiet…', 'it was due yesterday', 'who left the lights on?'];
+  let halluc = { figures: [], whispers: [], ghosts: [], flicker: 0, scare: 0, ghostCounter: 0 };
+
+  function currentIntensity() {
+    return shiftState && shiftState.phase === 'playing' ? hallucinationIntensity(shiftState.sanity) : 0;
+  }
+
+  function resetHallucinations() {
+    halluc = { figures: [], whispers: [], ghosts: [], flicker: 0, scare: 0, ghostCounter: halluc.ghostCounter };
+  }
+
+  function updateHallucinations(dt) {
+    const i = currentIntensity();
+    if (i <= 0) {
+      if (halluc.figures.length || halluc.whispers.length || halluc.ghosts.length) resetHallucinations();
+      return;
+    }
+    const age = (list) => list.map((it) => ({ ...it, age: it.age + dt })).filter((it) => it.age < it.life);
+    halluc.figures = age(halluc.figures);
+    halluc.whispers = age(halluc.whispers);
+    halluc.ghosts = age(halluc.ghosts);
+    halluc.flicker = Math.max(0, halluc.flicker - dt);
+    halluc.scare = Math.max(0, halluc.scare - dt);
+
+    if (i > 0.3 && random() < 0.35 * i * dt) {
+      halluc.figures.push({ x: 80 + random() * (CANVAS_WIDTH - 160), y: 160 + random() * 380, age: 0, life: 0.8 + random() * 1.2 });
+    }
+    if (random() < 0.3 * i * dt) {
+      halluc.whispers.push({
+        text: WHISPERS[Math.floor(random() * WHISPERS.length)],
+        x: 120 + random() * (CANVAS_WIDTH - 240), y: 140 + random() * 380, age: 0, life: 2.6,
+      });
+    }
+    if (random() < 0.12 * i * dt) halluc.flicker = 0.18;
+    if (i >= 1 && random() < 0.04 * dt) halluc.scare = 0.45;
+    if (i >= 0.5 && halluc.ghosts.length === 0 && random() < 0.06 * i * dt) {
+      halluc.ghosts.push({ id: `ghost-${halluc.ghostCounter++}`, age: 0, life: 15 });
+    }
+
+    // Dropped books: a carried book can slip back onto the cart.
+    if (!overlay && shiftState.carriedBook && random() < BOOK_DROP_CHANCE_PER_SECOND * i * dt) {
+      const before = shiftState;
+      shiftState = dropCarriedBook(shiftState);
+      if (shiftState !== before) showToast('Your hands shake — the book slips back onto the Return Cart.');
+    }
+  }
+
+  function drawShadowFigure(fx, fy, alpha, scale = 1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#140c18';
+    ctx.beginPath();
+    ctx.arc(fx, fy - 62 * scale, 13 * scale, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(fx - 18 * scale, fy);
+    ctx.quadraticCurveTo(fx - 20 * scale, fy - 40 * scale, fx - 9 * scale, fy - 52 * scale);
+    ctx.lineTo(fx + 9 * scale, fy - 52 * scale);
+    ctx.quadraticCurveTo(fx + 20 * scale, fy - 40 * scale, fx + 18 * scale, fy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ff5050';
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(fx + dir * 4.5 * scale, fy - 63 * scale, 1.8 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawHallucinations() {
+    const i = currentIntensity();
+    if (i <= 0) return;
+    const t = performance.now() / 1000;
+
+    for (const f of halluc.figures) {
+      const fade = Math.sin((f.age / f.life) * Math.PI);
+      drawShadowFigure(f.x, f.y, 0.55 * fade * (0.7 + 0.3 * Math.sin(t * 30)));
+    }
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'italic 15px Georgia, serif';
+    for (const w of halluc.whispers) {
+      const fade = Math.sin((w.age / w.life) * Math.PI);
+      ctx.fillStyle = `rgba(110,40,90,${0.75 * fade})`;
+      ctx.fillText(w.text, w.x + Math.sin(t * 2 + w.x) * 6, w.y - w.age * 8);
+    }
+    ctx.restore();
+
+    // Pulsing vignette closing in.
+    const pulse = 0.85 + 0.15 * Math.sin(t * 2.2);
+    const v = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 90 + 170 * (1 - i), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 560);
+    v.addColorStop(0, 'rgba(25,0,35,0)');
+    v.addColorStop(0.6, `rgba(25,0,35,${0.45 * i * pulse})`);
+    v.addColorStop(1, `rgba(15,0,20,${0.9 * i * pulse})`);
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    if (halluc.flicker > 0) {
+      ctx.fillStyle = 'rgba(10,0,15,0.55)';
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    }
+    if (halluc.scare > 0) {
+      ctx.fillStyle = `rgba(10,0,10,${0.6 * (halluc.scare / 0.45)})`;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      drawShadowFigure(CANVAS_WIDTH / 2, CANVAS_HEIGHT + 120, halluc.scare / 0.45, 4.2);
+    }
+  }
+
   // -- Reading (v2.10): turn the pages of a short book to restore Mood -----
   // Each page "reads" itself over READING_SECONDS_PER_PAGE (a bar fills);
   // click/tap or Space/Enter turns it once full. Turning early just nudges
@@ -1841,7 +2015,7 @@ export function init(canvas, elements) {
       return;
     }
     if (overlay.kind === 'skill-check') {
-      const speed = skillCheckSweepSpeed(currentShiftNumber);
+      const speed = skillCheckSweepSpeed(currentShiftNumber) * shakyHandsSweepMultiplier(currentIntensity());
       overlay.gaugePosition += overlay.direction * speed * deltaSeconds;
       if (overlay.gaugePosition >= 1) { overlay.gaugePosition = 1; overlay.direction = -1; }
       else if (overlay.gaugePosition <= 0) { overlay.gaugePosition = 0; overlay.direction = 1; }
@@ -1873,7 +2047,11 @@ export function init(canvas, elements) {
       if (pendingFrontDeskAction) {
         const action = pendingFrontDeskAction;
         pendingFrontDeskAction = null;
-        if (action.kind === 'borrow') {
+        if (action.kind === 'ghost') {
+          halluc.ghosts = halluc.ghosts.filter((g) => g.id !== action.id);
+          shiftState = startleFromHallucination(shiftState);
+          showToast("…there's no one there. Your heart pounds.");
+        } else if (action.kind === 'borrow') {
           const before = shiftState;
           shiftState = acceptBorrowRequest(shiftState, action.id);
           if (shiftState !== before) showToast(`Borrow request: “${borrowTitle()}” — find it on the ${borrowShelfLabel()}.`);
@@ -1963,7 +2141,7 @@ export function init(canvas, elements) {
   // -- Overlay input ----------------------------------------------------------
 
   function resolveSkillCheck() {
-    const success = isSkillCheckSuccess(overlay.gaugePosition, skillCheckSuccessZone());
+    const success = isSkillCheckSuccess(overlay.gaugePosition, skillCheckSuccessZone(shakyHandsZoneScale(currentIntensity())));
     if (overlay.context === 'shelf') {
       shiftState = resolveShelfSkillCheck(shiftState, success);
       showToast(success ? 'Shelved!' : 'Missed the mark — try again.');
@@ -2195,6 +2373,9 @@ export function init(canvas, elements) {
 
   function beginShift() {
     waitingAtBossOffice = false;
+    resetHallucinations();
+    lastSeenBonusGard = 0;
+    gardPops = [];
     currentShiftNumber = save.currentShift;
     karenShiftNumber = karenShiftForSeed(save.karenSeed);
     finesStartShiftNumber = finesStartShiftForSeed(save.karenSeed);
@@ -2252,7 +2433,9 @@ export function init(canvas, elements) {
       : 'Went well';
     // v2.9: the star rating scales the payout — say so on the paycheck.
     const payPercent = Math.round(paycheckMultiplierForRating(shiftState.rating) * 100);
-    elements.paycheckScreen.outcome.textContent = `${mistakesText} · ${shiftState.rating}★ rating (${payPercent}% pay)`;
+    const hallucinationCut = Math.round((1 - hallucinationPayMultiplier(shiftState.zeroSanitySeconds)) * 100);
+    elements.paycheckScreen.outcome.textContent = `${mistakesText} · ${shiftState.rating}★ rating (${payPercent}% pay)`
+      + (hallucinationCut > 0 ? ` · −${hallucinationCut}% for hallucinating` : '');
     elements.paycheckScreen.shiftTotal.textContent = `${payout} Gard`;
     elements.paycheckScreen.monthTotal.textContent = `${save.monthToDateGard} Gard`;
     elements.paycheckScreen.nextShiftButton.classList.toggle('hidden', isFinalShift);
@@ -2903,6 +3086,14 @@ export function init(canvas, elements) {
     const slots = frontDeskSlots();
     slots.forEach((slot, i) => {
       const personality = personalityForSlot(slot, i);
+      if (slot.kind === 'ghost') {
+        ctx.save();
+        ctx.globalAlpha = 0.35 + 0.2 * Math.sin(performance.now() / 90);
+        drawLibraryPerson(ctx, slot.x + Math.sin(performance.now() / 140) * 2, slot.y, { personalityKey: personality, scale: 0.62 });
+        ctx.restore();
+        drawLabelChip(ctx, slot.x, slot.y + 20, '???', 'bold 9px sans-serif');
+        return;
+      }
       drawLibraryPerson(ctx, slot.x, slot.y, { personalityKey: personality, scale: 0.62, angryTint: slot.kind === 'karen' });
       if (slot.kind === 'borrow-active') {
         if (slot.stage === 'searching') {
@@ -2959,7 +3150,9 @@ export function init(canvas, elements) {
 
   function drawPlayer() {
     lastFrameDrewPlayerSprite = true;
-    drawLibraryPerson(ctx, player.x, player.y, { personalityKey: 'librarian', scale: 1 });
+    const sanity = shiftState ? shiftState.sanity : SANITY_MAX;
+    const stress = sanity < HALLUCINATION_START_SANITY ? (HALLUCINATION_START_SANITY - sanity) / HALLUCINATION_START_SANITY : 0;
+    drawLibraryPerson(ctx, player.x, player.y, { personalityKey: 'librarian', scale: 1, stress });
     drawLabelChip(ctx, player.x, player.y + 24, PLAYER_NAME, 'bold 10px sans-serif');
     const badge = currentPlayerBadge();
     if (badge) {
@@ -2999,6 +3192,67 @@ export function init(canvas, elements) {
     ctx.textBaseline = 'middle';
     ctx.fillText(`Sanity ${sanityPercent}%`, x + width / 2, y + height / 2 + 0.5);
     ctx.restore();
+  }
+
+  // v2.15 Gard counter (user: "something ... keeping track of your gard"):
+  // this shift's bonus Gard (tips, fines, Coin Hunt, Karen) plus the
+  // month-to-date total banked from earlier shifts, with a floating "+N"
+  // pop each time bonusGard goes up. The shift's base pay isn't included
+  // until the paycheck, since it depends on mistakes and the rating.
+  let lastSeenBonusGard = 0;
+  let gardPops = [];
+
+  function trackGardPops(deltaSeconds) {
+    const bonus = shiftState ? shiftState.bonusGard : 0;
+    if (bonus > lastSeenBonusGard) gardPops.push({ amount: bonus - lastSeenBonusGard, age: 0 });
+    lastSeenBonusGard = bonus;
+    gardPops = gardPops.map((pop) => ({ ...pop, age: pop.age + deltaSeconds })).filter((pop) => pop.age < 1.4);
+  }
+
+  function drawGardCounter() {
+    const bonus = shiftState ? shiftState.bonusGard : 0;
+    const x = 264;
+    const y = 14;
+    const w = 176;
+    const h = 22;
+    drawRoundRect(ctx, x, y, w, h, 11, 'rgba(255,251,246,0.85)');
+    // Mini Gard coin.
+    ctx.fillStyle = '#c28a2c';
+    ctx.beginPath();
+    ctx.arc(x + 13, y + 11, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#f2cf6a';
+    ctx.beginPath();
+    ctx.arc(x + 13, y + 11, 6.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#a8741e';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('G', x + 13, y + 11.5);
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText(`+${bonus}g shift`, x + 26, y + 11.5);
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = 'rgba(58,42,42,0.7)';
+    ctx.textAlign = 'right';
+    ctx.fillText(`Month ${save.monthToDateGard}g`, x + w - 9, y + 11.5);
+    // "+N" pops float up and fade.
+    for (const pop of gardPops) {
+      const t = pop.age / 1.4;
+      ctx.globalAlpha = 1 - t;
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'left';
+      const popY = y + h + 20 - t * 10;
+      ctx.strokeStyle = '#fdf8ee';
+      ctx.lineWidth = 3.5;
+      ctx.lineJoin = 'round';
+      ctx.strokeText(`+${pop.amount}g`, x + 26, popY);
+      ctx.fillStyle = '#b07a1e';
+      ctx.fillText(`+${pop.amount}g`, x + 26, popY);
+      ctx.globalAlpha = 1;
+    }
   }
 
   /** v2.9 star rating, drawn to the right of the Sanity/Mood bars: five stars with half-star fills. */
@@ -3056,7 +3310,7 @@ export function init(canvas, elements) {
 
   function drawSkillCheckOverlay() {
     drawOverlayBackdrop();
-    const zone = skillCheckSuccessZone();
+    const zone = skillCheckSuccessZone(shakyHandsZoneScale(currentIntensity()));
     const barX = 130;
     const barW = CANVAS_WIDTH - 260;
     const barY = CANVAS_HEIGHT / 2 - 10;
@@ -3714,6 +3968,9 @@ export function init(canvas, elements) {
 
   function render() {
     lastFrameDrewPlayerSprite = false;
+    const shake = currentIntensity() > 0.6 ? (currentIntensity() - 0.6) * 5 : 0;
+    ctx.save();
+    if (shake > 0) ctx.translate((random() - 0.5) * shake, (random() - 0.5) * shake);
     if (cameraMode === 'first-person') {
       drawFirstPersonView();
     } else {
@@ -3724,6 +3981,8 @@ export function init(canvas, elements) {
       drawFinesCounterSlots();
       drawPlayer();
     }
+    drawHallucinations();
+    ctx.restore();
     // Doc's Scope: "Sanity/Mood bars, the HUD clock, and all five minigame
     // overlays are unchanged and must still work identically in First
     // Person Mode" — drawn unconditionally, outside the camera-mode branch
@@ -3731,6 +3990,7 @@ export function init(canvas, elements) {
     drawSanityBar();
     drawLibraryMoodBar();
     drawRatingStars();
+    drawGardCounter();
     drawOverlay();
   }
 
@@ -3760,6 +4020,9 @@ export function init(canvas, elements) {
       overlay = null;
       showToast('Karen stormed off without paying.');
     }
+
+    trackGardPops(deltaSeconds);
+    updateHallucinations(deltaSeconds);
 
     if (waitingAtBossOffice && isBossOfficeReady(shiftState) && !overlay) {
       if (isPlayerAtBossOffice()) {
@@ -3942,6 +4205,9 @@ export function init(canvas, elements) {
         return bookId ? { bookId, ...bookCatalog.get(bookId) } : null;
       },
       finishReadingPageNow() { if (overlay?.kind === 'reading') overlay.progress = 1; },
+      getGardPops: () => gardPops.map((pop) => ({ ...pop })),
+      getHallucinations: () => ({ intensity: currentIntensity(), ghosts: halluc.ghosts.map((g) => ({ ...g })), figures: halluc.figures.length, whispers: halluc.whispers.length }),
+      spawnGhostPatronNow() { halluc.ghosts.push({ id: `ghost-${halluc.ghostCounter++}`, age: 0, life: 60 }); },
       setCoffeePourFill(fill) { if (overlay?.kind === 'coffee-pour' && !overlay.grade) overlay.fill = fill; },
       setSkillCheckGauge(pos) { if (overlay?.kind === 'skill-check') overlay.gaugePosition = pos; },
       skipToClosing() {

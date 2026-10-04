@@ -583,6 +583,35 @@ test.describe("Boss's Office during the closing wait", () => {
 	});
 });
 
+test.describe('Gard counter', () => {
+	test('earning Gard pops a "+N" and the counter tracks it', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await page.evaluate(() => { window.__libraryGameTestHooks.getShiftState().bonusGard += 30; });
+		await expect.poll(async () => (await page.evaluate(() => window.__libraryGameTestHooks.getGardPops()))[0]?.amount).toBe(30);
+		// Pops fade out on their own.
+		await expect.poll(async () => (await page.evaluate(() => window.__libraryGameTestHooks.getGardPops())).length, { timeout: 4000 }).toBe(0);
+	});
+});
+
+test.describe('hallucinations', () => {
+	test('at 0 Sanity: intensity is full, a ghost patron startles you, and skill checks get harder', async ({ page }) => {
+		await page.goto('/library-game');
+		await startShift(page);
+		await page.evaluate(() => { window.__libraryGameTestHooks.getShiftState().sanity = 0; });
+		await expect.poll(async () => (await page.evaluate(() => window.__libraryGameTestHooks.getHallucinations())).intensity).toBe(1);
+
+		await page.evaluate(() => window.__libraryGameTestHooks.spawnGhostPatronNow());
+		await page.evaluate(() => { window.__libraryGameTestHooks.getShiftState().sanity = 20; }); // keep it hallucinating but above 0 so the startle is visible
+		const ghost = await page.evaluate(() => window.__libraryGameTestHooks.getFrontDeskSlots().find((s) => s.kind === 'ghost'));
+		expect(ghost).toBeTruthy();
+		await clickQueueItem(page, ghost);
+		await expect(page.locator('#library-toast')).toContainText("no one there");
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getFrontDeskSlots().some((s) => s.kind === 'ghost'))).toBe(false);
+		expect(await page.evaluate(() => window.__libraryGameTestHooks.getShiftState().sanity)).toBeLessThan(16);
+	});
+});
+
 test.describe('star rating', () => {
 	test('a queued patron who waits too long walks out, costs 1.5 stars, and the paycheck shows the rating-scaled pay', async ({ page }) => {
 		await page.goto('/library-game');

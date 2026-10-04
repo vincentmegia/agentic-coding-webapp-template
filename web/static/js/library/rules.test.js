@@ -2,6 +2,11 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  hallucinationIntensity,
+  shakyHandsZoneScale,
+  shakyHandsSweepMultiplier,
+  hallucinationPayMultiplier,
+  HALLUCINATION_START_SANITY,
   clampRating,
   paycheckMultiplierForRating,
   queueWaitSecondsForShift,
@@ -523,5 +528,29 @@ describe('rating rules (v2.9)', () => {
     assert.equal(queueWaitSecondsForShift(1), 90);
     assert.ok(queueWaitSecondsForShift(30) < queueWaitSecondsForShift(1));
     assert.ok(queueWaitSecondsForShift(30) >= 45);
+  });
+});
+
+describe('hallucination rules (v2.16)', () => {
+  test('intensity is 0 at/above the start threshold and 1 at 0 Sanity', () => {
+    assert.equal(hallucinationIntensity(100), 0);
+    assert.equal(hallucinationIntensity(HALLUCINATION_START_SANITY), 0);
+    assert.equal(hallucinationIntensity(0), 1);
+    const mid = hallucinationIntensity(HALLUCINATION_START_SANITY / 2);
+    assert.ok(mid > 0.4 && mid < 0.6);
+  });
+
+  test('shaky hands narrow the zone and speed the sweep with intensity', () => {
+    assert.equal(shakyHandsZoneScale(0), 1);
+    assert.equal(shakyHandsZoneScale(1), 0.5);
+    assert.equal(shakyHandsSweepMultiplier(0), 1);
+    assert.ok(Math.abs(shakyHandsSweepMultiplier(1) - 1.6) < 1e-9);
+  });
+
+  test('pay cut: 2% per full 10 s at 0 Sanity, capped at 30%', () => {
+    assert.equal(hallucinationPayMultiplier(0), 1);
+    assert.equal(hallucinationPayMultiplier(9), 1);
+    assert.equal(hallucinationPayMultiplier(10), 0.98);
+    assert.ok(Math.abs(hallucinationPayMultiplier(1000) - 0.7) < 1e-9);
   });
 });

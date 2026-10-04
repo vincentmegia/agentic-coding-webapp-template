@@ -416,6 +416,30 @@ from [180, 480] to [205, 445], so scattered items no longer overlap an
 overlay's header line or its "N / M found" counter. Unit 203/203,
 e2e 60/60.
 
+**v2.15 Gard counter** — the user: "add something where there's [a]
+gard keeping track of your gard". Asked to choose, they picked an
+on-screen counter. A HUD pill beside the stars shows a mini Gard coin,
+this shift's bonus Gard ("+45g shift": tips, fines, Coin Hunt, Karen)
+and the month-to-date total from earlier shifts ("Month 320g"). Each
+time `bonusGard` rises, a "+N g" pop floats up and fades over 1.4 s
+(`trackGardPops`, test hook `getGardPops`). The shift's base pay isn't
+shown until the paycheck, since mistakes and the star rating decide it.
+
+**v2.16 hallucinations at low Sanity** — the user: "when sanity drops to
+0 I want to have hallucinations to scare the player and the work drops",
+then "when sanity drops below 25 make the facial expression change".
+Asked to choose, they picked: creeping in below 25 and full at 0; all
+four penalties (shaky hands, dropped books, ghost patrons, less pay).
+See Business Rules' Hallucinations. `rules.js` section 15;
+`skillCheckSuccessZone(scale)`. `engine-state.js`: `zeroSanitySeconds`,
+`dropCarriedBook`, `startleFromHallucination`, and the payout
+multiplier. Three older payout tests now zero `zeroSanitySeconds` to
+isolate the base formula, because fast-forwarding a shift without coffee
+spends most of it at 0 Sanity. New hooks: `getHallucinations`,
+`spawnGhostPatronNow`. Unit 211/211; e2e 64/64 (new hallucination
+test). One run hit a WebKit timeout in the Karen test under parallel
+load; it passed 3/3 alone and in a full rerun.
+
 ## Summary
 
 A third canvas mini-game, `/library-game`, sibling to Kitchen Shift and the
@@ -795,6 +819,25 @@ established precedent.
   station label ("Reading Nook (32s)"). The × button puts the book down
   with no reward and no cooldown. The shift clock and patron timers keep
   running while you read, which is the intended trade-off.
+* **Hallucinations** (v2.16): below 25 Sanity (`HALLUCINATION_START_SANITY`)
+  `hallucinationIntensity` rises from 0 to 1 at 0 Sanity.
+  - **Scare visuals:** a pulsing dark vignette closing in, red-eyed shadow
+    figures, drifting whispers ("overdue…", "turn around"), light
+    flickers, screen shake above 0.6, and occasional jump scares at full
+    intensity.
+  - **Work penalties:** shaky hands (skill-check zone shrinks to 50% and
+    the sweep speeds up to 1.6×); carried books can slip back onto the
+    Return Cart (`dropCarriedBook`, 6%/s at full intensity); ghost
+    patrons ("???") appear in the Front Desk line from 0.5 intensity, and
+    walking up to one costs 5 Sanity (`startleFromHallucination`).
+  - **Pay:** every full 10 s at 0 Sanity cuts the payout 2%, capped at
+    30% (`hallucinationPayMultiplier`, tracked in `zeroSanitySeconds`;
+    only the part of a tick after Sanity actually hits 0 counts). The
+    paycheck shows "−N% for hallucinating".
+  - **Coral's face:** the player's expression shifts with it (`opts.stress`
+    on `drawLibraryPerson`): worried brows, a frown, smaller pupils, eye
+    bags and a sweat drop, plus stray hairs near 0.
+  - **Recovery:** restoring Sanity (coffee) ends everything.
 * **Sanity/Coffee Machine**: Sanity drains passively and per-mistake
   exactly as Kitchen Shift's does (same constants, reused). Since v2.2,
   visiting the Coffee Machine opens the **Coffee Pour** minigame instead of

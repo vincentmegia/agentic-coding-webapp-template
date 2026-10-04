@@ -402,8 +402,8 @@ export const SKILL_CHECK_ZONE_WIDTH = 0.2;
  *
  * @returns {{start: number, end: number, width: number}}
  */
-export function skillCheckSuccessZone() {
-  const width = SKILL_CHECK_ZONE_WIDTH;
+export function skillCheckSuccessZone(scale = 1) {
+  const width = SKILL_CHECK_ZONE_WIDTH * (Number.isFinite(scale) && scale > 0 ? scale : 1);
   return { start: 0.5 - width / 2, end: 0.5 + width / 2, width };
 }
 
@@ -720,3 +720,67 @@ export const READING_PAGES = 6;
  * is only an anti-skip floor (was 1.4 s of auto-"reading" faux lines).
  */
 export const READING_SECONDS_PER_PAGE = 2.5;
+
+// ---------------------------------------------------------------------------
+// 15. Hallucinations (v2.16) — "when sanity drops to 0 I want to have
+//     hallucinations to scare the player and the work drops". They creep
+//     in below HALLUCINATION_START_SANITY and are at full strength at 0.
+//     Intensity (0..1) drives the scare visuals (library-game.js) and the
+//     work penalties here: shaky hands (narrower, faster skill checks),
+//     dropped books, ghost patrons that startle you, and a pay cut for
+//     time spent at 0 Sanity. Coffee ends them by restoring Sanity.
+// ---------------------------------------------------------------------------
+
+/** Hallucinations begin below this much Sanity. */
+export const HALLUCINATION_START_SANITY = 25;
+
+/**
+ * 0 at or above HALLUCINATION_START_SANITY, rising linearly to 1 at 0 Sanity.
+ *
+ * @param {number} sanity
+ * @returns {number}
+ */
+export function hallucinationIntensity(sanity) {
+  const s = clampSanity(sanity);
+  if (s >= HALLUCINATION_START_SANITY) return 0;
+  return (HALLUCINATION_START_SANITY - s) / HALLUCINATION_START_SANITY;
+}
+
+/** Shaky hands at full intensity: skill-check gold zone shrinks to this fraction... */
+export const SHAKY_HANDS_MIN_ZONE_SCALE = 0.5;
+/** ...and the marker sweeps this much faster. */
+export const SHAKY_HANDS_MAX_SWEEP_MULTIPLIER = 1.6;
+
+/** Skill-check zone width multiplier for a hallucination intensity (1 = normal). */
+export function shakyHandsZoneScale(intensity) {
+  const i = clamp(Number.isFinite(intensity) ? intensity : 0, 0, 1);
+  return 1 - (1 - SHAKY_HANDS_MIN_ZONE_SCALE) * i;
+}
+
+/** Skill-check sweep-speed multiplier for a hallucination intensity (1 = normal). */
+export function shakyHandsSweepMultiplier(intensity) {
+  const i = clamp(Number.isFinite(intensity) ? intensity : 0, 0, 1);
+  return 1 + (SHAKY_HANDS_MAX_SWEEP_MULTIPLIER - 1) * i;
+}
+
+/** Chance per second, at full intensity, that a carried book slips back onto the Return Cart. */
+export const BOOK_DROP_CHANCE_PER_SECOND = 0.06;
+
+/** Sanity lost when you walk up to a ghost patron and find no one there. */
+export const HALLUCINATION_STARTLE_SANITY = 5;
+
+/** Pay cut per full 10 seconds spent at 0 Sanity... */
+export const ZERO_SANITY_PAY_CUT_PER_10S = 0.02;
+/** ...capped at this much. */
+export const ZERO_SANITY_PAY_CUT_MAX = 0.3;
+
+/**
+ * Paycheck multiplier for time spent at 0 Sanity this shift (1 = no cut).
+ *
+ * @param {number} zeroSanitySeconds
+ * @returns {number}
+ */
+export function hallucinationPayMultiplier(zeroSanitySeconds) {
+  const seconds = Number.isFinite(zeroSanitySeconds) && zeroSanitySeconds > 0 ? zeroSanitySeconds : 0;
+  return 1 - Math.min(ZERO_SANITY_PAY_CUT_MAX, Math.floor(seconds / 10) * ZERO_SANITY_PAY_CUT_PER_10S);
+}

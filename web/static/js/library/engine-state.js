@@ -20,6 +20,7 @@
 //     shelfCheck: { kind: 'skill-check' | 'coin-hunt' } | null, // active once arriveAtShelf starts one
 //
 //     rating: number,               // v2.9: 0..RATING_MAX stars; −RATING_PENALTY_PER_WALKOUT per patron who walks out; scales the payout
+//     zeroSanitySeconds: number,    // v2.16: seconds spent at 0 Sanity this shift (cuts pay — rules.js's hallucinationPayMultiplier)
 //     readingCooldownSeconds: number, // v2.10: seconds until the Reading Nook can be used again (0 = ready)
 //     walkouts: number,             // v2.9: patrons who left after waiting too long this shift
 //     (queued Fine/BorrowRequest entries carry waitRemainingSeconds/waitMaxSeconds — null = no wait timer)
@@ -98,6 +99,8 @@ import {
   paycheckMultiplierForRating,
   READING_MOOD_RESTORE,
   READING_COOLDOWN_SECONDS,
+  HALLUCINATION_STARTLE_SANITY,
+  hallucinationPayMultiplier,
 } from './rules.js';
 
 export { LIBRARY_MOOD_MAX, SANITY_MAX, RATING_MAX };
@@ -126,6 +129,7 @@ export function createInitialState(shiftNumber, karenShiftNumber, overrides = {}
     rating: RATING_MAX,
     walkouts: 0,
     readingCooldownSeconds: 0,
+    zeroSanitySeconds: 0,
 
     finesQueue: [],
     activeFine: null,
@@ -634,6 +638,11 @@ export function tick(state, deltaSeconds, { pauseBorrowPatience = false } = {}) 
     sanity: clampSanity(state.sanity - SANITY_DRAIN_PER_SECOND * delta),
     readingCooldownSeconds: Math.max(0, (state.readingCooldownSeconds ?? 0) - delta),
   };
+  if (next.sanity <= 0) {
+    // Only the part of this tick after Sanity actually reached 0 counts.
+    const secondsToZero = Math.max(0, state.sanity) / SANITY_DRAIN_PER_SECOND;
+    next.zeroSanitySeconds = (state.zeroSanitySeconds ?? 0) + Math.max(0, delta - secondsToZero);
+  }
 
   // `pauseBorrowPatience`: the caller passes true while the Find the Book
   // minigame is open (v2.7), so the patron's patience never runs out
@@ -697,8 +706,10 @@ export function isBossOfficeReady(state) {
 export function enterBossOffice(state) {
   if (!isBossOfficeReady(state)) return state;
   // v2.9: the star rating scales the whole payout (5★ = 100%).
+  // v2.16: time spent at 0 Sanity (hallucinating) cuts it further.
   const gross = shiftPaycheck(state.mistakeCount) + state.bonusGard;
-  return { ...state, phase: 'paycheck', payout: Math.round(gross * paycheckMultiplierForRating(state.rating)) };
+  const multiplier = paycheckMultiplierForRating(state.rating) * hallucinationPayMultiplier(state.zeroSanitySeconds);
+  return { ...state, phase: 'paycheck', payout: Math.round(gross * multiplier) };
 }
 
 /**
@@ -750,4 +761,30 @@ export function finishReading(state) {
     libraryMood: clampLibraryMood(state.libraryMood + READING_MOOD_RESTORE),
     readingCooldownSeconds: READING_COOLDOWN_SECONDS,
   };
+}
+
+/**
+ * Hallucination "dropped book" (v2.16): the carried book slips back onto
+ * the front of the Return Cart. A no-op without a carried book, while a
+ * shelf check is underway, or outside 'playing'.
+ *
+ * @param {ShiftState} state
+ * @returns {ShiftState}
+ */
+export function dropCarriedBook(state) {
+  if (state.phase !== 'playing' || !state.carriedBook || state.shelfCheck) return state;
+  return { ...state, returnCart: [state.carriedBook, ...state.returnCart], carriedBook: null };
+}
+
+/**
+ * Walking up to a ghost patron and finding no one there (v2.16): a small
+ * Sanity hit (HALLUCINATION_STARTLE_SANITY). Not a mistake. A no-op
+ * outside 'playing'.
+ *
+ * @param {ShiftState} state
+ * @returns {ShiftState}
+ */
+export function startleFromHallucination(state) {
+  if (state.phase !== 'playing') return state;
+  return { ...state, sanity: clampSanity(state.sanity - HALLUCINATION_STARTLE_SANITY) };
 }
