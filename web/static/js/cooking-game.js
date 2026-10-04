@@ -2229,6 +2229,7 @@ export function init(canvas, elements) {
       orderBubble = { tableId, dishName, remaining: ORDER_BUBBLE_SECONDS };
       return;
     }
+    showToast(`Table ${tableId} had enough and walked out!`, 3.5);
     if (karen && karen.tableId === tableId) triggerKarenRipple();
     if (mel && mel.tableId === tableId) mel = null;
     if (couple && couple.tableId === tableId) couple = null;
@@ -3048,6 +3049,15 @@ export function init(canvas, elements) {
     // whatever station happens to be nearby. Held-dish and raw-ingredient
     // trays are mutually exclusive (drawPlayer never shows both at once),
     // so at most one of these two checks can ever find a hit.
+    // v4.5: a click on a table always goes to the table — with the bigger
+    // v4.1 player, the tray can overlap a table the player stands beside,
+    // and a click meant to serve that table used to set the food down.
+    const clickedStation = stationAtPoint(x, y, unlockedStations(stationsInRoom(stations, currentRoom), currentTableUnlockLevel()));
+    if (clickedStation && clickedStation.kind === 'table') {
+      commitStationTarget(clickedStation, { x, y });
+      return;
+    }
+
     const pose = currentPlayerDrawPose();
     const heldHit = heldDishIconHit(pose.x, pose.y, pose.bobOffset, heldDish);
     if (heldHit && Math.abs(x - heldHit.x) <= heldHit.halfSize && Math.abs(y - heldHit.y) <= heldHit.halfSize) {
@@ -3063,8 +3073,7 @@ export function init(canvas, elements) {
       return;
     }
 
-    const station = stationAtPoint(x, y, unlockedStations(stationsInRoom(stations, currentRoom), currentTableUnlockLevel()));
-    commitStationTarget(station, { x, y });
+    commitStationTarget(clickedStation, { x, y });
   }
 
   function onCanvasMouseMove(e) {
@@ -3193,7 +3202,12 @@ export function init(canvas, elements) {
     }
 
     const order = shiftState.orders.find((o) => o.tableId === tableId);
-    if (!order) return;
+    if (!order) {
+      // v4.5: used to do nothing at all, which read as "I can't give the
+      // customer their food" when they'd already given up waiting.
+      if (heldDish) showToast(`Nobody at Table ${tableId} is waiting for food — check your order notepad`, 3);
+      return;
+    }
     serveOrRevisit(tableId, order);
   }
 
@@ -3247,6 +3261,9 @@ export function init(canvas, elements) {
       if (matched) {
         const appearance = isKarenTable ? 'karen' : isMelTable ? 'mel' : isCoupleTable ? 'couple' : 'regular';
         spawnPayingCustomer(tableId, appearance, servedDish);
+        showToast(`Served ${servedDish} to Table ${tableId}!`, 2);
+      } else {
+        showToast(`That's not their order — Table ${tableId} wanted ${order.dishName}. Your ${servedDish} went to waste.`, 3.5);
       }
       if (isKarenTable) {
         if (matched) {
@@ -3274,6 +3291,7 @@ export function init(canvas, elements) {
       // holding the matching dish) annoys the customer too — they have to
       // repeat themselves.
       activeOrderTableId = tableId;
+      showToast(`Table ${tableId} is still waiting for their ${order.dishName} — bring it when it's ready`, 3);
       annoyCustomerAt(tableId);
     }
   }
@@ -4894,6 +4912,15 @@ export function init(canvas, elements) {
       const beforeTick = shiftState;
       shiftState = tick(shiftState, deltaSeconds);
       announceZeroReputationPenalties(beforeTick);
+      // v4.5: a customer who runs out of patience used to vanish silently,
+      // so walking over with their food did nothing. (Storm-outs at 0
+      // Reputation have their own toast above.)
+      if ((shiftState.stormOuts ?? 0) === (beforeTick.stormOuts ?? 0)) {
+        const left = beforeTick.orders.filter((o) => !shiftState.orders.some((n) => n.tableId === o.tableId));
+        if (left.length > 0 && shiftState.phase === 'playing') {
+          showToast(`Table ${left.map((o) => o.tableId).join(', ')} got tired of waiting and left!`, 3.5);
+        }
+      }
       if (karen) {
         const hadOrder = beforeTick.orders.some((o) => o.tableId === karen.tableId);
         const stillHasOrder = shiftState.orders.some((o) => o.tableId === karen.tableId);

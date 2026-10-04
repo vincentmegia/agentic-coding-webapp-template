@@ -1125,6 +1125,30 @@ Chromium and WebKit, against both a fresh server and the user's own.
   inside the container; a full tray reports itself and disables items).
   Kitchen, Projects and Library suites: 120/120 on Chromium + WebKit.
 
+**v4.5 serving feedback** — the user: "when i try to give the food to
+the customer i cannot." Serving itself worked with real clicks (on the
+table, the customer's body, and their head). What made it feel broken
+were outcomes the game handled silently:
+* **The customer had already left.** An order whose patience ran out
+  vanished with no message, so walking over with the food did nothing.
+  Now:
+  * a timeout toasts "Table N got tired of waiting and left!";
+  * arriving with food at a table with no order says "Nobody at Table N
+    is waiting for food — check your order notepad";
+  * walking out after four annoyances toasts too.
+* **The click hit the player's own tray.** Since v4.1's bigger player,
+  the tray can overlap a table the player stands beside, and clicking
+  the tray's food sets it down. A click on a table now always goes to
+  the table (`onCanvasClick`); the tray only wins elsewhere.
+* **The wrong dish was silent.** It now says what they wanted ("That's
+  not their order — Table N wanted Garden Salad"). A correct serve
+  confirms ("Served … to Table N!"). Re-visiting without the food says
+  what they're still waiting for.
+
+Tests: new e2e "serving food" describe (right dish, wrong dish, a
+timed-out customer). Kitchen, Projects and Library suites: 125 passed on
+Chromium + WebKit, plus one random-drop case skipping by design.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,

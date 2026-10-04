@@ -178,6 +178,45 @@ test.describe('picking up ingredients', () => {
 	});
 });
 
+test.describe('serving food', () => {
+	async function seatAndOrder(page, dish) {
+		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, ([id, d]) => window.__cookingGameTestHooks.seatCustomerNow(id, d), [tableId, dish]);
+		await takeOrder(page, tableId);
+		return tableId;
+	}
+
+	test('the right dish is served with a confirmation', async ({ page }) => {
+		await startShift(page);
+		const tableId = await seatAndOrder(page, 'Garden Salad');
+		await hooks(page, () => window.__cookingGameTestHooks.setHeldDish('Garden Salad'));
+		await walkToStation(page, `table-${tableId}`);
+		await expect(page.locator('#cooking-toast')).toContainText(`Served Garden Salad to Table ${tableId}`);
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getShiftState())).orders).toHaveLength(0);
+	});
+
+	test('a wrong dish says what they actually wanted', async ({ page }) => {
+		await startShift(page);
+		const tableId = await seatAndOrder(page, 'Garden Salad');
+		await hooks(page, () => window.__cookingGameTestHooks.setHeldDish('Grilled Cheese'));
+		await walkToStation(page, `table-${tableId}`);
+		await expect(page.locator('#cooking-toast')).toContainText('wanted Garden Salad');
+	});
+
+	test('a customer who runs out of patience says so, and bringing food afterwards explains why nothing happens', async ({ page }) => {
+		await startShift(page);
+		const tableId = await seatAndOrder(page, 'Garden Salad');
+		await hooks(page, () => {
+			const h = window.__cookingGameTestHooks;
+			h.setShiftStats({ orders: h.getShiftState().orders.map((o) => ({ ...o, patienceRemainingSeconds: 0.01 })) });
+		});
+		await expect(page.locator('#cooking-toast')).toContainText(`Table ${tableId} got tired of waiting and left`);
+		await hooks(page, () => window.__cookingGameTestHooks.setHeldDish('Garden Salad'));
+		await walkToStation(page, `table-${tableId}`);
+		await expect(page.locator('#cooking-toast')).toContainText(`Nobody at Table ${tableId} is waiting for food`);
+	});
+});
+
 test.describe('order notepad', () => {
 	test('written orders show on the side notepad; clicking one makes it the active order', async ({ page }) => {
 		await startShift(page, 11);
