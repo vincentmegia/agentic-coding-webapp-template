@@ -1169,6 +1169,53 @@ throw late orders."
     walks could exceed 30 s in WebKit under a full parallel run.
   * Kitchen, Projects and Library suites: 128/128 on Chromium + WebKit.
 
+**v4.7 Duke opens at 11:30 PM** — the user: "when i try enter dukes
+office i cannot, after 11:30pm let dukes door open." Before, the door
+only unlocked after all three closing chores, and nothing told the
+player about them.
+* **The door.** Duke's office now unlocks the moment the shift clock
+  ends: no padlock, and the label changes from "(opens 11:30 PM)".
+  Walking in pays right away.
+* **Chores are optional but docked.** The user picked this over removing
+  them or making them free to skip. `engine-state.js`'s `skippedChores`
+  feeds `shiftPayout`'s flat deductions:
+
+  | Chore still undone | Docked (`rules.js` §16) |
+  |---|---|
+  | Each dirty table | 50g |
+  | Unwashed dishes | 150g |
+  | No shutdown at the Counter | 100g |
+
+  The paycheck itemizes them ("skipped chores: …").
+* **Guidance.**
+  * A toast at 11:30 PM announces closing time and lists the chores.
+  * Visiting Duke early says when the door opens.
+  * Doing chores out of order says what comes first.
+  * Shutting down says you're done.
+* **Tests.** New unit tests (3) and an e2e "Duke's office" test (new
+  `endClock` hook). Unit 215/215; e2e 130/130 on Chromium + WebKit.
+
+**v4.8 closing chores in any order** — the user: "i wasnt able to shut
+down."
+* **The problem.** The chores were still strictly sequential: every
+  dirty table, then the dishes, then the Counter. With chores optional
+  since v4.7, the Counter refusing to shut down until everything else
+  was done made no sense.
+* **Engine (`engine-state.js`).**
+  * `cleanTable` works in any closing phase; `washDishes` works whether
+    or not the tables are clean; `shutDown` works any time after
+    11:30 PM.
+  * Two new state flags, `dishesWashed` and `shutDownDone`, replace
+    reading progress off the phase.
+  * `skippedChores` uses the flags, and only docks unwashed dishes if
+    there were any to wash.
+* **Game.** Shutting down with chores left says what's still undone and
+  what Duke will dock. Washing twice says the dishes are already washed.
+* **Tests.** The unit tests pinning the old strict order now cover the
+  any-order rules; a new e2e "closing chores in any order" test washes
+  first, then shuts down with a table still dirty. Unit 213/213; e2e
+  132/132 on Chromium + WebKit.
+
 ## Summary
 
 A playable top-down, click-controlled restaurant sim at `/kitchen-shift`,

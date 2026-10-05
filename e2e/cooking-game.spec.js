@@ -243,6 +243,57 @@ test.describe('serving food', () => {
 	});
 });
 
+test.describe("Duke's office", () => {
+	test('locked during the shift; open from 11:30 PM, paying straight away with skipped chores docked', async ({ page }) => {
+		await startShift(page);
+		await walkToStation(page, 'boss-office');
+		await expect(page.locator('#cooking-toast')).toContainText('opens at 11:30 PM');
+		await expect(page.locator('#cooking-paycheck-screen')).toBeHidden();
+
+		// Serve one customer so a dirty table is left behind.
+		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Garden Salad'), tableId);
+		await takeOrder(page, tableId);
+		await hooks(page, () => window.__cookingGameTestHooks.setHeldDish('Garden Salad'));
+		await walkToStation(page, `table-${tableId}`);
+
+		await hooks(page, () => window.__cookingGameTestHooks.endClock());
+		// Jumping the whole clock at once also leaves the player at 0 Sanity
+		// for most of it (a real −30% hallucination cut) — clear that so this
+		// checks only the chore penalties.
+		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ zeroSanitySeconds: 0, zeroReputationSeconds: 0 }));
+		await expect(page.locator('#cooking-toast')).toContainText('closing time');
+		await walkToStation(page, 'boss-office');
+		await expect(page.locator('#cooking-paycheck-screen')).toBeVisible();
+		await expect(page.locator('#cooking-paycheck-outcome')).toContainText('skipped chores: 1 dirty table, unwashed dishes, no shutdown (−300g)');
+		await expect(page.locator('#cooking-paycheck-shift-total')).toHaveText('3700 Gard');
+	});
+});
+
+test.describe('closing chores in any order', () => {
+	test('shutting down at the Counter works right away after 11:30, with leftover chores docked', async ({ page }) => {
+		await startShift(page);
+		const tableId = await hooks(page, () => window.__cookingGameTestHooks.freeTableId());
+		await hooks(page, (id) => window.__cookingGameTestHooks.seatCustomerNow(id, 'Garden Salad'), tableId);
+		await takeOrder(page, tableId);
+		await hooks(page, () => window.__cookingGameTestHooks.setHeldDish('Garden Salad'));
+		await walkToStation(page, `table-${tableId}`);
+		await hooks(page, () => window.__cookingGameTestHooks.endClock());
+		await hooks(page, () => window.__cookingGameTestHooks.setShiftStats({ zeroSanitySeconds: 0, zeroReputationSeconds: 0 }));
+
+		// Wash the dishes before touching the dirty table — allowed now.
+		await walkToStation(page, 'cleaning-closet');
+		await expect.poll(() => hooks(page, () => window.__cookingGameTestHooks.getShiftState().dishesWashed), { timeout: 5000 }).toBe(true);
+
+		await walkToStation(page, 'counter');
+		await expect(page.locator('#cooking-toast')).toContainText('Restaurant shut down. Still undone: 1 dirty table');
+		expect((await hooks(page, () => window.__cookingGameTestHooks.getShiftState())).phase).toBe('paycheck');
+
+		await walkToStation(page, 'boss-office');
+		await expect(page.locator('#cooking-paycheck-outcome')).toContainText('skipped chores: 1 dirty table (−50g)');
+	});
+});
+
 test.describe('order notepad', () => {
 	test('written orders show on the side notepad; clicking one makes it the active order', async ({ page }) => {
 		await startShift(page, 11);

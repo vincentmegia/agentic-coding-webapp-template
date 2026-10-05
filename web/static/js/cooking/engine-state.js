@@ -23,6 +23,8 @@
 //     reputationStormTimer: number,   // counts up to ZERO_REPUTATION_STORM_OUT_SECONDS while Reputation is 0
 //     complaints: number,       // complaint letters received at 0 Reputation (−COMPLAINT_GARD each)
 //     stormOuts: number,        // customers who stormed out at 0 Reputation
+//     dishesWashed: boolean,    // v4.8: the closing chores can be done in any order, so these
+//     shutDownDone: boolean,    //   two are tracked as flags rather than read off the phase
 //   }
 //   Order = {
 //     tableId: number, dishName: string,
@@ -62,6 +64,9 @@ import {
   COMPLAINT_INTERVAL_SECONDS,
   COMPLAINT_GARD,
   reputationPayMultiplier,
+  DIRTY_TABLE_PENALTY_GARD,
+  UNWASHED_DISHES_PENALTY_GARD,
+  NO_SHUTDOWN_PENALTY_GARD,
 } from './rules.js';
 
 export { SHIFT_CLOCK_SECONDS, SANITY_MAX, REPUTATION_MAX };
@@ -94,6 +99,8 @@ export function createInitialState(tableIds, overrides = {}) {
     reputationStormTimer: 0,
     complaints: 0,
     stormOuts: 0,
+    dishesWashed: false,
+    shutDownDone: false,
     ...overrides,
   };
 }
@@ -360,52 +367,64 @@ export function tick(state, deltaSeconds) {
   return { ...state, ...penaltyFields, clockSeconds, orders, tables, shiftUpset, mistakeCount, sanity, reputation };
 }
 
+const CLOSING_PHASES = new Set(['closing-clean', 'closing-dishes', 'closing-shutdown']);
+
 /**
- * Cleans one dirty, unoccupied table. A no-op if the shift isn't in
- * 'closing-clean', the table doesn't exist, is still occupied, or is
- * already clean. Transitions to 'closing-dishes' the moment every table is
- * clean.
+ * Cleans one dirty, unoccupied table. v4.8: allowed in any closing phase,
+ * not only 'closing-clean': since v4.7 the closing chores are optional
+ * and can be done in any order. Cleaning the last dirty table still
+ * advances 'closing-clean' (to 'closing-dishes', or straight to
+ * 'closing-shutdown' if the dishes are already washed). A no-op outside
+ * the closing phases, or if the table doesn't exist, is occupied, or is
+ * already clean.
  *
  * @param {ShiftState} state
  * @param {number} tableId
  * @returns {ShiftState}
  */
 export function cleanTable(state, tableId) {
-  if (state.phase !== 'closing-clean') return state;
+  if (!CLOSING_PHASES.has(state.phase)) return state;
   const table = state.tables[tableId];
   if (!table || table.occupied || !table.dirty) return state;
 
   const tables = { ...state.tables, [tableId]: { ...table, dirty: false } };
-
-  return { ...state, tables, phase: allTablesClean(tables) ? 'closing-dishes' : state.phase };
+  let phase = state.phase;
+  if (phase === 'closing-clean' && allTablesClean(tables)) phase = state.dishesWashed ? 'closing-shutdown' : 'closing-dishes';
+  return { ...state, tables, phase };
 }
 
 /**
- * Washes the sink's entire accumulated dirty-dish stack in one action (see
- * the doc's Open Questions — one interaction clears it all, symmetric with
- * the single shutdown action below). A no-op unless the shift is in
- * 'closing-dishes'. Transitions to 'closing-shutdown'.
+ * Washes the sink's whole dirty-dish stack in one action. v4.8: allowed
+ * whether or not every table is clean yet (any closing phase before
+ * shutdown); sets `dishesWashed`. Advances 'closing-dishes' to
+ * 'closing-shutdown'; in 'closing-clean' the phase stays until the tables
+ * are done. A no-op outside those phases or once already washed.
  *
  * @param {ShiftState} state
  * @returns {ShiftState}
  */
 export function washDishes(state) {
-  if (state.phase !== 'closing-dishes') return state;
-  return { ...state, dirtyDishCount: 0, phase: 'closing-shutdown' };
+  if (state.phase !== 'closing-clean' && state.phase !== 'closing-dishes') return state;
+  if (state.dishesWashed) return state;
+  return {
+    ...state,
+    dirtyDishCount: 0,
+    dishesWashed: true,
+    phase: state.phase === 'closing-dishes' ? 'closing-shutdown' : state.phase,
+  };
 }
 
 /**
- * Shuts the restaurant down for the night. A no-op unless the shift is in
- * 'closing-shutdown'. Transitions to 'paycheck' — the boss's office becomes
- * reachable only once this has fired (enforced by the caller/UI, not this
- * module, which only tracks phase).
+ * Shuts the restaurant down for the night. v4.8: allowed in any closing
+ * phase — whatever chores are still undone are docked at Duke's office
+ * (`skippedChores`). Transitions to 'paycheck' and sets `shutDownDone`.
  *
  * @param {ShiftState} state
  * @returns {ShiftState}
  */
 export function shutDown(state) {
-  if (state.phase !== 'closing-shutdown') return state;
-  return { ...state, phase: 'paycheck' };
+  if (!CLOSING_PHASES.has(state.phase)) return state;
+  return { ...state, phase: 'paycheck', shutDownDone: true };
 }
 
 /**
@@ -475,21 +494,47 @@ export function startleFromHallucination(state) {
  * pay-cut multipliers. Returns the parts too, for the paycheck screen.
  *
  * @param {ShiftState} state
- * @returns {{base: number, bonusGard: number, complaintGard: number, sanityMultiplier: number, reputationMultiplier: number, payout: number}}
+ * Skipped closing chores (v4.7, `skippedChores`) are flat deductions
+ * too, alongside complaint letters.
+ *
+ * @returns {{base: number, bonusGard: number, complaintGard: number, chores: object, sanityMultiplier: number, reputationMultiplier: number, payout: number}}
  */
 export function shiftPayout(state) {
   const base = shiftPaycheck(state.mistakeCount);
   const bonusGard = state.bonusGard ?? 0;
   const complaintGard = (state.complaints ?? 0) * COMPLAINT_GARD;
-  const gross = Math.max(0, base + bonusGard - complaintGard);
+  const chores = skippedChores(state);
+  const gross = Math.max(0, base + bonusGard - complaintGard - chores.gard);
   const sanityMultiplier = hallucinationPayMultiplier(state.zeroSanitySeconds);
   const reputationMultiplier = reputationPayMultiplier(state.zeroReputationSeconds);
   return {
     base,
     bonusGard,
     complaintGard,
+    chores,
     sanityMultiplier,
     reputationMultiplier,
     payout: Math.round(gross * sanityMultiplier * reputationMultiplier),
   };
+}
+
+/**
+ * Which closing chores are still undone (v4.7) — Duke's office opens as
+ * soon as the shift clock ends, so the player can walk in before
+ * finishing them, and each one skipped is docked from the pay
+ * (`shiftPayout`). During 'playing' nothing counts as skipped yet.
+ *
+ * @param {ShiftState} state
+ * @returns {{dirtyTables: number, dishesUnwashed: boolean, notShutDown: boolean, gard: number}}
+ */
+export function skippedChores(state) {
+  if (state.phase === 'playing') return { dirtyTables: 0, dishesUnwashed: false, notShutDown: false, gard: 0 };
+  const dirtyTables = Object.values(state.tables).filter((t) => t.dirty).length;
+  // Only docked if there were dishes to wash (an idle shift has none).
+  const dishesUnwashed = !state.dishesWashed && state.dirtyDishCount > 0;
+  const notShutDown = !state.shutDownDone;
+  const gard = dirtyTables * DIRTY_TABLE_PENALTY_GARD
+    + (dishesUnwashed ? UNWASHED_DISHES_PENALTY_GARD : 0)
+    + (notShutDown ? NO_SHUTDOWN_PENALTY_GARD : 0);
+  return { dirtyTables, dishesUnwashed, notShutDown, gard };
 }

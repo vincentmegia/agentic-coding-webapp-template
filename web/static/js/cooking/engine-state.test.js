@@ -266,7 +266,7 @@ describe('tick', () => {
   });
 });
 
-describe('closing sequence order is enforced', () => {
+describe('closing chores (any order after 11:30 PM, v4.8)', () => {
   function closedShiftWithDirtyTablesAndDishes() {
     let state = createInitialState(TABLE_IDS);
     state = addOrder(state, 1, 'Burger', 30, 4);
@@ -275,46 +275,41 @@ describe('closing sequence order is enforced', () => {
     return state;
   }
 
-  test('cleanTable is a no-op outside closing-clean', () => {
+  test('chores are no-ops while the shift is still playing', () => {
     const state = createInitialState(TABLE_IDS);
-    const next = cleanTable(state, 1);
-    assert.deepEqual(next, state);
+    assert.deepEqual(cleanTable(state, 1), state);
+    assert.deepEqual(washDishes(state), state);
+    assert.deepEqual(shutDown(state), state);
   });
 
-  test('cleaning every dirty table transitions to closing-dishes', () => {
+  test('the classic order still works: tables, dishes, shutdown', () => {
     let state = closedShiftWithDirtyTablesAndDishes();
     assert.equal(state.phase, 'closing-clean');
     state = cleanTable(state, 1);
     assert.equal(state.phase, 'closing-dishes');
-  });
-
-  test('washDishes is a no-op before every table is clean', () => {
-    const state = closedShiftWithDirtyTablesAndDishes();
-    const next = washDishes(state);
-    assert.deepEqual(next, state);
-  });
-
-  test('washing dishes transitions to closing-shutdown', () => {
-    let state = closedShiftWithDirtyTablesAndDishes();
-    state = cleanTable(state, 1);
     state = washDishes(state);
     assert.equal(state.phase, 'closing-shutdown');
     assert.equal(state.dirtyDishCount, 0);
-  });
-
-  test('shutDown is a no-op before dishes are washed', () => {
-    let state = closedShiftWithDirtyTablesAndDishes();
-    state = cleanTable(state, 1);
-    const next = shutDown(state);
-    assert.deepEqual(next, state);
-  });
-
-  test('shutting down transitions to paycheck', () => {
-    let state = closedShiftWithDirtyTablesAndDishes();
-    state = cleanTable(state, 1);
-    state = washDishes(state);
     state = shutDown(state);
     assert.equal(state.phase, 'paycheck');
+    assert.equal(skippedChores(state).gard, 0);
+  });
+
+  test('dishes can be washed before the tables are clean', () => {
+    let state = closedShiftWithDirtyTablesAndDishes();
+    state = washDishes(state);
+    assert.equal(state.dishesWashed, true);
+    assert.equal(state.phase, 'closing-clean');
+    state = cleanTable(state, 1);
+    assert.equal(state.phase, 'closing-shutdown');
+  });
+
+  test('shutting down right away is allowed; the skipped chores are docked', () => {
+    let state = closedShiftWithDirtyTablesAndDishes();
+    state = shutDown(state);
+    assert.equal(state.phase, 'paycheck');
+    const chores = skippedChores(state);
+    assert.deepEqual([chores.dirtyTables, chores.dishesUnwashed, chores.notShutDown], [1, true, false]);
   });
 });
 
@@ -560,5 +555,38 @@ describe('shiftPayout', () => {
   test('flat deductions floor at 0 before the multipliers', () => {
     const parts = shiftPayout(createInitialState(TABLE_IDS, { mistakeCount: 99, complaints: 1000 }));
     assert.equal(parts.payout, 0);
+  });
+});
+
+import { skippedChores } from './engine-state.js';
+import { DIRTY_TABLE_PENALTY_GARD, UNWASHED_DISHES_PENALTY_GARD, NO_SHUTDOWN_PENALTY_GARD } from './rules.js';
+
+describe('skippedChores (Duke opens at 11:30 PM)', () => {
+  test('nothing counts while still playing', () => {
+    assert.equal(skippedChores(createInitialState(TABLE_IDS)).gard, 0);
+  });
+
+  test('walking out straight after closing time skips every chore', () => {
+    let state = createInitialState(TABLE_IDS);
+    state = addOrder(state, 1, 'Burger', 99, 5);
+    state = serveDish(state, 1, 'Burger');
+    state = addOrder(state, 2, 'Pasta', 99, 5);
+    state = serveDish(state, 2, 'Pasta');
+    state = tick(state, SHIFT_CLOCK_SECONDS + 1);
+    assert.equal(state.phase, 'closing-clean');
+    const chores = skippedChores(state);
+    assert.deepEqual(chores, {
+      dirtyTables: 2, dishesUnwashed: true, notShutDown: true,
+      gard: 2 * DIRTY_TABLE_PENALTY_GARD + UNWASHED_DISHES_PENALTY_GARD + NO_SHUTDOWN_PENALTY_GARD,
+    });
+    assert.equal(shiftPayout(state).payout, shiftPayout(createInitialState(TABLE_IDS)).payout - chores.gard);
+  });
+
+  test('only the shutdown left: just that penalty; all done: nothing', () => {
+    let state = tick(createInitialState(TABLE_IDS), SHIFT_CLOCK_SECONDS + 1);
+    state = washDishes(state);
+    assert.equal(state.phase, 'closing-shutdown');
+    assert.equal(skippedChores(state).gard, NO_SHUTDOWN_PENALTY_GARD);
+    assert.equal(skippedChores(shutDown(state)).gard, 0);
   });
 });

@@ -979,3 +979,21 @@ export function orderPadChoices(correctName, poolNames, random) {
   }
   return choices;
 }
+
+// ---------------------------------------------------------------------------
+// 16. Skipped closing chores (v4.7) — the user: "after 11:30pm let dukes
+//     door open." Duke's office now unlocks the moment the shift clock
+//     ends instead of only after the closing sequence, so the chores
+//     (clean dirty tables, wash dishes, shut down at the Counter) become
+//     optional — but Duke docks pay for each one skipped (the user picked
+//     this over removing them or making them free to skip).
+// ---------------------------------------------------------------------------
+
+/** Docked per table still dirty when the player walks into Duke's office. */
+export const DIRTY_TABLE_PENALTY_GARD = 50;
+
+/** Docked if the dishes were never washed. */
+export const UNWASHED_DISHES_PENALTY_GARD = 150;
+
+/** Docked if the restaurant was never shut down at the Counter. */
+export const NO_SHUTDOWN_PENALTY_GARD = 100;

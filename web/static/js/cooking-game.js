@@ -150,6 +150,7 @@ import {
   earnBonusGard as addBonusGard,
   startleFromHallucination,
   shiftPayout,
+  skippedChores,
   annoyCustomer,
   SANITY_MAX,
   REPUTATION_MAX,
@@ -1813,7 +1814,7 @@ export function init(canvas, elements) {
       if (t && t.dirty) return `Table ${station.tableId}: dirty`;
       return `Table ${station.tableId}`;
     }
-    if (station.kind === 'boss-office' && shiftState.phase !== 'paycheck') return "Duke's Office (locked)";
+    if (station.kind === 'boss-office' && shiftState.phase === 'playing') return "Duke's Office (opens 11:30 PM)";
     if (station.kind === 'counter' && shiftState.phase !== 'closing-shutdown') return 'Counter';
     return STATION_LABELS[station.kind] || '';
   }
@@ -2103,6 +2104,7 @@ export function init(canvas, elements) {
     orderQueueSignature = null;
     coffeeSplashSeconds = 0;
     trashLidSeconds = 0;
+    closingAnnounced = false;
     resetHallucinations();
     inventory = [];
     cookware = new Set();
@@ -2173,6 +2175,14 @@ export function init(canvas, elements) {
       ? `${shiftState.mistakeCount} mistake${shiftState.mistakeCount === 1 ? '' : 's'} — Duke saw the reviews`
       : 'Duke says great job'];
     if (payoutParts.bonusGard > 0) outcomeParts.push(`+${payoutParts.bonusGard}g bonus`);
+    const chores = payoutParts.chores;
+    if (chores.gard > 0) {
+      const skipped = [];
+      if (chores.dirtyTables > 0) skipped.push(`${chores.dirtyTables} dirty table${chores.dirtyTables === 1 ? '' : 's'}`);
+      if (chores.dishesUnwashed) skipped.push('unwashed dishes');
+      if (chores.notShutDown) skipped.push('no shutdown');
+      outcomeParts.push(`skipped chores: ${skipped.join(', ')} (−${chores.gard}g)`);
+    }
     if (shiftState.complaints > 0) outcomeParts.push(`${shiftState.complaints} complaint letter${shiftState.complaints === 1 ? '' : 's'} (−${payoutParts.complaintGard}g)`);
     if (payoutParts.sanityMultiplier < 1) outcomeParts.push(`−${Math.round((1 - payoutParts.sanityMultiplier) * 100)}% for hallucinating`);
     if (payoutParts.reputationMultiplier < 1) outcomeParts.push(`−${Math.round((1 - payoutParts.reputationMultiplier) * 100)}% for a ruined reputation`);
@@ -2354,6 +2364,7 @@ export function init(canvas, elements) {
   // away everything on the tray — a finished dish or loose ingredients —
   // but never cookware, which isn't on the tray. Works in any phase.
   let trashLidSeconds = 0;
+  let closingAnnounced = false; // v4.7: the 11:30 PM closing-time toast, once per shift
   const TRASH_LID_SECONDS = 1.2;
 
   function useTrashBin() {
@@ -3610,12 +3621,19 @@ export function init(canvas, elements) {
     cancelCookMiniGame();
   }
 
+  // v4.8: closing chores work in any order after 11:30 PM (engine-state.js).
+  const CLOSING_PHASE_NAMES = ['closing-clean', 'closing-dishes', 'closing-shutdown'];
+
   function startClosingTimerIfValid(station) {
-    if (shiftState.phase === 'closing-clean' && station.kind === 'table') {
+    if (station.kind === 'table') {
       const t = shiftState.tables[station.tableId];
       if (!t || t.occupied || !t.dirty) return;
       closingTimer = { stationId: station.id, kind: 'table', tableId: station.tableId, remaining: cleaningDurationForSave(save) };
-    } else if (shiftState.phase === 'closing-dishes' && station.kind === 'cleaning-closet') {
+    } else if (station.kind === 'cleaning-closet') {
+      if (shiftState.dishesWashed) {
+        showToast('The dishes are already washed');
+        return;
+      }
       closingTimer = { stationId: station.id, kind: 'cleaning-closet', remaining: cleaningDurationForSave(save) };
     }
   }
@@ -3646,16 +3664,30 @@ export function init(canvas, elements) {
         openCoffeePour();
         return;
       }
+      if (station.kind === 'boss-office') showToast("Duke's office opens at 11:30 PM, when the shift ends", 3);
       return;
     }
-    if (shiftState.phase === 'closing-clean' && station.kind === 'table') return startClosingTimerIfValid(station);
-    if (shiftState.phase === 'closing-dishes' && station.kind === 'cleaning-closet') return startClosingTimerIfValid(station);
-    if (shiftState.phase === 'closing-shutdown' && station.kind === 'counter') {
-      shiftState = shutDown(shiftState);
-      return;
-    }
-    if (shiftState.phase === 'paycheck' && station.kind === 'boss-office') {
+    // v4.7: Duke's door opens at 11:30 PM — walking in now gets paid right
+    // away, with any closing chores still undone docked from the pay
+    // (engine-state.js's skippedChores/shiftPayout).
+    if (station.kind === 'boss-office') {
+      closingTimer = null;
       endShift();
+      return;
+    }
+    if (!CLOSING_PHASE_NAMES.includes(shiftState.phase)) return;
+    if (station.kind === 'table' || station.kind === 'cleaning-closet') return startClosingTimerIfValid(station);
+    if (station.kind === 'counter') {
+      // v4.8: shutting down works any time after 11:30 PM — the user "wasn't
+      // able to shut down" while tables/dishes were still waiting.
+      shiftState = shutDown(shiftState);
+      const left = skippedChores(shiftState);
+      const undone = [];
+      if (left.dirtyTables > 0) undone.push(`${left.dirtyTables} dirty table${left.dirtyTables === 1 ? '' : 's'}`);
+      if (left.dishesUnwashed) undone.push('the dishes');
+      showToast(undone.length === 0
+        ? 'Restaurant shut down for the night — all chores done. Go see Duke for your pay!'
+        : `Restaurant shut down. Still undone: ${undone.join(' and ')} — Duke will dock it (−${left.gard}g). Go see Duke!`, 4);
     }
   }
 
@@ -3921,7 +3953,9 @@ export function init(canvas, elements) {
     if (station.kind === 'cabinet') return activePanel === 'cabinet';
     if (station.kind === 'cookware-closet') return activePanel === 'cookware';
     if (station.kind === 'cleaning-closet') return closingTimer && closingTimer.stationId === station.id;
-    if (station.kind === 'boss-office') return shiftState.phase === 'paycheck';
+    // v4.7: unlocked from 11:30 PM (the shift clock ending), not only
+    // after every closing chore.
+    if (station.kind === 'boss-office') return shiftState.phase !== 'playing';
     return false;
   }
 
@@ -4639,7 +4673,7 @@ export function init(canvas, elements) {
 
   /** A station's on-canvas caption — Duke's Office reads "(locked)" until payday, like Library Shift's Boss's Office. */
   function hoverLabelFor(station) {
-    if (station.kind === 'boss-office' && shiftState.phase !== 'paycheck') return "Duke's Office (locked)";
+    if (station.kind === 'boss-office' && shiftState.phase === 'playing') return "Duke's Office (opens 11:30 PM)";
     return STATION_LABELS[station.kind] || '';
   }
 
@@ -5033,6 +5067,12 @@ export function init(canvas, elements) {
       updateClosingTimer(deltaSeconds);
     }
 
+    // v4.7: announce closing time once per shift, the first frame the
+    // shift is past 11:30 PM (however it got there).
+    if (shiftState.phase !== 'playing' && shiftState.phase !== 'paycheck' && !closingAnnounced) {
+      closingAnnounced = true;
+      showToast("🕚 11:30 PM — closing time! Duke's office is open. For full pay: clean dirty tables, wash dishes (Cleaning Closet), then shut down at the Counter.", 6);
+    }
     updateOrderBubble(deltaSeconds);
     updatePayingCustomers(deltaSeconds);
     updateCoffeePour(deltaSeconds);
@@ -5212,6 +5252,14 @@ export function init(canvas, elements) {
       forceUpset() {
         if (!running || !shiftState || shiftState.phase !== 'playing') return;
         shiftState = serveDish(shiftState, TABLE_IDS[0], '__test-nonexistent-dish__');
+      },
+      /** Runs the shift clock out (11:30 PM) without doing any closing chores. */
+      endClock() {
+        if (!running || !shiftState || shiftState.phase !== 'playing') return;
+        shiftState = tick(shiftState, shiftClockSecondsForShift(currentShiftNumber) + 1);
+        pendingCustomers = {};
+        arrivingCustomers = [];
+        cancelCookMiniGame();
       },
       collectPaycheck() {
         if (!shiftState || shiftState.phase !== 'paycheck') return;
