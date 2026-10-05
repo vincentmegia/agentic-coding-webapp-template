@@ -41,11 +41,15 @@ export const UPGRADES = {
   fareBox: { label: 'Fare Box', baseCost: 20, growth: 1.8, maxLevel: 4 },
 };
 
-/** Oncoming vehicle kinds; length/width in pixels. */
+/**
+ * Oncoming vehicle kinds; length/width in pixels. A `lethal` vehicle ends
+ * the run on contact regardless of lives left or post-hit grace.
+ */
 export const VEHICLES = [
   { kind: 'car', length: 64, width: 50, minDistance: 0 },
   { kind: 'van', length: 82, width: 56, minDistance: 300 },
-  { kind: 'truck', length: 118, width: 62, minDistance: 800 },
+  { kind: 'truck', length: 118, width: 62, minDistance: 800, lethal: true },
+  { kind: 'semi', length: 170, width: 64, minDistance: 1500, lethal: true },
 ];
 
 function level(n, max) {
@@ -134,8 +138,8 @@ export function maxBlockedLanes(distanceMeters) {
  * move pickBlockedLanes may require between two rows.
  */
 export const BUS_LENGTH = 88;
-export const ROW_SPACING_MAX = 440;
-export const ROW_SPACING_MIN = 320;
+export const ROW_SPACING_MAX = 460;
+export const ROW_SPACING_MIN = 350;
 export function rowSpacingPx(distanceMeters) {
   const d = Number.isFinite(distanceMeters) && distanceMeters > 0 ? distanceMeters : 0;
   return Math.max(ROW_SPACING_MIN, ROW_SPACING_MAX - d / 10);
@@ -165,6 +169,18 @@ export function pickBlockedLanes(rng, distanceMeters, prevOpen) {
     [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
   }
   return candidates.slice(0, Math.min(count, LANES - 1)).sort((a, b) => a - b);
+}
+
+/**
+ * Lives left after a collision. A lethal vehicle (truck, semi) takes them
+ * all; anything else takes one, unless the bus is still in its post-hit
+ * grace window. Lethal vehicles ignore grace — a flashing bus still can't
+ * survive a truck.
+ */
+export function livesAfterHit(lives, vehicle, graceSeconds) {
+  if (vehicle && vehicle.lethal) return 0;
+  if (graceSeconds > 0) return lives;
+  return Math.max(0, lives - 1);
 }
 
 /** Lanes not in `blocked`. */

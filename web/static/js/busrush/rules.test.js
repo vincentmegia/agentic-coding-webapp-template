@@ -30,6 +30,7 @@ import {
   openLanes,
   pickVehicle,
   rectsOverlap,
+  livesAfterHit,
 } from './rules.js';
 
 // Small deterministic PRNG so the property-style tests below are repeatable.
@@ -166,6 +167,25 @@ describe('traffic', () => {
     assert.deepEqual([...early], ['car']);
     const late = new Set(Array.from({ length: 200 }, () => pickVehicle(rng, 5000).kind));
     assert.equal(late.size, VEHICLES.length);
+  });
+
+  test('trucks and semis are lethal; cars and vans are not', () => {
+    const lethal = VEHICLES.filter((v) => v.lethal).map((v) => v.kind).sort();
+    assert.deepEqual(lethal, ['semi', 'truck']);
+  });
+
+  test('a lethal hit takes every life, even during grace', () => {
+    const truck = VEHICLES.find((v) => v.kind === 'truck');
+    const semi = VEHICLES.find((v) => v.kind === 'semi');
+    assert.equal(livesAfterHit(6, truck, 0), 0);
+    assert.equal(livesAfterHit(6, semi, 1.2), 0);
+  });
+
+  test('a non-lethal hit takes one life, none during grace', () => {
+    const car = VEHICLES.find((v) => v.kind === 'car');
+    assert.equal(livesAfterHit(3, car, 0), 2);
+    assert.equal(livesAfterHit(3, car, 0.5), 3);
+    assert.equal(livesAfterHit(0, car, 0), 0);
   });
 
   test('rectsOverlap ignores touching edges', () => {

@@ -31,8 +31,11 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
 * Speed is the core trade-off: driving faster covers more distance (score)
   but traffic arrives faster. The Engine upgrade raises top speed.
 * Fares (coins) spawn in lanes; collecting one adds to the run's fares.
-* Lives: a collision costs one life, drops the bus to minimum speed, and
-  grants a short invulnerability window. The run ends at zero lives.
+* Lives: a collision with a car or van costs one life, drops the bus to
+  minimum speed, and grants a short invulnerability window. The run ends at
+  zero lives.
+* Trucks (from 800 m) and semi trucks (from 1500 m) are lethal: touching
+  one ends the run instantly, regardless of lives left or grace.
 * Depot shop between runs (tokens → leveled upgrades): Engine (top speed),
   Steering (faster lane changes), Bumpers (+1 life), Fare Box (more tokens
   per fare).
@@ -140,6 +143,13 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
   Spawns come in rows; a row never blocks all four lanes
   (`pickBlockedLanes`), so every row is passable. The spawn gap shrinks with
   distance down to a minimum (`spawnGapMeters`).
+* **Collisions** (`livesAfterHit`): a vehicle marked `lethal` in
+  `VEHICLES` (truck, semi) takes every life, even during post-hit grace;
+  anything else takes one life, or none while grace is active. Bumpers
+  therefore never save you from a truck.
+* **Row spacing floor** must fit the longest vehicle (the semi), the bus,
+  and one unupgraded lane change at top speed — a unit test enforces this,
+  so adding a longer vehicle means raising `ROW_SPACING_MIN`.
 * **Score** = `floor(distance) + fares × 25` — speed pays via distance.
 * **Tokens per run** = `fares × fareValue(fareBoxLevel) + floor(distance / 100)`.
 * **Upgrades**: cost grows per level (`upgradeCost`); every upgrade has a

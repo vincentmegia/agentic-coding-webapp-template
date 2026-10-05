@@ -79,6 +79,27 @@ test('crashing ends the run, awards tokens, and the shop spends them', async ({ 
 	await expect(page.locator('[data-upgrade-key="engine"] [data-upgrade-level]')).toHaveText('1');
 });
 
+for (const kind of ['truck', 'semi']) {
+	test(`hitting a ${kind} ends the run instantly, whatever lives are left`, async ({ page }) => {
+		await page.goto('/bus-rush');
+		await page.locator('#bus-rush-start-button').click();
+		await expect(page.locator('#bus-rush-hud-lives')).not.toHaveText('0');
+		await page.evaluate((k) => window.__busRushTestHooks.spawn(k), kind);
+		await expect(page.locator('#bus-rush-run-over-screen')).toBeVisible({ timeout: 5000 });
+		await expect(page.locator('#bus-rush-run-over-title')).toContainText(`Flattened by a ${kind}!`);
+		await expect(page.locator('#bus-rush-hud-lives')).toHaveText('0');
+	});
+}
+
+test('hitting a car costs one life, not the run', async ({ page }) => {
+	await page.goto('/bus-rush');
+	await page.locator('#bus-rush-start-button').click();
+	const lives = parseInt(await page.locator('#bus-rush-hud-lives').textContent(), 10);
+	await page.evaluate(() => window.__busRushTestHooks.spawn('car'));
+	await expect(page.locator('#bus-rush-hud-lives')).toHaveText(String(lives - 1), { timeout: 5000 });
+	await expect(page.locator('#bus-rush-run-over-screen')).toBeHidden();
+});
+
 test('a finished run can be submitted to the leaderboard', async ({ page }) => {
 	const playerName = `e2e-${Date.now() % 1_000_000}`;
 	try {

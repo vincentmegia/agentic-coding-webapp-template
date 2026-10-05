@@ -17,6 +17,7 @@ import {
   BUS_LENGTH,
   DISTANCE_MAX,
   UPGRADES,
+  VEHICLES,
   stepSpeed,
   toKmh,
   laneChangeSeconds,
@@ -30,6 +31,7 @@ import {
   openLanes,
   pickVehicle,
   rectsOverlap,
+  livesAfterHit,
 } from './busrush/rules.js';
 
 const STORAGE_KEY = 'bus-rush:v1';
@@ -157,6 +159,30 @@ function drawVehicle(ctx, v) {
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   roundRect(ctx, x + 3, v.y + 4, v.width, v.length, 8);
   ctx.fill();
+
+  if (v.kind === 'semi') {
+    // Tractor at the front (bottom), long hazard-striped trailer behind.
+    const cab = 36;
+    const trailer = v.length - cab - 6;
+    ctx.fillStyle = '#e8e4da';
+    roundRect(ctx, x, v.y, v.width, trailer, 3);
+    ctx.fill();
+    ctx.fillStyle = '#c0392b';
+    for (let y = v.y + 8; y < v.y + trailer - 4; y += 22) {
+      ctx.fillRect(x + 4, y, v.width - 8, 6);
+    }
+    ctx.fillStyle = '#555';
+    ctx.fillRect(x + v.width / 2 - 4, v.y + trailer, 8, 6); // hitch
+    ctx.fillStyle = v.color;
+    roundRect(ctx, x + 3, v.y + v.length - cab, v.width - 6, cab, 8);
+    ctx.fill();
+    ctx.fillStyle = '#9fd3f0';
+    ctx.fillRect(x + 8, v.y + v.length - 15, v.width - 16, 9);
+    ctx.fillStyle = '#fff6c2';
+    ctx.fillRect(x + 6, v.y + v.length - 4, 9, 3);
+    ctx.fillRect(x + v.width - 15, v.y + v.length - 4, 9, 3);
+    return;
+  }
 
   if (v.kind === 'truck') {
     const cab = 34;
@@ -334,7 +360,10 @@ function init(canvas, el) {
     progress.bestDistance = Math.max(progress.bestDistance, distance);
     saveProgress(progress);
 
-    el.runOver.title.textContent = newBest ? 'New best run!' : 'Run over';
+    const titles = [];
+    if (run.killedBy) titles.push(`Flattened by a ${run.killedBy}!`);
+    if (newBest) titles.push('New best run!');
+    el.runOver.title.textContent = titles.length ? titles.join(' ') : 'Run over';
     el.runOver.distance.textContent = `${distance} m`;
     el.runOver.fares.textContent = run.fares;
     el.runOver.score.textContent = score;
@@ -348,12 +377,16 @@ function init(canvas, el) {
     el.runOver.again.focus();
   }
 
-  function hit(r) {
-    if (r.grace > 0) return;
-    r.lives -= 1;
+  function hit(r, vehicle) {
+    const lives = livesAfterHit(r.lives, vehicle, r.grace);
+    if (lives === r.lives) return; // grace absorbed it
+    r.lives = lives;
     r.speed = MIN_SPEED;
     r.grace = HIT_GRACE_SECONDS;
-    if (r.lives <= 0) endRun();
+    if (r.lives <= 0) {
+      r.killedBy = vehicle && vehicle.lethal ? vehicle.kind : null;
+      endRun();
+    }
   }
 
   function spawnRow(r, overshoot) {
@@ -364,6 +397,7 @@ function init(canvas, el) {
       const kind = pickVehicle(Math.random, r.distance);
       r.vehicles.push({
         kind: kind.kind,
+        lethal: Boolean(kind.lethal),
         x: laneCenter(lane),
         y: -kind.length + overshoot,
         width: kind.width,
@@ -410,7 +444,7 @@ function init(canvas, el) {
     const bus = { x: r.busX - BUS_WIDTH / 2 + 5, y: BUS_Y + 6, w: BUS_WIDTH - 10, h: BUS_LENGTH - 10 };
     for (const v of r.vehicles) {
       if (rectsOverlap(bus, { x: v.x - v.width / 2 + 3, y: v.y + 3, w: v.width - 6, h: v.length - 6 })) {
-        hit(r);
+        hit(r, v);
         if (r.status !== 'playing') return;
       }
     }
@@ -562,6 +596,21 @@ function init(canvas, el) {
         hit(run);
         guard += 1;
       }
+    },
+    // Drops one vehicle of `kind` into the bus's lane just above the
+    // screen, so it collides through the real update() path.
+    spawn(kind) {
+      const def = VEHICLES.find((v) => v.kind === kind);
+      if (!run || run.status !== 'playing' || !def) return;
+      run.vehicles.push({
+        kind: def.kind,
+        lethal: Boolean(def.lethal),
+        x: laneCenter(run.lane),
+        y: -def.length,
+        width: def.width,
+        length: def.length,
+        color: VEHICLE_COLORS[0],
+      });
     },
     grantTokens(n) {
       progress.tokens += n;
