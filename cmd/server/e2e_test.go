@@ -235,6 +235,44 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("bus rush routes round-trip through the real bus_rush_scores table", func(t *testing.T) {
+		resp, body := get(t, client, srv.URL+"/bus-rush")
+		if resp.StatusCode != http.StatusOK || !strings.Contains(body, `id="bus-rush-canvas"`) {
+			t.Fatalf("GET /bus-rush: status = %d, body missing canvas: %s", resp.StatusCode, body)
+		}
+
+		// Unique per run and cleaned up, same as the fishing subtest below.
+		playerName := fmt.Sprintf("e2e-%d", time.Now().UnixNano()%1_000_000)
+		t.Cleanup(func() {
+			if _, err := conn.Exec(`DELETE FROM bus_rush_scores WHERE player_name = $1`, playerName); err != nil {
+				t.Errorf("cleanup: delete test bus_rush_scores row: %v", err)
+			}
+		})
+
+		form := url.Values{"player_name": {playerName}, "score": {"4321"}, "distance_meters": {"3210"}}
+		resp, err := client.PostForm(srv.URL+"/bus-rush/score", form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), playerName) || !strings.Contains(string(b), "4321 pts") {
+			t.Fatalf("POST /bus-rush/score: status = %d, body missing the inserted entry: %s", resp.StatusCode, b)
+		}
+
+		resp, err = client.PostForm(srv.URL+"/bus-rush/score", url.Values{"player_name": {"e2e-invalid"}, "score": {"1"}, "distance_meters": {"99999999"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("out-of-range submission: status = %d, want 400", resp.StatusCode)
+		}
+	})
+
 	t.Run("fishing game routes round-trip through the real fishing_scores table", func(t *testing.T) {
 		resp, body := get(t, client, srv.URL+"/fishing-game")
 		if resp.StatusCode != http.StatusOK {

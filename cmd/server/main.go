@@ -177,6 +177,9 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, err
 	libraryService := service.NewLibraryService(repository.NewLibraryRepository(conn, readConn))
 	libraryGame := handler.NewLibraryGameHandler(renderer, libraryService, Version)
 
+	busRushService := service.NewBusRushService(repository.NewBusRushRepository(conn, readConn))
+	busRush := handler.NewBusRushHandler(renderer, busRushService, Version)
+
 	// See docs/features/home.md's Routes/Handlers table. This feature
 	// owns the shell and these routes; the real page content behind each
 	// is a separate, not-yet-built feature (placeholders for now).
@@ -197,6 +200,10 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, err
 	mux.HandleFunc("GET /library-game", libraryGame.Index)
 	mux.HandleFunc("GET /library-game/leaderboard", libraryGame.Leaderboard)
 	mux.HandleFunc("POST /library-game/score", libraryGame.SubmitScore)
+	// See docs/features/bus-rush.md's Routes/Handlers table.
+	mux.HandleFunc("GET /bus-rush", busRush.Index)
+	mux.HandleFunc("GET /bus-rush/leaderboard", busRush.Leaderboard)
+	mux.HandleFunc("POST /bus-rush/score", busRush.SubmitScore)
 	mux.HandleFunc("GET /projects", pages.Projects)
 	// See docs/features/puzzle-solver.md's Routes/Handlers table.
 	mux.HandleFunc("GET /puzzle-solver", pages.PuzzleSolver)

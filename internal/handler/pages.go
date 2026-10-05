@@ -136,6 +136,8 @@ func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
 // mid-shift — a book pile on the Return Cart, three Front Desk patrons
 // (two fines, one borrow request) queued, and the Sanity/Mood bars — taken
 // via the game's own test hooks rather than waiting out real spawn timers.
+// Bus Rush (docs/features/bus-rush.md) is the fifth; it has no screenshot
+// yet, so it renders the placeholder tile.
 var projectItems = []Project{
 	{
 		Title:       "Fishing Game",
@@ -168,6 +170,13 @@ var projectItems = []Project{
 		TagTint:     "primary",
 		LiveURL:     "/library-game",
 		ImagePath:   "/static/images/library/screenshot.png",
+	},
+	{
+		Title:       "Bus Rush",
+		Description: "A top-down arcade driving game — steer a bus through oncoming traffic, collect fares, and spend them at the depot on a faster engine, with a public leaderboard for the best runs.",
+		Tags:        []string{"Go", "Canvas", "PostgreSQL"},
+		TagTint:     "primary",
+		LiveURL:     "/bus-rush",
 	},
 }
 

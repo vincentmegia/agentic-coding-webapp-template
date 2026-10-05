@@ -1,0 +1,23 @@
+{{/* Bus Rush leaderboard fragment (docs/features/bus-rush.md). Dot is
+     []model.BusRushScore. Carries #bus-rush-leaderboard so the submit
+     form's outerHTML swap target keeps resolving. */}}
+{{define "bus-rush-leaderboard"}}
+<ol id="bus-rush-leaderboard" class="divide-y divide-line rounded-card border border-line bg-surface">
+	{{if .}}
+	{{range $i, $entry := .}}
+	<li class="flex items-center justify-between gap-4 px-4 py-2 text-sm">
+		<span class="flex items-center gap-3">
+			<span class="w-6 shrink-0 text-right font-mono text-muted">{{add $i 1}}</span>
+			<span class="font-medium text-ink">{{$entry.PlayerName}}</span>
+		</span>
+		<span class="flex items-center gap-4 font-mono tabular-nums text-ink">
+			<span>{{$entry.Score}} pts</span>
+			<span class="text-muted">{{$entry.DistanceMeters}} m</span>
+		</span>
+	</li>
+	{{end}}
+	{{else}}
+	<li class="px-4 py-3 text-sm text-muted">No scores yet — be the first!</li>
+	{{end}}
+</ol>
+{{end}}

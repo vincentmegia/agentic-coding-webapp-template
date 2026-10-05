@@ -46,8 +46,13 @@ touching that area rather than expecting this section to carry it:
 - **Library Shift** (`/library-game`, two-floor canvas library-shift sim —
   shelving/fines/borrow-request minigames, a scripted Karen event, Postgres
   leaderboard, `localStorage` progress) — `docs/features/library-game.md`.
+- **Bus Rush** (`/bus-rush`, top-down canvas driving game — dodge oncoming
+  traffic, collect fares, buy Engine/Steering/Bumpers/Fare Box upgrades;
+  Postgres leaderboard, `localStorage` progress) — `docs/features/bus-rush.md`.
+  Rules/tuning live in `web/static/js/busrush/rules.js`; no screenshot yet,
+  so its `/projects` card shows the placeholder tile.
 - **Projects** (`/projects` card grid: Fishing Game, Kitchen Shift, Puzzle
-  Solver, Library Shift) — `docs/features/projects.md`.
+  Solver, Library Shift, Bus Rush) — `docs/features/projects.md`.
 - **Content Authoring** (`/settings/content`: edit the landing page's
   hero/carousel/Selected work without a redeploy, Postgres-backed) —
   `docs/features/landing-content-authoring.md`. Code-complete but

@@ -1,0 +1,175 @@
+{{/* /bus-rush page: canvas game shell (HUD, start/run-over overlays,
+     shop) + leaderboard, per docs/features/bus-rush.md. Defines
+     "bus-rush-content" and owns its <main id="main-content"> wrapper, same
+     as fishing-game.html (see resume.html's doc comment for why). No page
+     data is read — player state is localStorage, the leaderboard loads via
+     its own request. */}}
+{{define "bus-rush-content"}}
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<div class="space-y-6">
+		<section class="space-y-2">
+			<h1 class="text-2xl font-semibold text-ink">Bus Rush</h1>
+			<p class="text-muted">
+				Steer the bus through oncoming traffic and pick up fares along the way. The faster you drive, the
+				further you get — and the less time you have to dodge. Spend your fares at the depot on a bigger engine.
+			</p>
+		</section>
+
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
+			<div class="space-y-4">
+				<dl class="grid grid-cols-5 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Distance</dt>
+						<dd id="bus-rush-hud-distance" class="font-mono text-sm tabular-nums text-ink sm:text-base">0 m</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Speed</dt>
+						<dd id="bus-rush-hud-speed" class="font-mono text-sm tabular-nums text-ink sm:text-base">0</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Score</dt>
+						<dd id="bus-rush-hud-score" class="font-mono text-sm tabular-nums text-ink sm:text-base">0</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Lives</dt>
+						<dd id="bus-rush-hud-lives" class="font-mono text-sm tabular-nums text-ink sm:text-base">0</dd>
+					</div>
+					<div>
+						<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Fares</dt>
+						<dd id="bus-rush-hud-fares" class="font-mono text-sm tabular-nums text-ink sm:text-base">0</dd>
+					</div>
+				</dl>
+
+				<div class="relative mx-auto w-full max-w-[480px] overflow-hidden rounded-card border border-line bg-[#3b3b3b] shadow-sm">
+					<canvas
+						id="bus-rush-canvas"
+						width="480"
+						height="640"
+						class="block h-auto w-full touch-none"
+						role="img"
+						aria-label="Bus Rush play area"
+					>Your browser doesn't support the canvas element needed to play this game.</canvas>
+
+					<div id="bus-rush-start-screen" class="absolute inset-0 flex items-center justify-center p-4">
+						<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 text-center shadow-lg">
+							<h2 class="text-lg font-semibold text-ink">Ready to roll?</h2>
+							<dl class="space-y-1.5 text-sm">
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Tokens</dt>
+									<dd id="bus-rush-start-tokens" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Best score</dt>
+									<dd id="bus-rush-start-best-score" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Best distance</dt>
+									<dd id="bus-rush-start-best-distance" class="font-mono tabular-nums text-ink">0 m</dd>
+								</div>
+							</dl>
+							<p class="text-xs text-muted">← → change lane · ↑ ↓ speed up / brake</p>
+							<p id="bus-rush-storage-notice" class="hidden rounded-card border border-line bg-surface-2 px-3 py-2 text-xs text-muted">
+								Your progress won't be saved in this browser.
+							</p>
+							<div class="flex flex-col gap-2 pt-1">
+								<button type="button" id="bus-rush-start-button" class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Start Run</button>
+								<button type="button" id="bus-rush-start-shop-button" class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Depot Shop</button>
+							</div>
+						</div>
+					</div>
+
+					<div id="bus-rush-run-over-screen" class="hidden absolute inset-0 flex items-center justify-center overflow-y-auto p-4">
+						<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
+							<h2 id="bus-rush-run-over-title" class="text-center text-lg font-semibold text-ink">Run over</h2>
+							<dl class="space-y-1.5 text-sm">
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Distance</dt>
+									<dd id="bus-rush-run-over-distance" class="font-mono tabular-nums text-ink">0 m</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Fares collected</dt>
+									<dd id="bus-rush-run-over-fares" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Score</dt>
+									<dd id="bus-rush-run-over-score" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+								<div class="flex items-center justify-between">
+									<dt class="text-muted">Tokens earned</dt>
+									<dd id="bus-rush-run-over-tokens" class="font-mono tabular-nums text-ink">0</dd>
+								</div>
+							</dl>
+
+							<form
+								hx-post="/bus-rush/score"
+								hx-target="#bus-rush-leaderboard"
+								hx-swap="outerHTML"
+								hx-indicator="#bus-rush-leaderboard-loading"
+								class="space-y-2 border-t border-line pt-4"
+							>
+								<label for="bus-rush-name-input" class="block text-xs font-medium text-muted">
+									Submit to leaderboard (optional)
+								</label>
+								<div class="flex gap-2">
+									<input
+										type="text"
+										id="bus-rush-name-input"
+										name="player_name"
+										maxlength="20"
+										required
+										placeholder="Your name"
+										class="w-full min-w-0 rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>
+									<button
+										type="submit"
+										id="bus-rush-submit-button"
+										class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+									>Submit</button>
+								</div>
+								<input type="hidden" id="bus-rush-score-input" name="score" value="0">
+								<input type="hidden" id="bus-rush-distance-input" name="distance_meters" value="0">
+							</form>
+
+							<div class="flex gap-2 pt-1">
+								<button type="button" id="bus-rush-again-button" class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Drive Again</button>
+								<button type="button" id="bus-rush-run-over-shop-button" class="w-full rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Depot Shop</button>
+							</div>
+						</div>
+					</div>
+
+					{{template "bus-rush-shop" .}}
+				</div>
+
+				{{/* On-screen controls for touch devices. Real buttons, so
+				     they're keyboard-reachable too, though arrow keys/WASD
+				     work anywhere on the page during a run. ▲/▼ act while
+				     held (pointerdown → pointerup), ◀/▶ fire once per press. */}}
+				<div class="mx-auto grid w-full max-w-[480px] grid-cols-4 gap-2" aria-label="Driving controls">
+					<button type="button" data-bus-rush-control="left" class="rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary select-none touch-none" aria-label="Change lane left">◀</button>
+					<button type="button" data-bus-rush-control="faster" class="rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary select-none touch-none" aria-label="Speed up">▲</button>
+					<button type="button" data-bus-rush-control="slower" class="rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary select-none touch-none" aria-label="Brake">▼</button>
+					<button type="button" data-bus-rush-control="right" class="rounded-card border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary select-none touch-none" aria-label="Change lane right">▶</button>
+				</div>
+			</div>
+
+			<aside class="space-y-3">
+				<div class="flex items-center justify-between gap-2">
+					<h2 class="text-lg font-semibold text-ink">Leaderboard</h2>
+					<span id="bus-rush-leaderboard-loading" class="htmx-indicator text-xs text-muted">Loading…</span>
+				</div>
+				<div
+					id="bus-rush-leaderboard"
+					hx-get="/bus-rush/leaderboard"
+					hx-trigger="load"
+					hx-target="this"
+					hx-swap="outerHTML"
+					hx-indicator="#bus-rush-leaderboard-loading"
+				>
+					<p class="rounded-card border border-line bg-surface px-4 py-3 text-sm text-muted">Loading leaderboard…</p>
+				</div>
+			</aside>
+		</div>
+	</div>
+</main>
+<script type="module" src="/static/js/bus-rush.js"></script>
+{{end}}

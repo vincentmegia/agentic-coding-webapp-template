@@ -30,6 +30,11 @@ const PROJECTS = [
 		description: 'A two-floor library-shift sim — shelve returned books, process fines, and fulfill borrow requests across a 30-shift run, with a public leaderboard for the best runs.',
 		tags: ['Go', 'Canvas', 'PostgreSQL'],
 	},
+	{
+		title: 'Bus Rush',
+		description: 'A top-down arcade driving game — steer a bus through oncoming traffic, collect fares, and spend them at the depot on a faster engine, with a public leaderboard for the best runs.',
+		tags: ['Go', 'Canvas', 'PostgreSQL'],
+	},
 ];
 
 test('direct page load renders heading, subhead, and all project cards', async ({ page }) => {
