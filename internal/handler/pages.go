@@ -136,7 +136,10 @@ func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
 // mid-shift — a book pile on the Return Cart, three Front Desk patrons
 // (two fines, one borrow request) queued, and the Sanity/Mood bars — taken
 // via the game's own test hooks rather than waiting out real spawn timers.
-// Bus Rush (docs/features/bus-rush.md) is the fifth; it has no screenshot
+// Bus Stop Finder (docs/features/bus-stop-finder.md) is the fifth entry.
+// It's FullPageLoad: /bus-stops sets its own route-scoped CSP for Google
+// Maps, which only applies on a real document load, never an HTMX swap.
+// Bus Rush (docs/features/bus-rush.md) is the sixth; it has no screenshot
 // yet, so it renders the placeholder tile.
 var projectItems = []Project{
 	{
@@ -170,6 +173,15 @@ var projectItems = []Project{
 		TagTint:     "primary",
 		LiveURL:     "/library-game",
 		ImagePath:   "/static/images/library/screenshot.png",
+	},
+	{
+		Title:        "Bus Stop Finder",
+		Description:  "Find the Singapore bus stops around you on a map and see live arrival times for every bus, straight from LTA DataMall and refreshed every 20 seconds.",
+		Tags:         []string{"Go", "HTMX", "LTA DataMall"},
+		TagTint:      "accent",
+		LiveURL:      "/bus-stops",
+		ImagePath:    "/static/images/bus/screenshot.png",
+		FullPageLoad: true,
 	},
 	{
 		Title:       "Bus Rush",

@@ -46,13 +46,26 @@ touching that area rather than expecting this section to carry it:
 - **Library Shift** (`/library-game`, two-floor canvas library-shift sim —
   shelving/fines/borrow-request minigames, a scripted Karen event, Postgres
   leaderboard, `localStorage` progress) — `docs/features/library-game.md`.
+- **Bus Stop Finder** (`/bus-stops`: geolocation or a 6-digit postal code
+  (geocoded server-side via OneMap) → 5 nearest Singapore bus stops on a
+  Google Map + live LTA DataMall arrivals, live bus positions and a
+  per-bus "where this bus goes" route view, HTMX-polled every
+  20 s; nightly LTA sync into Postgres) — `docs/features/bus-stop-finder.md`.
+  The LTA key stays server-side; the page has its own nonce CSP only when
+  `GOOGLE_MAPS_API_KEY` is set, so it must be reached by a full page load
+  (its `/projects` card uses `FullPageLoad`, not an HTMX nav). Playwright
+  uses the fake LTA in `cmd/fakelta` via `make run-e2e`, which also puts
+  the bus tables in an isolated `bus_e2e` schema so the fake fixtures never
+  mix with real synced LTA data in the default schema (the sync's 50% guard
+  would refuse that swap anyway). Production needs `LTA_ACCOUNT_KEY` and a
+  referrer-restricted `GOOGLE_MAPS_API_KEY` provisioned.
 - **Bus Rush** (`/bus-rush`, top-down canvas driving game — dodge oncoming
   traffic, collect fares, buy Engine/Steering/Bumpers/Fare Box upgrades;
   Postgres leaderboard, `localStorage` progress) — `docs/features/bus-rush.md`.
   Rules/tuning live in `web/static/js/busrush/rules.js`; no screenshot yet,
   so its `/projects` card shows the placeholder tile.
 - **Projects** (`/projects` card grid: Fishing Game, Kitchen Shift, Puzzle
-  Solver, Library Shift, Bus Rush) — `docs/features/projects.md`.
+  Solver, Library Shift, Bus Stop Finder, Bus Rush) — `docs/features/projects.md`.
 - **Content Authoring** (`/settings/content`: edit the landing page's
   hero/carousel/Selected work without a redeploy, Postgres-backed) —
   `docs/features/landing-content-authoring.md`. Code-complete but

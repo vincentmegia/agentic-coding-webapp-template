@@ -31,6 +31,14 @@ const PROJECTS = [
 		tags: ['Go', 'Canvas', 'PostgreSQL'],
 	},
 	{
+		title: 'Bus Stop Finder',
+		description: 'Find the Singapore bus stops around you on a map and see live arrival times for every bus, straight from LTA DataMall and refreshed every 20 seconds.',
+		tags: ['Go', 'HTMX', 'LTA DataMall'],
+		// FullPageLoad: a plain "Open" link instead of the HTMX "Play now"
+		// (docs/features/bus-stop-finder.md — the route sets its own CSP).
+		fullPageLoad: true,
+	},
+	{
 		title: 'Bus Rush',
 		description: 'A top-down arcade driving game — steer a bus through oncoming traffic, collect fares, and spend them at the depot on a faster engine, with a public leaderboard for the best runs.',
 		tags: ['Go', 'Canvas', 'PostgreSQL'],
@@ -70,10 +78,10 @@ test('no "Live demo" link renders — no project sets External: true', async ({ 
 	await expect(page.getByRole('link', { name: 'Live demo' })).toHaveCount(0);
 });
 
-// Every project has a LiveURL (External: false, the default), so all of
-// them get projects.html's `{{else}}` "Play now" branch instead of "Live
-// demo".
-for (const project of PROJECTS) {
+// Every project has a LiveURL (External: false, the default), so all but the
+// FullPageLoad one (Bus Stop Finder, tested separately below) get
+// projects.html's "Play now" branch instead of "Live demo".
+for (const project of PROJECTS.filter((p) => !p.fullPageLoad)) {
 	test(`the ${project.title} card has a "Play now" link`, async ({ page }) => {
 		await page.goto('/projects');
 		const card = page.locator('.project-card').filter({ hasText: project.title });
@@ -81,6 +89,22 @@ for (const project of PROJECTS) {
 		await expect(card.getByRole('link', { name: 'Live demo' })).toHaveCount(0);
 	});
 }
+
+test('the Bus Stop Finder card opens /bus-stops with a full page load, not an HTMX swap', async ({ page }) => {
+	await page.goto('/projects');
+	const card = page.locator('.project-card').filter({ hasText: 'Bus Stop Finder' });
+	const open = card.getByRole('link', { name: 'Open' });
+	await expect(open).toBeVisible();
+	await expect(open).toHaveAttribute('href', '/bus-stops');
+	expect(await open.getAttribute('hx-get')).toBeNull();
+	await expect(card.getByRole('link', { name: 'Play now' })).toHaveCount(0);
+	// A marker on window survives an HTMX swap but not a real document load.
+	await page.evaluate(() => { window.__sameDocumentMarker = true; });
+	await open.click();
+	await expect(page).toHaveURL(/\/bus-stops$/);
+	await expect(page.getByRole('heading', { name: 'Bus Stop Finder', level: 1 })).toBeVisible();
+	expect(await page.evaluate(() => window.__sameDocumentMarker)).toBeUndefined();
+});
 
 test('marks the Projects link as aria-current when on this page', async ({ page }) => {
 	await page.goto('/projects');

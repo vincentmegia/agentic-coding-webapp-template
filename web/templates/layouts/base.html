@@ -29,9 +29,9 @@
 	     This meta tag is htmx's own documented, non-inline-script way to
 	     configure it — read before htmx.min.js runs since it must precede
 	     the script tag in document order. */}}
-	<meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+	<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false}'>
 	{{/* Self-hosted, not a CDN — see web/static/js/htmx.min.js. */}}
-	<script src="/static/js/htmx.min.js"></script>
+	<script src="/static/js/htmx.min.js"{{if .CSPNonce}} nonce="{{.CSPNonce}}"{{end}}></script>
 </head>
 {{/* overflow-x-hidden guards against the landing page's full-bleed
      background (landing.html's "landing-content", docs/features/
@@ -72,8 +72,8 @@
 
 	{{template "footer" .}}
 
-	<script src="/static/js/nav-menu.js"></script>
-	<script src="/static/js/mobile-nav-panel.js"></script>
+	<script src="/static/js/nav-menu.js"{{if .CSPNonce}} nonce="{{.CSPNonce}}"{{end}}></script>
+	<script src="/static/js/mobile-nav-panel.js"{{if .CSPNonce}} nonce="{{.CSPNonce}}"{{end}}></script>
 	{{/* header-scroll.js and theme-toggle.js are loaded on every page so
 	     their features don't need to touch base.html individually.
 	     theme-toggle.js (docs/features/dark-mode.md) is fully implemented —
@@ -82,8 +82,8 @@
 	     (docs/features/landing-page.md's TransparentOverHero scroll
 	     behavior) remains an intentionally empty placeholder — that part of
 	     landing-page.md is still unimplemented, per that doc's own Status. */}}
-	<script src="/static/js/header-scroll.js"></script>
-	<script src="/static/js/theme-toggle.js"></script>
+	<script src="/static/js/header-scroll.js"{{if .CSPNonce}} nonce="{{.CSPNonce}}"{{end}}></script>
+	<script src="/static/js/theme-toggle.js"{{if .CSPNonce}} nonce="{{.CSPNonce}}"{{end}}></script>
 	{{/* carousel.js only does anything on "/" (the only route rendering
 	     #carousel — docs/features/landing-carousel.md), but is loaded here
 	     unconditionally, same as header-scroll.js/theme-toggle.js above,
@@ -95,7 +95,7 @@
 	     cooking-game.html's own bootstrap scripts. Module scripts defer by
 	     default, which is still the same effective timing this already had
 	     at the end of body. */}}
-	<script type="module" src="/static/js/carousel.js"></script>
+	<script type="module" src="/static/js/carousel.js"{{if .CSPNonce}} nonce="{{.CSPNonce}}"{{end}}></script>
 </body>
 </html>
 {{end}}

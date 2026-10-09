@@ -1,0 +1,251 @@
+{{/* /bus-stops page: the Bus Stop Finder (docs/features/bus-stop-finder.md).
+     Visual design follows the "Bus Stop Finder" claude.ai design canvas
+     (desktop page + mobile flow), rebuilt with the site's Organic tokens.
+
+     Layout v2 ("map on top" on the canvas): a full-width map with the
+     search form floating on it, one-line notices under it, then the
+     results grid (stop list + selected stop's detail).
+
+     Defines "bus-stops-content", not "content", and supplies its own
+     <main id="main-content"> wrapper — same reasons as every other page
+     (see resume.html's doc comment).
+
+     This page is always reached with a full document load (projects.html's
+     FullPageLoad "Open" link): when a Google Maps key is configured,
+     BusStopsHandler.Index replaces the site CSP with a nonce-based policy
+     for this response only, and a CSP only applies to the document it
+     arrived with. .CSPNonce is empty without a key, and so is everything
+     nonce-related below.
+
+     State is driven by web/static/js/bus-stops.js, which only toggles the
+     `hidden` attribute and data-* state on elements rendered here — every
+     piece of copy lives in this template, never in JS. Initial state:
+     explainer visible, everything else hidden. Nothing is requested from
+     the browser (geolocation) or Google until the visitor acts. */}}
+{{define "bus-stops-content"}}
+<main id="main-content" class="mx-auto max-w-7xl px-4 py-6 sm:py-8">
+	<div
+		id="bus-stops-app"
+		class="flex flex-col gap-4"
+		data-maps-key="{{.BusStops.MapsAPIKey}}"
+		hx-history="false"
+	>
+		{{/* Title: compact, so the map sits near the top of the page
+		     (layout v2, "map on top" on the design canvas). */}}
+		<section class="flex flex-col gap-2">
+			<nav aria-label="Breadcrumb" class="flex flex-wrap gap-2 text-sm font-semibold">
+				<a href="/projects" class="rounded-full text-muted hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Projects</a>
+				<span class="text-muted" aria-hidden="true">/</span>
+				<span class="text-ink" aria-current="page">Bus Stop Finder</span>
+			</nav>
+			<div class="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+				<h1 class="text-4xl leading-none text-ink sm:text-5xl">Bus Stop Finder</h1>
+				<p class="text-base text-muted">Nearby stops and live arrivals from LTA DataMall, refreshed every 20 seconds.</p>
+			</div>
+		</section>
+
+		{{if .BusStops.MapsAPIKey}}
+		{{/* 1. Map: full width, on top. The search form floats on it. */}}
+		<section id="bus-map-panel" aria-label="Map" class="relative aspect-[4/5] w-full max-w-full overflow-hidden rounded-[1.75rem] bg-surface-2 shadow-md sm:aspect-[16/9] sm:rounded-[2.25rem] lg:aspect-[5/2]">
+			{{/* Illustrated placeholder shown until the real map loads
+			     (decorative only). */}}
+			<svg id="bus-map-placeholder" viewBox="0 0 800 640" preserveAspectRatio="xMidYMid slice" class="absolute inset-0 h-full w-full" aria-hidden="true">
+				<rect width="800" height="640" class="fill-surface-2" />
+				<g class="fill-line/60">
+					<rect x="30" y="20" width="160" height="120" rx="22" />
+					<rect x="220" y="24" width="150" height="96" rx="22" />
+					<rect x="590" y="215" width="120" height="110" rx="22" />
+					<rect x="620" y="390" width="160" height="110" rx="22" />
+					<rect x="40" y="350" width="140" height="130" rx="22" />
+					<rect x="250" y="170" width="120" height="90" rx="22" />
+				</g>
+				<path d="M470 20 C 560 0, 700 10, 760 60 C 800 100, 770 170, 700 170 C 640 170, 610 120, 540 120 C 480 120, 440 60, 470 20 Z" class="fill-accent/25" />
+				<g fill="none" stroke-linecap="round" class="stroke-paper">
+					<path d="M0 120 L800 300" stroke-width="12" />
+					<path d="M300 0 L470 640" stroke-width="12" />
+					<path d="M70 670 L750 -10" stroke-width="25" />
+					<path d="M260 660 L930 -10" stroke-width="25" />
+					<path d="M-20 228 L820 535" stroke-width="25" />
+				</g>
+			</svg>
+			{{/* Says what the placeholder is, so the drawing is never mistaken
+			     for a live map (it has no "you are here" dot). */}}
+			<p id="bus-map-placeholder-note" class="pointer-events-none absolute inset-x-6 top-[58%] mx-auto max-w-sm -translate-y-1/2 rounded-card bg-paper/95 px-5 py-4 text-center text-sm font-semibold text-ink shadow-md">The map appears once you share your location or search for a stop.</p>
+
+			<div id="bus-map" class="absolute inset-0" hidden></div>
+
+			<div class="absolute inset-x-3 top-3 sm:inset-x-auto sm:left-4 sm:top-4 sm:w-[34rem] sm:max-w-[calc(100%-6rem)]">
+				{{template "bus-search-form" "floating"}}
+			</div>
+
+			<span id="bus-map-chip" class="absolute bottom-4 left-4 rounded-full bg-paper px-4 py-2 text-sm font-bold text-ink shadow-md" hidden></span>
+			<p id="bus-map-error" class="absolute inset-x-4 bottom-4 rounded-card bg-paper px-4 py-3 text-sm text-ink shadow-md" role="status" hidden>The map couldn't load. Your nearby stops are still listed.</p>
+			<button
+				type="button"
+				id="bus-recenter"
+				data-bus-action="recenter"
+				aria-label="Recentre the map"
+				class="absolute bottom-4 right-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-ink text-paper shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+				hidden
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-5 w-5" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+			</button>
+		</section>
+		{{else}}
+		{{/* No Maps key: the search bar takes the map's place on top. */}}
+		<section aria-label="Search" class="rounded-[1.75rem] bg-surface p-3 sm:rounded-[2.25rem]">
+			{{template "bus-search-form" "standalone"}}
+		</section>
+		{{end}}
+
+		{{/* 2. One-line notices under the map. Default: the explainer. */}}
+		<div id="bus-explainer" class="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl bg-surface px-4 py-3">
+			<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent" aria-hidden="true">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-4 w-4"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+			</span>
+			<div class="min-w-[14rem] flex-1">
+				<h2 class="font-body text-base font-bold text-ink">Find the stops around you</h2>
+				<p class="text-sm text-muted">Share your location, or search by postal code, stop code or road. We don't store your location.</p>
+			</div>
+			<div class="flex flex-wrap gap-2">
+				<button
+					type="button"
+					data-bus-action="locate"
+					class="bus-locate-button inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 text-sm font-bold text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-70 dark:text-paper"
+				>
+					<span class="bus-locate-label" data-idle="Use my location" data-busy="Finding you…">Use my location</span>
+				</button>
+				<button
+					type="button"
+					data-bus-action="show-search"
+					class="inline-flex min-h-11 items-center rounded-full border-2 border-line px-4 text-sm font-bold text-ink hover:border-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+				>Search by postal code or stop code</button>
+			</div>
+		</div>
+
+		{{/* Denied / unavailable / timeout. bus-stops.js picks the
+		     heading from these data-* strings by error type. */}}
+		<div
+			id="bus-location-off"
+			class="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl bg-surface px-4 py-3"
+			data-title-denied="Location is turned off"
+			data-title-unavailable="We couldn't find your location"
+			data-title-timeout="Finding your location took too long"
+			data-title-unsupported="This browser can't share your location"
+			hidden
+		>
+			<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary" aria-hidden="true">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /><path d="M4 4l16 16" /></svg>
+			</span>
+			<div class="min-w-[14rem] flex-1">
+				<h2 id="bus-location-off-title" class="font-body text-base font-bold text-ink" tabindex="-1">Location is turned off</h2>
+				<p class="text-sm text-muted">Allow location for this site in your browser's settings and try again, or search on the map.</p>
+			</div>
+			<button
+				type="button"
+				data-bus-action="locate"
+				class="bus-locate-button inline-flex min-h-11 items-center rounded-full border-2 border-primary px-5 text-sm font-bold text-primary hover:bg-primary hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-70"
+			><span class="bus-locate-label" data-idle="Try again" data-busy="Finding you…">Try again</span></button>
+		</div>
+
+		<p id="bus-stop-loading" class="htmx-indicator px-3 text-sm text-muted" role="status">Finding stops…</p>
+
+		{{/* 3. Results: stop list + the selected stop's detail, below the map. */}}
+		<div id="bus-stop-results" aria-live="polite" aria-busy="false"></div>
+
+		{{/* About this project */}}
+		<section class="grid grid-cols-1 gap-3 md:grid-cols-3" aria-label="About this project">
+			<div class="flex flex-col gap-2 rounded-card bg-surface p-6">
+				<span class="flex h-11 w-11 items-center justify-center rounded-full bg-accent/20 text-accent" aria-hidden="true">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-5 w-5"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+				</span>
+				<h2 class="font-body text-lg font-bold text-ink">Your location, used once</h2>
+				<p class="text-sm leading-relaxed text-muted">It's rounded to about 100 m, used only to find the stops near you, and never stored.</p>
+			</div>
+			<div class="flex flex-col gap-2 rounded-card bg-surface p-6">
+				<span class="flex h-11 w-11 items-center justify-center rounded-full bg-primary/15 text-primary" aria-hidden="true">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></svg>
+				</span>
+				<h2 class="font-body text-lg font-bold text-ink">Live every 20 seconds</h2>
+				<p class="text-sm leading-relaxed text-muted">Arrival times are rounded down to the minute, the same way the boards at bus stops show them.</p>
+			</div>
+			<div class="flex flex-col gap-2.5 rounded-card bg-surface p-6">
+				<h2 class="font-body text-lg font-bold text-ink">Built with</h2>
+				<ul class="flex flex-wrap gap-2">
+					<li class="rounded-full bg-paper px-3 py-1.5 text-sm font-semibold text-ink">Go</li>
+					<li class="rounded-full bg-paper px-3 py-1.5 text-sm font-semibold text-ink">HTMX</li>
+					<li class="rounded-full bg-paper px-3 py-1.5 text-sm font-semibold text-ink">PostgreSQL</li>
+					<li class="rounded-full bg-paper px-3 py-1.5 text-sm font-semibold text-ink">LTA DataMall</li>
+					<li class="rounded-full bg-paper px-3 py-1.5 text-sm font-semibold text-ink">Google Maps</li>
+				</ul>
+				<p class="text-xs text-muted">Bus data from LTA DataMall.</p>
+			</div>
+		</section>
+	</div>
+
+	{{/* Loading skeleton cloned into a card's arrivals slot while its
+	     first request is in flight. */}}
+	<template id="bus-arrivals-skeleton">
+		<div class="bus-arrivals-skeleton flex flex-col gap-1.5 px-2.5 pb-3" aria-busy="true">
+			<p class="sr-only" role="status">Loading arrival times…</p>
+			<div class="h-14 animate-pulse rounded-2xl bg-paper"></div>
+			<div class="h-14 animate-pulse rounded-2xl bg-paper"></div>
+			<div class="h-14 animate-pulse rounded-2xl bg-paper"></div>
+		</div>
+	</template>
+
+	{{if .CSPNonce}}
+	{{/* Google's Maps CSP guide: the API copies the nonce from the first
+	     nonce-bearing <style> (and <script>) onto the elements it injects. */}}
+	<style nonce="{{.CSPNonce}}"></style>
+	{{end}}
+	<script type="module" src="/static/js/bus-stops.js"{{if .CSPNonce}} nonce="{{.CSPNonce}}"{{end}}></script>
+</main>
+{{end}}
+
+{{/* "bus-search-form": one form, rendered floating on the map (with a
+     Maps key) or as the top bar (without). Dot is "floating" or
+     "standalone". A real GET form so it also works as a plain link
+     target; HTMX swaps results in place. The locate button carries
+     .bus-locate-button so setLocating() disables it while finding you. */}}
+{{define "bus-search-form"}}
+<form
+	id="bus-search"
+	action="/bus-stops/search"
+	method="get"
+	class="flex items-center gap-1.5 rounded-full bg-paper p-1.5 {{if eq . "floating"}}shadow-lg{{end}}"
+	hx-get="/bus-stops/search"
+	hx-target="#bus-stop-results"
+	hx-swap="innerHTML"
+	hx-indicator="#bus-stop-loading"
+>
+	<label for="bus-search-input" class="sr-only">Find stops by postal code, stop code or road</label>
+	<span class="flex min-w-0 flex-1 items-center gap-2 pl-3 text-muted">
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-4 w-4 shrink-0" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+		<input
+			id="bus-search-input"
+			type="search"
+			name="q"
+			required
+			minlength="2"
+			maxlength="40"
+			autocomplete="off"
+			placeholder="Postal code, stop code or road"
+			class="min-h-11 min-w-0 flex-1 bg-transparent text-base font-semibold text-ink placeholder:font-normal placeholder:text-muted focus-visible:outline-none"
+		>
+	</span>
+	<button
+		type="submit"
+		class="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-ink px-4 text-sm font-bold text-paper hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:px-5"
+	>Search</button>
+	<button
+		type="button"
+		data-bus-action="locate"
+		title="Use my location"
+		class="bus-locate-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-70 dark:text-paper"
+	>
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-5 w-5" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+		<span class="bus-locate-label sr-only" data-idle="Locate me" data-busy="Finding you…">Locate me</span>
+	</button>
+</form>
+{{end}}

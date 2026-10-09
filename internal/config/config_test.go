@@ -374,3 +374,108 @@ func TestLoad_TrustProxyHeadersInvalidValueFailsFast(t *testing.T) {
 		t.Error("Load() accepted TRUST_PROXY_HEADERS=yes-please; want an error for a non-boolean value")
 	}
 }
+
+// TestLoad_LTABaseURL covers docs/features/bus-stop-finder.md's rule that
+// the LTA AccountKey only travels over TLS, except to the local fake.
+func TestLoad_LTABaseURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   string // "" = unset
+		want    string
+		wantErr bool
+	}{
+		{name: "default", value: "", want: defaultLTABaseURL},
+		{name: "https origin", value: "https://example.test", want: "https://example.test"},
+		{name: "localhost fake", value: "http://localhost:8099", want: "http://localhost:8099"},
+		{name: "loopback fake", value: "http://127.0.0.1:8099", want: "http://127.0.0.1:8099"},
+		{name: "plain http elsewhere", value: "http://datamall2.mytransport.sg", wantErr: true},
+		{name: "other scheme", value: "ftp://example.test", wantErr: true},
+		{name: "path not allowed", value: "https://example.test/ltaodataservice", wantErr: true},
+		{name: "credentials not allowed", value: "https://user:pw@example.test", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			kv := map[string]string{
+				"ENV_FILE":     filepath.Join(t.TempDir(), "does-not-exist.env"),
+				"CONFIG_FILE":  filepath.Join(t.TempDir(), "does-not-exist.yaml"),
+				"DATABASE_URL": "postgres://localhost/test",
+			}
+			if tc.value != "" {
+				kv["LTA_BASE_URL"] = tc.value
+			}
+			withEnv(t, kv)
+			if tc.value == "" {
+				os.Unsetenv("LTA_BASE_URL")
+			}
+
+			cfg, err := Load()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Load() accepted LTA_BASE_URL %q", tc.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load(): %v", err)
+			}
+			if cfg.LTABaseURL != tc.want {
+				t.Errorf("LTABaseURL = %q, want %q", cfg.LTABaseURL, tc.want)
+			}
+		})
+	}
+}
+
+// TestLoad_BusStopKeysAreOptional: neither key is required to start — the
+// page degrades to list-only / arrivals-unavailable instead.
+func TestLoad_BusStopKeysAreOptional(t *testing.T) {
+	withEnv(t, map[string]string{
+		"ENV_FILE":     filepath.Join(t.TempDir(), "does-not-exist.env"),
+		"CONFIG_FILE":  filepath.Join(t.TempDir(), "does-not-exist.yaml"),
+		"DATABASE_URL": "postgres://localhost/test",
+	})
+	os.Unsetenv("LTA_ACCOUNT_KEY")
+	os.Unsetenv("GOOGLE_MAPS_API_KEY")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() without bus stop keys: %v", err)
+	}
+	if cfg.LTAAccountKey != "" || cfg.GoogleMapsAPIKey != "" {
+		t.Errorf("keys = %q/%q, want both empty", cfg.LTAAccountKey, cfg.GoogleMapsAPIKey)
+	}
+}
+
+// TestLoad_LTAAccountKeyHasNoFileEquivalent guards the secrets rule.
+func TestLoad_LTAAccountKeyHasNoFileEquivalent(t *testing.T) {
+	path := writeConfigFile(t, "lta_account_key: \"from-file\"\n")
+	withEnv(t, map[string]string{
+		"ENV_FILE":     filepath.Join(t.TempDir(), "does-not-exist.env"),
+		"CONFIG_FILE":  path,
+		"DATABASE_URL": "postgres://localhost/test",
+	})
+	if _, err := Load(); err == nil {
+		t.Error("Load() accepted lta_account_key from config.yaml")
+	}
+}
+
+func TestLoad_OneMapBaseURL(t *testing.T) {
+	base := map[string]string{
+		"ENV_FILE":     filepath.Join(t.TempDir(), "does-not-exist.env"),
+		"CONFIG_FILE":  filepath.Join(t.TempDir(), "does-not-exist.yaml"),
+		"DATABASE_URL": "postgres://localhost/test",
+	}
+	withEnv(t, base)
+	os.Unsetenv("ONEMAP_BASE_URL")
+	cfg, err := Load()
+	if err != nil || cfg.OneMapBaseURL != defaultOneMapBaseURL {
+		t.Fatalf("default: %q, %v", cfg.OneMapBaseURL, err)
+	}
+	withEnv(t, map[string]string{"ONEMAP_BASE_URL": "http://127.0.0.1:8099"})
+	if cfg, err := Load(); err != nil || cfg.OneMapBaseURL != "http://127.0.0.1:8099" {
+		t.Fatalf("localhost fake: %q, %v", cfg.OneMapBaseURL, err)
+	}
+	withEnv(t, map[string]string{"ONEMAP_BASE_URL": "http://www.onemap.gov.sg"})
+	if _, err := Load(); err == nil {
+		t.Fatal("accepted plain-http ONEMAP_BASE_URL")
+	}
+}

@@ -142,6 +142,18 @@ type PageData struct {
 	// by ResumeAdminHandler.Index. Zero-value for every other route. See
 	// docs/features/resume-content-authoring.md.
 	ResumeAdmin service.ResumeAdminView
+
+	// BusStops backs web/templates/pages/bus-stops.html (GET /bus-stops),
+	// set only by BusStopsHandler.Index. See
+	// docs/features/bus-stop-finder.md.
+	BusStops *BusStopsPageData
+
+	// CSPNonce is set only when a route replaces the site-wide CSP with a
+	// nonce-based one (today: GET /bus-stops with a Google Maps key —
+	// BusStopsHandler.Index). base.html then puts it on every <script> it
+	// emits, since that policy's 'strict-dynamic' ignores 'self'. Empty on
+	// every other route, where the strict site CSP still applies.
+	CSPNonce string
 }
 
 // Project is one card in the /projects grid. Card markup/styling (image
@@ -172,6 +184,12 @@ type Project struct {
 	LiveURL     string // optional, "" if none
 	External    bool   // true if LiveURL is off-site; false means an internal route
 	ImagePath   string // optional, "" renders a placeholder tile
+	// FullPageLoad renders an internal LiveURL as a plain same-tab link
+	// ("Open") with no hx-* swap — for a route that sets its own
+	// Content-Security-Policy (Bus Stop Finder), which only takes effect
+	// on a real document load. See docs/features/bus-stop-finder.md's
+	// User Flow.
+	FullPageLoad bool
 }
 
 // model.SelectedWorkItem (Postgres-backed, docs/features/
@@ -262,6 +280,9 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "pages", "puzzle-solver.html"),
 		filepath.Join(templatesDir, "components", "library-leaderboard.html"),
 		filepath.Join(templatesDir, "pages", "library-game.html"),
+		filepath.Join(templatesDir, "components", "bus-stop-list.html"),
+		filepath.Join(templatesDir, "components", "bus-arrivals.html"),
+		filepath.Join(templatesDir, "pages", "bus-stops.html"),
 		filepath.Join(templatesDir, "components", "bus-rush-leaderboard.html"),
 		filepath.Join(templatesDir, "components", "bus-rush-shop.html"),
 		filepath.Join(templatesDir, "pages", "bus-rush.html"),

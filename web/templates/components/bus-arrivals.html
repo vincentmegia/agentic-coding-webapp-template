@@ -1,0 +1,140 @@
+{{/* "bus-arrivals": one stop's expanded arrival rows, GET
+     /bus-stops/{code}/arrivals (docs/features/bus-stop-finder.md). Dot is
+     handler.BusArrivalsView.
+
+     The root carries its own id (#bus-arrivals-{code}) and, while .Poll,
+     its own hx-get/hx-trigger="every 20s"/hx-swap="outerHTML", so each
+     response re-arms the next refresh. Collapsing a card replaces this
+     element with an empty slot (bus-stops.js), which removes it from the
+     document and ends the polling. Invalid/not-found responses don't poll.
+
+     Crowding is shown as a 3-segment bar (1 seats, 2 standing, 3 limited)
+     with an aria-label naming the level, so it never relies on colour
+     alone. Timetable estimates (Monitored=0) are italic with a "~". */}}
+{{define "bus-arrivals"}}
+<div
+	id="bus-arrivals-{{.Code}}"
+	class="bus-arrivals flex flex-col gap-1.5 px-2.5 pb-3"
+	data-state="{{.State}}"
+	aria-live="off"
+	{{if .Poll}}hx-get="/bus-stops/{{.Code}}/arrivals" hx-trigger="every 20s" hx-swap="outerHTML"{{end}}
+>
+	{{if eq .State "live"}}
+	<div class="flex flex-wrap items-center justify-between gap-2 px-2.5 pt-0.5 text-xs text-muted">
+		<span class="inline-flex items-center gap-1.5 font-semibold">
+			<span class="bus-blink h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true"></span>
+			<span class="bus-updated">Updated {{.UpdatedAgo}}</span>
+		</span>
+		<span>Refreshes every 20 s</span>
+	</div>
+	{{if .Stale}}
+	<p class="bus-stale rounded-2xl bg-primary/10 px-3 py-2 text-xs font-semibold text-ink">Showing data from {{.UpdatedAgo}}; live times unavailable.</p>
+	{{end}}
+
+	{{if .Services}}
+	<div class="hidden grid-cols-[3.5rem_minmax(0,1fr)_auto] gap-2 px-2.5 sm:grid text-[11px] font-bold uppercase tracking-wider text-muted" aria-hidden="true">
+		<span>Bus</span><span>To</span><span class="w-[11.5rem] text-center">Next three</span>
+	</div>
+	<ul class="flex flex-col gap-1.5" aria-label="Bus services at this stop">
+		{{range .Services}}
+		<li class="bus-service-row grid grid-cols-[3.5rem_minmax(0,1fr)] items-center sm:grid-cols-[3.5rem_minmax(0,1fr)_auto] gap-2 rounded-2xl bg-surface px-2.5 py-2.5" data-service="{{.ServiceNo}}">
+			<span class="w-14 rounded-xl bg-ink py-1.5 text-center text-base font-extrabold text-paper tabular-nums"><span class="sr-only">Bus </span>{{.ServiceNo}}</span>
+			<span class="flex min-w-0 flex-col gap-0.5">
+				<span class="truncate text-sm font-semibold text-ink">{{if .Destination}}<span class="sr-only">to </span>{{.Destination}}{{else}}<span class="font-normal text-muted">Destination not listed</span>{{end}}</span>
+				{{if .Hours}}<span class="bus-hours text-xs text-muted tabular-nums">{{.Hours}}</span>{{end}}
+				<button type="button" class="bus-route-toggle mt-0.5 inline-flex min-h-7 w-fit items-center gap-1 rounded-full border border-line px-2.5 text-xs font-bold text-ink hover:border-primary hover:text-primary aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" data-bus-action="route" data-service="{{.ServiceNo}}" aria-pressed="false">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true"><circle cx="6" cy="19" r="2" /><circle cx="18" cy="5" r="2" /><path d="M8 19h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7" /></svg>
+					Route<span class="sr-only"> of bus {{.ServiceNo}}</span>
+				</button>
+				{{if .Wheelchair}}
+				<span class="flex items-center gap-1.5 text-xs text-muted">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true"><circle cx="12" cy="4" r="2" /><path d="M12 7v6h5l2 5" /><path d="M8.5 10a6 6 0 1 0 7.5 8" /></svg>
+					Wheelchair accessible
+				</span>
+				{{end}}
+			</span>
+			{{if .Buses}}
+			<span class="col-start-2 grid w-[11.5rem] grid-cols-3 gap-1 sm:col-start-auto">
+				{{range .Buses}}
+				{{$fill := "bg-load-empty"}}
+				{{if eq .Segments 1}}{{$fill = "bg-load-seats"}}{{else if eq .Segments 2}}{{$fill = "bg-load-standing"}}{{else if eq .Segments 3}}{{$fill = "bg-load-limited"}}{{end}}
+				<span class="bus-time flex flex-col items-center gap-1" data-arriving="{{.Arriving}}" data-scheduled="{{.Scheduled}}"{{if .Lat}} data-lat="{{.Lat}}" data-lng="{{.Lng}}" data-label="{{.Label}}"{{end}}>
+					<span class="flex items-baseline gap-0.5 leading-none tabular-nums {{if .Arriving}}bus-blink text-primary{{else if .Scheduled}}italic text-muted{{else}}text-ink{{end}}">
+						<span class="bus-time-label text-[19px] font-extrabold">{{if and .Scheduled (not .Arriving)}}~{{end}}{{.Label}}</span>{{if not .Arriving}}<span class="text-[11px] font-semibold">min</span>{{end}}
+					</span>
+					<span class="bus-load flex gap-0.5" role="img" aria-label="{{.LoadLabel}}">
+						<span class="h-1 w-2.5 rounded-sm {{if ge .Segments 1}}{{$fill}}{{else}}bg-load-empty{{end}}"></span>
+						<span class="h-1 w-2.5 rounded-sm {{if ge .Segments 2}}{{$fill}}{{else}}bg-load-empty{{end}}"></span>
+						<span class="h-1 w-2.5 rounded-sm {{if ge .Segments 3}}{{$fill}}{{else}}bg-load-empty{{end}}"></span>
+					</span>
+					{{if .Deck}}
+					{{/* Per-bus vehicle type: the shapes differ (one window row,
+					     two rows, two linked carriages) so they're told apart
+					     without reading the word. */}}
+					<span class="bus-deck flex items-center gap-1 text-[10px] font-semibold leading-none text-muted" data-deck="{{.Deck}}">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3.5 shrink-0" role="img" aria-label="{{.DeckLabel}}">
+							{{if eq .Deck "DD"}}<rect x="3" y="1.5" width="18" height="14.5" rx="2" /><path d="M6 5.5h12M6 10h12" />
+							{{else if eq .Deck "BD"}}<rect x="1" y="7" width="10" height="9" rx="1.8" /><rect x="13" y="7" width="10" height="9" rx="1.8" /><path d="M11 11.5h2M3.5 10h5M15.5 10h5" />
+							{{else}}<rect x="2" y="7" width="20" height="9" rx="2" /><path d="M5 10h14" />{{end}}
+							<circle cx="7" cy="18" r="1.4" /><circle cx="17" cy="18" r="1.4" />
+						</svg>
+						<span aria-hidden="true">{{.DeckShort}}</span>
+					</span>
+					{{end}}
+				</span>
+				{{end}}
+			</span>
+			{{else}}
+			<span class="bus-status col-start-2 w-[11.5rem] sm:col-start-auto rounded-full bg-paper px-2 py-1.5 text-center text-xs font-semibold leading-tight text-muted">{{.Status}}{{if .ShowFirstBus}}<br>First bus {{.FirstBus}}{{end}}</span>
+			{{end}}
+		</li>
+		{{end}}
+	</ul>
+	<div class="flex flex-wrap gap-x-4 gap-y-1.5 px-2.5 pt-2 text-xs text-muted" aria-hidden="true">
+		<span class="inline-flex items-center gap-1.5"><span class="flex gap-0.5"><span class="h-1 w-2.5 rounded-sm bg-load-seats"></span><span class="h-1 w-2.5 rounded-sm bg-load-empty"></span><span class="h-1 w-2.5 rounded-sm bg-load-empty"></span></span>Seats</span>
+		<span class="inline-flex items-center gap-1.5"><span class="flex gap-0.5"><span class="h-1 w-2.5 rounded-sm bg-load-standing"></span><span class="h-1 w-2.5 rounded-sm bg-load-standing"></span><span class="h-1 w-2.5 rounded-sm bg-load-empty"></span></span>Standing</span>
+		<span class="inline-flex items-center gap-1.5"><span class="flex gap-0.5"><span class="h-1 w-2.5 rounded-sm bg-load-limited"></span><span class="h-1 w-2.5 rounded-sm bg-load-limited"></span><span class="h-1 w-2.5 rounded-sm bg-load-limited"></span></span>Limited</span>
+		<span><i>~ italic</i> = timetable estimate</span>
+	</div>
+	{{else}}
+	<p class="rounded-2xl bg-surface px-4 py-3 text-sm text-ink">No bus services are listed for this stop.</p>
+	{{end}}
+	{{else}}
+	<p class="bus-arrivals-message rounded-2xl bg-surface px-4 py-3 text-sm text-ink">{{.Message}}</p>
+	{{end}}
+</div>
+{{end}}
+
+{{/* "bus-route": where one bus goes from this stop (Route handler, dot is
+     handler.BusRouteView). Onward stops are the visible list; approach
+     stops are data only, for drawing where the bus is coming from on the
+     map. data-lat/lng are empty for a stop LTA lists without coordinates. */}}
+{{define "bus-route"}}
+<section class="bus-route flex flex-col gap-3 rounded-2xl bg-surface px-4 py-4" data-code="{{.Code}}" data-service="{{.ServiceNo}}" aria-label="Route of bus {{.ServiceNo}}">
+	<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+		<h3 class="text-base font-extrabold text-ink">Bus {{.ServiceNo}} from {{.Boarding.Name}}</h3>
+		{{if .Count}}<span class="text-sm text-muted">{{.Count}} {{if eq .Count 1}}stop{{else}}stops{{end}} · {{.TotalKm}} to {{.Terminus}}</span>{{end}}
+	</div>
+	{{if not .Count}}
+	<p class="bus-route-ends text-sm text-ink">{{.Boarding.Name}} is the last stop for bus {{.ServiceNo}} in this direction.</p>
+	{{end}}
+	<ul class="bus-route-approach" hidden>
+		{{range .Approach}}<li data-code="{{.Code}}" data-lat="{{.Lat}}" data-lng="{{.Lng}}" data-name="{{.Name}}"></li>{{end}}
+	</ul>
+	<ol class="bus-route-stops flex flex-col">
+		<li class="grid grid-cols-[1.25rem_1fr_auto] items-center gap-2.5 py-1.5" data-code="{{.Boarding.Code}}" data-lat="{{.Boarding.Lat}}" data-lng="{{.Boarding.Lng}}" data-name="{{.Boarding.Name}}" data-boarding="true">
+			<span class="h-3.5 w-3.5 justify-self-center rounded-full bg-primary ring-4 ring-paper" aria-hidden="true"></span>
+			<span class="text-sm font-bold text-ink">{{.Boarding.Name}} <span class="font-semibold text-muted">· you board here</span></span>
+			<span class="text-xs text-muted tabular-nums">0 km</span>
+		</li>
+		{{range .Onward}}
+		<li class="grid grid-cols-[1.25rem_1fr_auto] items-center gap-2.5 border-t border-dashed border-line py-1.5" data-code="{{.Code}}" data-lat="{{.Lat}}" data-lng="{{.Lng}}" data-name="{{.Name}}">
+			<span class="h-2.5 w-2.5 justify-self-center rounded-full border-[3px] border-primary bg-paper" aria-hidden="true"></span>
+			<span class="text-sm text-ink {{if .Last}}font-extrabold{{else}}font-semibold{{end}}">{{.Name}}{{if .Last}} <span class="font-semibold text-muted">· terminus</span>{{end}}</span>
+			<span class="text-xs text-muted tabular-nums">{{.Km}}</span>
+		</li>
+		{{end}}
+	</ol>
+	{{if .Count}}<p class="text-xs text-muted">Distances along the route, from LTA's route data.</p>{{end}}
+</section>
+{{end}}

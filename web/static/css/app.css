@@ -464,3 +464,52 @@ h1, h2, h3, h4, h5, h6 {
 #library-game-container:fullscreen #library-canvas {
 	object-fit: contain;
 }
+
+/* ==========================================================================
+   Bus Stop Finder (docs/features/bus-stop-finder.md)
+   ==========================================================================
+   Crowding colours for the arrival rows' 3-segment load bar. LTA's own
+   advisement suggests green/amber/red; these are warm, Organic-compatible
+   versions that also differ in lightness (sage-green mid, mustard light,
+   rust dark), and the bar's segment count (1/2/3) plus its aria-label
+   carry the meaning too, so colour is never the only signal. Declared as
+   their own @theme block so templates get bg-load-* utilities like every
+   other token, and redefined for dark mode the same way the core palette
+   is above. */
+@theme {
+	--color-load-seats: #6f8a4e;
+	--color-load-standing: #d9a23a;
+	--color-load-limited: #b4472c;
+	--color-load-empty: #dccdb1;
+}
+:root {
+	@variant dark {
+		--color-load-seats: #9fb878;
+		--color-load-standing: #f0c060;
+		--color-load-limited: #f08a6a;
+		--color-load-empty: #5a5348;
+	}
+}
+
+/* "You are here" pulse on the map placeholder and location status dot,
+   and the blinking "Arr" label — same treatment as the design mockup.
+   Both stop under prefers-reduced-motion. */
+@keyframes bus-pulse {
+	0% { transform: scale(0.6); opacity: 0.55; }
+	100% { transform: scale(2.6); opacity: 0; }
+}
+@keyframes bus-blink {
+	50% { opacity: 0.35; }
+}
+.bus-pulse {
+	animation: bus-pulse 2.2s ease-out infinite;
+}
+.bus-blink {
+	animation: bus-blink 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.bus-pulse,
+	.bus-blink {
+		animation: none;
+	}
+}

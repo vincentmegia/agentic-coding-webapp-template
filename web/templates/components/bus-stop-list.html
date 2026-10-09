@@ -1,0 +1,121 @@
+{{/* "bus-stop-list": the results for GET /bus-stops/nearby and
+     GET /bus-stops/search (docs/features/bus-stop-finder.md). Dot is
+     handler.BusStopListView. Swapped into #bus-stop-results (innerHTML).
+
+     Layout v2 ("map on top"): a grid with the heading across the top, the
+     stop list on the left (lg) and the selected stop's detail panel on the
+     right. On narrower screens the detail comes first (it's earlier in the
+     DOM) and the selected card hides from the list, so the open stop isn't
+     shown twice; the detail's close button collapses it there.
+
+     DOM contract with web/static/js/bus-stops.js: each card is
+     li.bus-stop-card with data-code/-lat/-lng/-name/-road/-distance/-rank;
+     the JS reads stop data only from these attributes. Each stop's detail
+     panel is section#bus-detail-{code} holding the arrivals slot
+     #bus-arrivals-{code} (expanding swaps the "bus-arrivals" fragment in,
+     outerHTML; collapsing replaces it with an empty slot, which stops its
+     polling) and the route slot #bus-route-{code}.
+
+     Selection styling hangs off data-selected on the card (set by JS), via
+     Tailwind's data-[selected=true]: / group-data-[selected=true]:
+     variants, so no class strings live in JS. */}}
+{{define "bus-stop-list"}}
+<div class="bus-stop-list grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-start" data-bus-state="{{if .Stops}}results{{else}}empty{{end}}" data-mode="{{.Mode}}" data-count="{{len .Stops}}"{{if .PlaceLat}} data-place-lat="{{.PlaceLat}}" data-place-lng="{{.PlaceLng}}" data-place="{{.Place}}" data-postal="{{.Query}}"{{end}}>
+	<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-2 lg:col-span-2">
+		<h2 class="text-2xl text-ink">{{if eq .Mode "nearby"}}Nearby stops{{else if eq .Mode "postal"}}Stops near {{.Place}}{{else}}Search results{{end}}</h2>
+		{{if .Stops}}
+		<span class="text-sm text-muted">{{if eq .Mode "nearby"}}{{len .Stops}} within 500 m{{else if eq .Mode "postal"}}{{len .Stops}} within 500 m of {{.Query}}{{else}}{{len .Stops}} for “{{.Query}}”{{end}}</span>
+		{{end}}
+	</div>
+
+	{{if .Stops}}
+	<div id="bus-stop-detail" class="min-w-0 lg:col-start-2 lg:row-start-2">
+		{{range .Stops}}
+		<section id="bus-detail-{{.Code}}" class="bus-stop-detail flex flex-col gap-2 rounded-card border-2 border-primary bg-paper p-2 shadow-lg sm:p-3" data-code="{{.Code}}" aria-label="Arrivals at {{.Name}}" hidden>
+			<div class="flex items-start gap-3 px-2 pt-2">
+				<span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-[15px] font-extrabold text-white dark:text-paper" aria-hidden="true">{{.Rank}}</span>
+				<div class="flex min-w-0 flex-1 flex-col gap-1">
+					<h3 class="font-body text-xl font-bold leading-tight text-ink">{{.Name}}</h3>
+					<span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
+						<span class="rounded-md bg-surface-2 px-1.5 py-px text-ink tabular-nums"><span class="font-semibold text-muted">Stop</span> <span class="font-bold tracking-wide">{{.Code}}</span></span>
+						<span>{{.Road}}{{if .HasDistance}} · {{.DistanceMeters}} m · {{.WalkMinutes}} min walk{{end}}</span>
+					</span>
+				</div>
+				<button
+					type="button"
+					class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+					data-bus-action="toggle"
+					data-code="{{.Code}}"
+					aria-label="Close {{.Name}}"
+				><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-5 w-5" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+			</div>
+			<div id="bus-arrivals-{{.Code}}" class="bus-arrivals-slot" hidden></div>
+			{{/* Route slot: a sibling of the arrivals slot, not inside it, so
+			     the 20 s arrivals poll (outerHTML swap) never wipes an open
+			     route. Filled by bus-stops.js from /bus-stops/{code}/route/{svc}. */}}
+			<div id="bus-route-{{.Code}}" class="bus-route-slot px-1 pb-1 empty:hidden" aria-live="polite"></div>
+		</section>
+		{{end}}
+	</div>
+
+	<ul id="bus-stop-list" class="flex flex-col gap-2 lg:col-start-1 lg:row-start-2">
+		{{range .Stops}}
+		<li
+			class="bus-stop-card group rounded-2xl border-2 border-transparent bg-paper/60 transition-colors duration-150 max-lg:data-[selected=true]:hidden data-[selected=true]:border-primary data-[selected=true]:bg-paper"
+			data-code="{{.Code}}"
+			data-lat="{{.Lat}}"
+			data-lng="{{.Lng}}"
+			data-name="{{.Name}}"
+			data-road="{{.Road}}"
+			data-distance="{{if .HasDistance}}{{.DistanceMeters}}{{end}}"
+			data-rank="{{.Rank}}"
+			data-selected="false"
+		>
+			<button
+				type="button"
+				class="bus-stop-toggle flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 py-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
+				data-bus-action="toggle"
+				aria-expanded="false"
+				aria-controls="bus-detail-{{.Code}}"
+			>
+				<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-sm font-extrabold text-ink group-data-[selected=true]:bg-primary group-data-[selected=true]:text-white dark:group-data-[selected=true]:text-paper" aria-hidden="true">{{.Rank}}</span>
+				<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+					<span class="truncate text-[15px] font-bold leading-tight text-ink">{{.Name}}</span>
+					<span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted">
+						<span class="rounded-md bg-surface-2 px-1.5 py-px text-ink tabular-nums"><span class="font-semibold text-muted">Stop</span> <span class="font-bold tracking-wide">{{.Code}}</span></span>
+						<span>{{.Road}}{{if .HasDistance}} · {{.DistanceMeters}} m{{end}}</span>
+					</span>
+				</span>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 shrink-0 text-muted transition-transform duration-150 lg:-rotate-90 lg:group-data-[selected=true]:rotate-0" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+			</button>
+		</li>
+		{{end}}
+	</ul>
+	{{else}}
+	<div class="rounded-card bg-paper px-5 py-5 lg:col-span-2">
+		{{if eq .Mode "postal"}}
+		<p class="font-bold text-ink">No bus stops within 500 m of {{.Place}}</p>
+		<p class="mt-1 text-sm text-muted">Try a nearby road name or a stop code instead.</p>
+		{{else if eq .Mode "nearby"}}
+		<p class="font-bold text-ink">No bus stops within 500 m</p>
+		<p class="mt-1 text-sm text-muted">Try searching by stop code or road name instead.</p>
+		{{else}}
+		<p class="font-bold text-ink">No stops match “{{.Query}}”</p>
+		<p class="mt-1 text-sm text-muted">Check the stop code (5 digits, on the bus stop pole) or postal code (6 digits), or try a road name.</p>
+		{{end}}
+	</div>
+	{{end}}
+</div>
+{{end}}
+
+{{/* "bus-stop-message": validation/rate-limit/error responses on the two
+     list routes. Dot is handler.BusMessageView. data-bus-state lets
+     bus-stops.js react (e.g. reveal the search box for "outside-sg"); the
+     copy itself is fixed in handler/bus_stops.go, never upstream error
+     text. */}}
+{{define "bus-stop-message"}}
+<div class="bus-stop-message rounded-card bg-paper px-5 py-4" data-bus-state="{{.State}}" role="alert">
+	{{if .Title}}<p class="font-bold text-ink">{{.Title}}</p>{{end}}
+	<p class="text-sm text-ink">{{.Message}}</p>
+</div>
+{{end}}

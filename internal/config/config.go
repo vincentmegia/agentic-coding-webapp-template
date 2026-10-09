@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 
@@ -71,7 +72,38 @@ type Config struct {
 	// rule. A value that IS set but too short fails startup — see
 	// landingAPITokenMinLen.
 	LandingAPIToken string
+	// LTAAccountKey is the LTA DataMall API key the Bus Stop Finder sends
+	// as the AccountKey header on server-to-LTA requests
+	// (docs/features/bus-stop-finder.md's Security Considerations). A
+	// secret: real environment variable or .env only, never config.yaml.
+	// Optional — when empty the nightly sync is disabled and live arrivals
+	// show an "unavailable" message, but the page itself still renders.
+	LTAAccountKey string
+	// LTABaseURL is LTA DataMall's origin. Defaults to the real service;
+	// overridden to the local fake (cmd/fakelta) for development and the
+	// Playwright suite. Must be https, except http://localhost or
+	// http://127.0.0.1 — see validateLTABaseURL.
+	LTABaseURL string
+	// GoogleMapsAPIKey is the browser-side Maps JavaScript API key. Not a
+	// secret (Google designs it to ship to browsers, restricted by HTTP
+	// referrer in Cloud Console), but kept out of config.yaml alongside
+	// the other API keys for consistency. Optional — when empty the page
+	// renders list-only, loads no Google script, and keeps the site-wide
+	// CSP.
+	GoogleMapsAPIKey string
+	// OneMapBaseURL is OneMap's origin, used to geocode postal codes for the
+	// Bus Stop Finder's postal search (no key needed). Defaults to the real
+	// service; the Playwright suite points it at cmd/fakelta. Same scheme
+	// rule as LTABaseURL.
+	OneMapBaseURL string
 }
+
+// defaultLTABaseURL is the real LTA DataMall origin
+// (docs/features/bus-stop-finder.md).
+const defaultLTABaseURL = "https://datamall2.mytransport.sg"
+
+// defaultOneMapBaseURL is the real OneMap origin.
+const defaultOneMapBaseURL = "https://www.onemap.gov.sg"
 
 // landingAPITokenMinLen is the shortest LANDING_API_TOKEN accepted at
 // startup. This is the only credential guarding the content write API, so
@@ -234,6 +266,10 @@ func Load() (Config, error) {
 	cfg.DatabaseURL, _ = e.lookup("DATABASE_URL")
 	cfg.DatabaseReadOnlyURL, _ = e.lookup("DATABASE_READONLY_URL")
 	cfg.LandingAPIToken, _ = e.lookup("LANDING_API_TOKEN")
+	cfg.LTAAccountKey, _ = e.lookup("LTA_ACCOUNT_KEY")
+	cfg.LTABaseURL = e.get("LTA_BASE_URL", defaultLTABaseURL)
+	cfg.GoogleMapsAPIKey, _ = e.lookup("GOOGLE_MAPS_API_KEY")
+	cfg.OneMapBaseURL = e.get("ONEMAP_BASE_URL", defaultOneMapBaseURL)
 
 	if _, err := strconv.Atoi(cfg.Port); err != nil {
 		return Config{}, fmt.Errorf("parse port %q: %w", cfg.Port, err)
@@ -248,6 +284,12 @@ func Load() (Config, error) {
 	// not — see the LandingAPIToken field comment.
 	if cfg.LandingAPIToken != "" && len(cfg.LandingAPIToken) < landingAPITokenMinLen {
 		return Config{}, fmt.Errorf("LANDING_API_TOKEN must be at least %d characters", landingAPITokenMinLen)
+	}
+	if err := validateLTABaseURL(cfg.LTABaseURL); err != nil {
+		return Config{}, err
+	}
+	if err := validateBaseURL("ONEMAP_BASE_URL", cfg.OneMapBaseURL, defaultOneMapBaseURL); err != nil {
+		return Config{}, err
 	}
 
 	return cfg, nil
@@ -281,6 +323,41 @@ func loadFile(path string) (*fileConfig, error) {
 		return nil, fmt.Errorf("parse config file %s: %w", path, err)
 	}
 	return &fc, nil
+}
+
+// validateLTABaseURL enforces docs/features/bus-stop-finder.md's rule that
+// the LTA AccountKey only ever travels over TLS: the base URL must be https,
+// with a single exception for plain http to localhost/127.0.0.1, where the
+// dev-only fake (cmd/fakelta) listens. A path, query, or credentials in the
+// URL are rejected too — the client appends its own paths to a bare origin.
+func validateLTABaseURL(raw string) error {
+	return validateBaseURL("LTA_BASE_URL", raw, defaultLTABaseURL)
+}
+
+// validateBaseURL applies the https-or-localhost, bare-origin rule to the
+// named setting (LTA_BASE_URL, ONEMAP_BASE_URL).
+func validateBaseURL(name, raw, example string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", name, err)
+	}
+	if u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("%s must be a bare origin like %s", name, example)
+	}
+	switch u.Scheme {
+	case "https":
+		if u.Host == "" {
+			return fmt.Errorf("%s must include a host", name)
+		}
+		return nil
+	case "http":
+		if host := u.Hostname(); host == "localhost" || host == "127.0.0.1" {
+			return nil
+		}
+		return fmt.Errorf("%s must use https (plain http is only allowed for localhost)", name)
+	default:
+		return fmt.Errorf("%s must use https", name)
+	}
 }
 
 // getEnvRaw reads a real process environment variable directly — used

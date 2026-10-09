@@ -25,11 +25,28 @@ module.exports = defineConfig({
 		// since this site is developed and used on macOS/Safari.
 		{ name: 'webkit', use: { ...devices['Desktop Safari'] } },
 	],
-	webServer: {
-		command: 'make run',
-		cwd: '..',
-		url: 'http://localhost:8080/healthz',
-		reuseExistingServer: true,
-		timeout: 30_000,
-	},
+	// Two processes: the dev-only fake LTA DataMall (cmd/fakelta) that the
+	// Bus Stop Finder spec needs, and the real server pointed at it via
+	// `make run-e2e`, which also isolates the bus tables in a bus_e2e schema
+	// so the fake fixtures never mix with real synced LTA data. With
+	// reuseExistingServer, an already-running server on :8080 is used as-is
+	// — start it with `make run-e2e` (not `make run`) for
+	// e2e/bus-stops.spec.js to pass. See docs/features/bus-stop-finder.md's
+	// Testing Plan.
+	webServer: [
+		{
+			command: 'go run ./cmd/fakelta',
+			cwd: '..',
+			url: 'http://127.0.0.1:8099/healthz',
+			reuseExistingServer: true,
+			timeout: 60_000,
+		},
+		{
+			command: 'make run-e2e',
+			cwd: '..',
+			url: 'http://localhost:8080/healthz',
+			reuseExistingServer: true,
+			timeout: 60_000,
+		},
+	],
 });

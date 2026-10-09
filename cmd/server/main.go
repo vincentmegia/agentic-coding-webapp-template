@@ -18,7 +18,9 @@ import (
 	"github.com/vincentmegia/vincentmegia/internal/config"
 	dbpkg "github.com/vincentmegia/vincentmegia/internal/db"
 	"github.com/vincentmegia/vincentmegia/internal/handler"
+	"github.com/vincentmegia/vincentmegia/internal/lta"
 	"github.com/vincentmegia/vincentmegia/internal/middleware"
+	"github.com/vincentmegia/vincentmegia/internal/onemap"
 	"github.com/vincentmegia/vincentmegia/internal/repository"
 	"github.com/vincentmegia/vincentmegia/internal/service"
 	"github.com/vincentmegia/vincentmegia/migrations"
@@ -77,10 +79,22 @@ func run() error {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	mux, err := newMux(conn, readConn, cfg.LandingAPIToken)
+	busService := newBusService(conn, readConn, cfg)
+	mux, err := newMux(conn, readConn, cfg.LandingAPIToken, busStopsDeps{
+		Service:    busService,
+		MapsAPIKey: cfg.GoogleMapsAPIKey,
+	})
 	if err != nil {
 		return err
 	}
+
+	// The Bus Stop Finder's nightly LTA sync (docs/features/
+	// bus-stop-finder.md's Business Rules: "Schedule") runs for the life of
+	// the process and stops when run returns. RunScheduler is a no-op when
+	// LTA_ACCOUNT_KEY is unset.
+	schedCtx, stopScheduler := context.WithCancel(context.Background())
+	defer stopScheduler()
+	go busService.RunScheduler(schedCtx)
 
 	handlerChain := middleware.Chain(mux,
 		middleware.Recover,
@@ -138,7 +152,10 @@ func runMigrations(conn *sql.DB) error {
 // when no second role is configured — see run()'s DatabaseReadOnlyURL
 // fallback). Every repository constructor below takes both: conn for
 // writes and migrations, readConn for pure-read queries.
-func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, error) {
+// bus carries the Bus Stop Finder's dependencies; a zero value (as the
+// route tests pass) gets a BusService with no LTA client, which is enough
+// for the routes to register and the page to render.
+func newMux(conn, readConn *sql.DB, landingAPIToken string, bus busStopsDeps) (*http.ServeMux, error) {
 	mux := http.NewServeMux()
 
 	health := handler.NewHealthHandler(conn)
@@ -180,6 +197,12 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, err
 	busRushService := service.NewBusRushService(repository.NewBusRushRepository(conn, readConn))
 	busRush := handler.NewBusRushHandler(renderer, busRushService, Version)
 
+	busService := bus.Service
+	if busService == nil {
+		busService = service.NewBusService(repository.NewBusRepository(conn, readConn), nil, service.BusServiceOptions{})
+	}
+	busStops := handler.NewBusStopsHandler(renderer, busService, Version, bus.MapsAPIKey)
+
 	// See docs/features/home.md's Routes/Handlers table. This feature
 	// owns the shell and these routes; the real page content behind each
 	// is a separate, not-yet-built feature (placeholders for now).
@@ -205,6 +228,12 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, err
 	mux.HandleFunc("GET /bus-rush/leaderboard", busRush.Leaderboard)
 	mux.HandleFunc("POST /bus-rush/score", busRush.SubmitScore)
 	mux.HandleFunc("GET /projects", pages.Projects)
+	// See docs/features/bus-stop-finder.md's Routes/Handlers table.
+	mux.HandleFunc("GET /bus-stops", busStops.Index)
+	mux.HandleFunc("GET /bus-stops/nearby", busStops.Nearby)
+	mux.HandleFunc("GET /bus-stops/search", busStops.Search)
+	mux.HandleFunc("GET /bus-stops/{code}/arrivals", busStops.Arrivals)
+	mux.HandleFunc("GET /bus-stops/{code}/route/{service}", busStops.Route)
 	// See docs/features/puzzle-solver.md's Routes/Handlers table.
 	mux.HandleFunc("GET /puzzle-solver", pages.PuzzleSolver)
 	mux.HandleFunc("GET /blogs", pages.Blogs)
@@ -245,6 +274,31 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string) (*http.ServeMux, err
 	mux.Handle("GET /static/", http.StripPrefix("/static/", noCacheStatic(fileServer)))
 
 	return mux, nil
+}
+
+// busStopsDeps is what newMux needs to mount the Bus Stop Finder
+// (docs/features/bus-stop-finder.md). Service nil means "build one with no
+// LTA client"; MapsAPIKey empty means list-only mode.
+type busStopsDeps struct {
+	Service    *service.BusService
+	MapsAPIKey string
+}
+
+// newBusService builds the Bus Stop Finder's service. The LTA client is
+// only created when LTA_ACCOUNT_KEY is set; otherwise an untyped nil is
+// passed so the service's "client == nil → LTA not configured" check works
+// (a typed nil *lta.Client inside the interface would not compare equal to
+// nil). One shared http.Client with lta's 10 s timeout default.
+func newBusService(conn, readConn *sql.DB, cfg config.Config) *service.BusService {
+	repo := repository.NewBusRepository(conn, readConn)
+	// Postal-code search (OneMap) needs no key, so it's always on.
+	opts := service.BusServiceOptions{Geocoder: onemap.NewClient(cfg.OneMapBaseURL, nil)}
+	if cfg.LTAAccountKey == "" {
+		slog.Warn("bus stop finder: LTA_ACCOUNT_KEY is not set; sync and live arrivals disabled")
+		return service.NewBusService(repo, nil, opts)
+	}
+	client := lta.NewClient(cfg.LTABaseURL, cfg.LTAAccountKey, nil)
+	return service.NewBusService(repo, client, opts)
 }
 
 // landingAPIPrefix is the base path for the internal content API HQ calls.

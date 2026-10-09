@@ -1,0 +1,16 @@
+[
+  {"BusStopCode": "01012", "RoadName": "Victoria St", "Description": "Hotel Grand Pacific", "Latitude": 1.29685, "Longitude": 103.853},
+  {"BusStopCode": "01013", "RoadName": "Victoria St", "Description": "St. Joseph's Ch", "Latitude": 1.29771, "Longitude": 103.85225},
+  {"BusStopCode": "01019", "RoadName": "Victoria St", "Description": "Bras Basah Cplx", "Latitude": 1.29698, "Longitude": 103.85134},
+  {"BusStopCode": "01112", "RoadName": "Victoria St", "Description": "Opp Bugis Junction", "Latitude": 1.29955, "Longitude": 103.85482},
+  {"BusStopCode": "01113", "RoadName": "North Bridge Rd", "Description": "Bugis Junction", "Latitude": 1.29867, "Longitude": 103.85594},
+  {"BusStopCode": "02049", "RoadName": "Beach Rd", "Description": "Raffles Hotel", "Latitude": 1.29514, "Longitude": 103.8548},
+  {"BusStopCode": "04167", "RoadName": "Bras Basah Rd", "Description": "Opp SMU", "Latitude": 1.2961, "Longitude": 103.8502},
+  {"BusStopCode": "01211", "RoadName": "Kallang Rd", "Description": "Lavender Stn", "Latitude": 1.3075, "Longitude": 103.8628},
+  {"BusStopCode": "09048", "RoadName": "Orchard Blvd", "Description": "Orchard Stn", "Latitude": 1.304, "Longitude": 103.831},
+  {"BusStopCode": "17009", "RoadName": "Clementi Ave 3", "Description": "Clementi Int", "Latitude": 1.315, "Longitude": 103.765},
+  {"BusStopCode": "52009", "RoadName": "Lor 6 Toa Payoh", "Description": "Toa Payoh Int", "Latitude": 1.333, "Longitude": 103.847},
+  {"BusStopCode": "77009", "RoadName": "Pasir Ris Dr 3", "Description": "Pasir Ris Int", "Latitude": 1.373, "Longitude": 103.949},
+  {"BusStopCode": "84009", "RoadName": "Bedok North Dr", "Description": "Bedok Int", "Latitude": 1.325, "Longitude": 103.929},
+  {"BusStopCode": "ABCDE", "RoadName": "Invalid Rd", "Description": "Dropped by sync validation", "Latitude": 1.3, "Longitude": 103.8}
+]
