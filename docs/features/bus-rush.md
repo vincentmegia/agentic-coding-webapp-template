@@ -46,7 +46,9 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
   over makes the bus skid one lane left or right at random (inward at the
   road edge), with steering locked for `SKID_SECONDS` (0.5 s) and a wobble.
   It costs no life, but the skid can throw the bus into traffic or a
-  cruiser.
+  cruiser. Police cruisers slip on bananas the same way (one lane over,
+  no re-aiming for `SKID_SECONDS`), so luring a pursuer over one can skid
+  it into traffic for a wreck — or into the bus, which is still Busted.
 * **Police pursuit** (the bus is stolen): cruisers close in from behind
   whenever they're faster than the bus and re-aim at its lane after a short
   reaction delay. Police are **lethal**: any contact with a cruiser,
@@ -234,8 +236,9 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
   [`BANANA_DROP_MIN_Y`, `BANANA_DROP_MAX_Y`] (20–220 px), so every banana
   starts high enough on screen to be dodged. A dropped banana slides and
   spins briefly, then scrolls at the bus's speed (world-stationary). A skid
-  always moves exactly one lane and never off the road; bananas don't
-  affect police or traffic.
+  always moves exactly one lane and never off the road. Bananas affect the
+  bus and pursuing police (a banana is used up by whichever runs it over
+  first), not oncoming traffic.
 * **Fare placement** (`fareOffset`): a fare sits centred in the clear gap
   behind its row — between the tail of the vehicle in its lane (if any)
   and the next row's front — with `FARE_CLEARANCE` to spare. (It used to
@@ -308,14 +311,16 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
       enters level 2 (faster, higher wanted level, "2 · Heartland" on Run
       Over); a new level refills lives; at full throttle with no damage,
       level 2 police fall behind; running over a banana skids the bus one
-      lane over, ignores steering mid-skid, and costs no life. Plus
+      lane over, ignores steering mid-skid, and costs no life; a police car
+      that runs over a banana skids one lane over. Plus
       `e2e/projects.spec.js`'s card tests.
 * Test hooks (`window.__busRushTestHooks`, used only by tests): `crash()`,
   `spawn(kind)` (a vehicle in the bus's lane), `banana()` (one just ahead
-  of the bus), `policeRam()`,
+  of the bus), `policeBanana()` (a non-re-aiming cruiser behind the bus
+  with a banana at its nose), `policeRam()`,
   `warp(meters)`, `noTraffic()`, `snapshot()` (status, level, km/h, lane,
   skidding, bananas on the road, wanted, each pursuer's gap behind the
-  bus), `grantTokens(n)`.
+  bus, pursuer lanes, pursuers skidding), `grantTokens(n)`.
 
 ---
 

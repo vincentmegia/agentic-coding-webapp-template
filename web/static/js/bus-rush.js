@@ -775,15 +775,15 @@ function sirenPhase(t) {
  * bar. Pursuers face up the screen (chasing the bus); roadblock cars face
  * down like the rest of the oncoming traffic.
  */
-function drawPolice(ctx, p, t, facingUp) {
+function drawPolice(ctx, p, t, facingUp, angle = 0) {
   const x = p.x - p.width / 2;
   const w = p.width;
   const l = p.length;
   drawShadow(ctx, x, p.y, w, l, 8);
   ctx.save();
-  if (facingUp) {
+  if (facingUp || angle) {
     ctx.translate(p.x, p.y + l / 2);
-    ctx.rotate(Math.PI);
+    ctx.rotate((facingUp ? Math.PI : 0) + angle);
     ctx.translate(-p.x, -(p.y + l / 2));
   }
   drawCar(ctx, { color: POLICE_WHITE }, x, p.y, w, l);
@@ -1431,8 +1431,9 @@ function init(canvas, el) {
     for (const p of r.police) {
       p.y -= approach * dt;
       p.y = Math.max(p.y, BUS_Y - p.length / 2); // alongside at most, never ahead
+      p.skid = Math.max(0, (p.skid || 0) - dt);
       p.retarget -= dt;
-      if (p.retarget <= 0) {
+      if (p.retarget <= 0 && p.skid === 0) {
         p.retarget = policeReactionSeconds(wanted);
         p.lane += Math.sign(r.lane - p.lane);
       }
@@ -1451,6 +1452,20 @@ function init(canvas, el) {
     }
 
     const box = (v) => ({ x: v.x - v.width / 2 + 3, y: v.y + 3, w: v.width - 6, h: v.length - 6 });
+
+    // Cruisers slip on bananas too: one lane over, no re-aiming meanwhile —
+    // which can throw them into traffic (a wreck) or into the bus (Busted).
+    for (const p of r.police) {
+      if (p.skid > 0) continue;
+      const slipped = r.bananas.find((b) => rectsOverlap(box(p), { x: b.x - 9, y: b.y - 5, w: 18, h: 10 }));
+      if (!slipped) continue;
+      r.bananas = r.bananas.filter((b) => b !== slipped);
+      p.skid = SKID_SECONDS;
+      p.lane = skidLane(p.lane, Math.random);
+      burst(effects, slipped.x, slipped.y, ['#f2d34c', '#b8860b', '#fff6c2'], 8, 180, 4);
+      effects.push({ x: p.x, y: p.y - 10, vx: 0, vy: -60, life: 0.7, max: 0.7, text: 'SKID!', color: '#9fc4ff' });
+    }
+
     r.police = r.police.filter((p) => {
       const crashed = r.vehicles.some((v) => rectsOverlap(box(p), box(v)));
       if (crashed) wreckPolice(r, p);
@@ -1487,7 +1502,10 @@ function init(canvas, el) {
       r.bananas.forEach((b) => drawBanana(ctx, b));
       r.fareItems.forEach((f) => drawFare(ctx, f, t));
       r.vehicles.forEach((v) => drawVehicle(ctx, v, t));
-      r.police.forEach((p) => (p.y >= HEIGHT ? drawSirenCue(ctx, p, t) : drawPolice(ctx, p, t, true)));
+      r.police.forEach((p) => {
+        if (p.y >= HEIGHT) drawSirenCue(ctx, p, t);
+        else drawPolice(ctx, p, t, true, p.skid > 0 ? Math.sin(p.skid * 40) * 0.3 * (p.skid / SKID_SECONDS) : 0);
+      });
       const flashing = r.grace > 0 && Math.floor(r.grace * 10) % 2 === 0;
       const wobble = r.skid > 0 ? Math.sin(r.skid * 40) * 0.3 * (r.skid / SKID_SECONDS) : 0;
       drawBus(ctx, r.busX, flashing, r.status === 'playing' && input.brake, wobble);
@@ -1646,6 +1664,8 @@ function init(canvas, el) {
         lane: run.lane,
         skidding: run.skid > 0,
         bananas: run.bananas.length,
+        policeLanes: run.police.map((p) => p.lane),
+        policeSkidding: run.police.filter((p) => p.skid > 0).length,
         wanted: wantedLevel(run.distance, run.fares),
         police: run.police.map((p) => Math.round(p.y - (BUS_Y + BUS_LENGTH))),
       };
@@ -1659,6 +1679,18 @@ function init(canvas, el) {
     banana() {
       if (!run || run.status !== 'playing') return;
       run.bananas.push({ x: laneCenter(run.lane), y: BUS_Y - 20, vx: 0, angle: 0, spin: 0 });
+    },
+    // A cruiser in the bus's lane, behind it and not re-aiming, with a
+    // banana just ahead of its nose — it runs the banana over through the
+    // real police path. Stops traffic so nothing else interferes.
+    policeBanana() {
+      if (!run || run.status !== 'playing') return;
+      run.noTraffic = true;
+      run.vehicles = [];
+      const y = BUS_Y + BUS_LENGTH + 60;
+      spawnPolice(run, run.lane, y);
+      run.police[run.police.length - 1].retarget = 99;
+      run.bananas.push({ x: laneCenter(run.lane), y: y - 12, vx: 0, angle: 0, spin: 0 });
     },
     policeRam() {
       if (!run || run.status !== 'playing') return;

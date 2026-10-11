@@ -198,3 +198,17 @@ test('running over a banana skids the bus one lane over, locks steering, and cos
 	expect((await snap()).status).toBe('playing');
 	await expect(page.locator('#bus-rush-hud-lives')).toHaveText(lives);
 });
+
+test('a police car that runs over a banana skids one lane over', async ({ page }) => {
+	await page.goto('/bus-rush');
+	await page.locator('#bus-rush-start-button').click();
+	const snap = () => page.evaluate(() => window.__busRushTestHooks.snapshot());
+	const busLane = (await snap()).lane;
+	await page.evaluate(() => window.__busRushTestHooks.policeBanana());
+	await expect.poll(async () => (await snap()).policeSkidding, { timeout: 3000 }).toBe(1);
+	const s = await snap();
+	expect(s.policeLanes).toHaveLength(1);
+	expect(Math.abs(s.policeLanes[0] - busLane)).toBe(1);
+	expect(s.bananas).toBe(0);
+	expect(s.status).toBe('playing');
+});
