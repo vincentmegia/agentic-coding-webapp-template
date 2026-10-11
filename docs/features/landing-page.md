@@ -57,9 +57,11 @@ which is why it's worth the added implementation complexity documented below.
   same "Play now" HTMX link `/projects` uses. The mockup's three fictional
   placeholder cards
   (Fieldnotes/Tidewatch/Loom UI) were removed so this teaser always
-  matches what `/projects`' "See all projects" link actually leads to
-  (`internal/handler/pages.go`'s `selectedWorkItems`, kept in sync with
-  that same page's `projectItems`); see `SelectedWorkItem`'s doc comment.
+  matches what `/projects`' "See all projects" link actually leads to.
+  Selected work has since moved to Postgres (`model.SelectedWorkItem`,
+  editable via `/settings/content` — see Open Questions and
+  `docs/features/landing-content-authoring.md`), so keeping it in step
+  with `/projects`' `projectItems` is now a content task, not code.
 * Anything about what actually renders inside `#main-content` on this route,
   **except** a decorative page background: a full-bleed layer behind
   `#main-content` (not confined to its `max-w-5xl` column — see

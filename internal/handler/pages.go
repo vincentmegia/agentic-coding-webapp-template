@@ -185,7 +185,7 @@ var projectItems = []Project{
 	},
 	{
 		Title:       "Bus Rush",
-		Description: "A top-down arcade driving game — steer a bus through oncoming traffic, collect fares, and spend them at the depot on a faster engine, with a public leaderboard for the best runs.",
+		Description: "A top-down arcade getaway — flee the police in a stolen bus across five Singapore districts, dodge oncoming traffic, bait cruisers into wrecks, and upgrade at the depot, with a public leaderboard for the best runs.",
 		Tags:        []string{"Go", "Canvas", "PostgreSQL"},
 		TagTint:     "primary",
 		LiveURL:     "/bus-rush",

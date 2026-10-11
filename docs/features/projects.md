@@ -3,9 +3,11 @@
 ## Status
 
 `Shipped` — the page, route, template, and data model are implemented and
-visually verified in both light and dark mode. The grid currently has three
-cards, all real, playable links into this site's own mini-games/demos via the
-`Project.External` field (see Data Model): the Fishing Game
+visually verified in both light and dark mode. The grid currently has six
+cards, all real links into this site's own mini-games/demos (see Data Model
+for each entry): the Fishing Game, Kitchen Shift, Puzzle Solver, Library
+Shift, Bus Stop Finder and Bus Rush. The first three, in the order they
+were added: the Fishing Game
 (`docs/features/fishing-game.md`) at `/fishing-game`, with a real
 screenshot (`ImagePath: "/static/images/fishing/screenshot.png"`) — a live
 capture of an actual round in progress (boat, line, a fish, and a
@@ -19,12 +21,19 @@ pathfinding visualizer, added the same way once it shipped, with its own
 real screenshot (`ImagePath: "/static/images/puzzle/screenshot.png"`) —
 a live capture of a solved maze (a fully explored dead-end pocket shown in
 the "visited" amber tint, black wall cells, and the solved path threading
-out to the End marker). None of the three is a mockup. The four fictional sample cards the pulled-in design
+out to the End marker). Library Shift (`docs/features/library-game.md`)
+followed with its own real screenshot; Bus Stop Finder
+(`docs/features/bus-stop-finder.md`) is the one `FullPageLoad` card (a
+plain "Open" link, because its route sets its own CSP); Bus Rush
+(`docs/features/bus-rush.md`) has no screenshot yet, so it's the one card
+showing the "Screenshot coming soon" placeholder tile. None of the six is
+a mockup. The four fictional sample cards the pulled-in design
 mockup originally shipped with (Fieldnotes, Tidewatch, Loom UI,
 Nightlight) were deliberately removed rather than left sitting next to
 real projects — see Open Questions for the reasoning and what replaces
-them over time. `e2e/projects.spec.js` covers all three cards, including
-each one's "Play now" link; only the Fishing Game and Kitchen Shift cards
+them over time. `e2e/projects.spec.js` covers all six cards, including
+each one's "Play now" link (or Bus Stop Finder's full-page "Open"); only the
+Fishing Game and Kitchen Shift cards
 have a dedicated "navigates via HTMX into the real game shell" regression
 test (Puzzle Solver's own equivalent page-load coverage lives in
 `e2e/puzzle-solver.spec.js` instead, per that doc's Testing Plan) — see
@@ -37,7 +46,8 @@ for its own hand-authored placeholder content.
 
 The `/projects` page: a page heading and subhead, followed by a responsive
 grid of project cards (screenshot/placeholder tile, title, description, tag
-pills, an optional "Live demo" or "Play now" link depending on `External`).
+pills, an optional "Live demo", "Play now" or "Open" link depending on
+`External`/`FullPageLoad`).
 Linked from the primary nav
 (`internal/handler/nav.go`'s `primaryNavItems`) and from the Resume page's
 "See all projects" sidebar link (`docs/features/resume.md`).
@@ -63,8 +73,10 @@ were removed rather than left in place until real replacements existed
   cards.
 * A `Project` data shape (title, description, tags, tag tint, optional live
   URL, an `External` flag distinguishing an internal route from an off-site
-  link, and optional image) and a hardcoded list — currently three real
-  entries (Fishing Game, Kitchen Shift, Puzzle Solver).
+  link, a `FullPageLoad` flag for routes that need a real document load,
+  and optional image) and a hardcoded list — currently six real entries
+  (Fishing Game, Kitchen Shift, Puzzle Solver, Library Shift, Bus Stop
+  Finder, Bus Rush).
 * Responsive card grid: 1 column on mobile, 2 on `sm`, 3 on `lg`.
 * Per-card: an image area (real screenshot if `ImagePath` is set, otherwise
   a "Screenshot coming soon" placeholder tile), title, description, tag
@@ -78,7 +90,7 @@ were removed rather than left in place until real replacements existed
 **Out of scope:**
 
 * Real project content — copy, screenshots, and live links for more of
-  Vincent's actual work, to grow the grid beyond the current three cards
+  Vincent's actual work, to grow the grid beyond the current six cards
   (see Open Questions).
 * Postgres-backed / admin-editable project data — same as
   `docs/features/landing-carousel.md`'s Data Model stance, this is static,
@@ -99,21 +111,23 @@ were removed rather than left in place until real replacements existed
 ```text
 1. User navigates to /projects (via the primary nav "Projects" link, the
    Resume sidebar's "See all projects" link, or a direct URL).
-2. Page renders: a "Projects" heading and subhead, then a grid with one
-   card — the real Fishing Game entry. More real projects append here as
-   they're written up (see Open Questions); the grid isn't padded with
-   placeholder cards in the meantime.
-3. The card shows a real screenshot (a live capture of the game mid-round),
-   a title, a description, and its tag pills.
-4. The Fishing Game card has LiveURL set and it's internal (External:
-   false), so it renders a "Play now" link rather than a "Live demo" link
-   — a "Live demo" link would render instead for a future card whose
-   LiveURL is off-site (External: true).
-5. Clicking "Play now" navigates to /fishing-game via the same HTMX swap
-   every other in-site nav link uses (hx-get/hx-target="#main-content"/
+2. Page renders: a "Projects" heading and subhead, then a grid of six
+   real cards (projectItems). More real projects append here as they're
+   written up (see Open Questions); the grid isn't padded with placeholder
+   cards in the meantime.
+3. Each card shows a real screenshot (a live capture of the game/demo in
+   use) or, for Bus Rush, the "Screenshot coming soon" tile, plus a title,
+   a description, and its tag pills.
+4. Every card has an internal LiveURL (External: false), so it renders a
+   "Play now" link rather than a "Live demo" link — except Bus Stop Finder
+   (FullPageLoad: true), which renders a plain same-tab "Open" link. A
+   "Live demo" link would render for a future card whose LiveURL is
+   off-site (External: true).
+5. Clicking "Play now" navigates to the route via the same HTMX swap every
+   other in-site nav link uses (hx-get/hx-target="#main-content"/
    hx-swap="outerHTML"/hx-push-url="true"), dropping the visitor straight
-   into the real, playable game (docs/features/fishing-game.md) — not an
-   external link or a new tab.
+   into the real game — not an external link or a new tab. "Open" (Bus
+   Stop Finder) is a full document load instead.
 ```
 
 ---
@@ -167,7 +181,8 @@ the two.
   | `External` | Label | Behavior |
   | --- | --- | --- |
   | `true` | "Live demo" | `target="_blank" rel="noopener noreferrer"`, inline external-link icon, `text-primary` — the original design's only case; not currently exercised by any entry in `projectItems`. |
-  | `false` (default/zero value) | "Play now" | `hx-get="{{.LiveURL}}" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#nav-loading" data-nav-link`, same tab, same swap mechanism `#primary-nav`'s links already use (`components/header.html`), `text-primary`, with a play-triangle icon instead of the external-link icon — all three current entries (Fishing Game, Kitchen Shift, Puzzle Solver) take this branch; none sets `External: true`. |
+  | `false` (default/zero value) | "Play now" | `hx-get="{{.LiveURL}}" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#nav-loading" data-nav-link`, same tab, same swap mechanism `#primary-nav`'s links already use (`components/header.html`), `text-primary`, with a play-triangle icon instead of the external-link icon — five of the six entries take this branch; none sets `External: true`. |
+  | `false` + `FullPageLoad: true` | "Open" | A plain same-tab `<a href>` with no `hx-*` attributes, so the browser does a real document load — for a route that sets its own Content-Security-Policy (Bus Stop Finder), which only takes effect on a real load. |
 
 ---
 
@@ -192,8 +207,8 @@ States this feature's UI must handle:
 | State                          | Behavior |
 | -------------------------------- | -------- |
 | Default                          | Grid renders all entries in `projectItems`. |
-| Card with `ImagePath` set         | Renders a real `<img>`, `object-cover`'d into the `aspect-[16/10]` tile — the Fishing Game card's current state. |
-| Card with no `ImagePath`          | Renders the "Screenshot coming soon" placeholder tile instead of an `<img>` — not currently exercised by any entry in `projectItems`. |
+| Card with `ImagePath` set         | Renders a real `<img>`, `object-cover`'d into the `aspect-[16/10]` tile — five of the six cards. |
+| Card with no `ImagePath`          | Renders the "Screenshot coming soon" placeholder tile instead of an `<img>` — currently the Bus Rush card. |
 | Card with no `LiveURL`            | Omits the "Live demo"/"Play now" link entirely — no disabled/greyed-out link. |
 | Loading                          | Nav swap into `/projects` uses the shell's existing `#nav-loading` indicator — no new indicator needed. |
 | Empty (`projectItems` has zero entries) | Not currently exercised — `projectItems` always has at least one hardcoded entry; the template's `{{range}}` would simply render nothing, no empty-state message. |
@@ -268,10 +283,14 @@ type Project struct {
 	                    // mirrors CarouselSlide's own field, below
 	ImagePath   string // optional, "" renders a placeholder tile instead of
 	                    // a screenshot
+	FullPageLoad bool  // internal LiveURL rendered as a plain same-tab
+	                    // "Open" link with no hx-* swap — for a route that
+	                    // sets its own CSP (Bus Stop Finder)
 }
 ```
 
-The three current entries (`internal/handler/pages.go`'s `projectItems`):
+The six current entries (`internal/handler/pages.go`'s `projectItems`), in
+grid order:
 
 * The **Fishing Game** — `LiveURL: "/fishing-game"`, `External: false` (so
   it renders the "Play now" link), tags `Go`/`Canvas`/`PostgreSQL`,
@@ -294,6 +313,15 @@ The three current entries (`internal/handler/pages.go`'s `projectItems`):
   dead-end pocket plus a couple of smaller obstacles), solved, and
   captured once the pocket's full "visited" fill, the maze walls, and the
   solved path out to End were all on screen together.
+* **Library Shift** — `LiveURL: "/library-game"`, tags
+  `Go`/`Canvas`/`PostgreSQL`, `TagTint: "primary"`, `ImagePath:
+  "/static/images/library/screenshot.png"` — a live capture of the 1st
+  Floor mid-shift, taken via the game's own test hooks.
+* **Bus Stop Finder** — `LiveURL: "/bus-stops"`, `FullPageLoad: true`,
+  tags `Go`/`HTMX`/`LTA DataMall`, `TagTint: "accent"`, `ImagePath:
+  "/static/images/bus/screenshot.png"`.
+* **Bus Rush** — `LiveURL: "/bus-rush"`, tags `Go`/`Canvas`/`PostgreSQL`,
+  `TagTint: "primary"`, no `ImagePath` yet (placeholder tile).
 
 `projectItems` originally also had four fictional sample projects
 (Fieldnotes/Tidewatch/Loom UI/Nightlight, the pulled-in design mockup's own
@@ -302,11 +330,12 @@ a real entry, rather than left in place — see Open Questions. The landing
 page's "Selected work" section (`SelectedWorkItem`,
 `docs/features/landing-page.md`) is separate data that originally used
 three of the same fictional names as its own placeholder content, and was
-trimmed to the same single Fishing Game entry at the same time; it later
-picked up matching Kitchen Shift and Puzzle Solver entries too (same
-Title/Description text as each one's `projectItems` counterpart, kept in
-sync deliberately), so the two sections still never show different
-projects from each other.
+trimmed to the same single Fishing Game entry at the same time. It has
+since moved to Postgres (`model.SelectedWorkItem`, editable via
+`/settings/content` and the landing content API —
+`docs/features/landing-content-authoring.md`), so it's no longer kept in
+lock-step with `projectItems` in code: which projects it shows, and with
+what copy, is now content, not code.
 
 ---
 
@@ -322,14 +351,16 @@ projects from each other.
   icon, consistent with the external-link convention established in
   `docs/features/home.md` — the original design's only case; not currently
   exercised by any entry in `projectItems`.
+* `LiveURL` set, `External: false` and `FullPageLoad: true` → a plain
+  same-tab "Open" link with no `hx-*` attributes (a real document load) —
+  Bus Stop Finder's case, because `/bus-stops` sets its own
+  Content-Security-Policy, which an HTMX swap would never apply.
 * `LiveURL` set and `External: false` (the default/zero value) → the link
   reads "Play now", stays in the same tab, and uses the same HTMX swap
   every `#primary-nav` link uses (`hx-get`/`hx-target="#main-content"`/
   `hx-swap="outerHTML"`/`hx-push-url="true"`/`data-nav-link`,
   `components/header.html`), with a play-triangle icon instead of the
-  external-link icon — the Fishing Game card's case
-  (`LiveURL: "/fishing-game"`), the only entry currently exercising this
-  branch.
+  external-link icon — every card except Bus Stop Finder.
 * `External` mirrors `CarouselSlide`'s own field (`internal/handler/
   template.go`) — same name, same true/off-site vs. false/internal-route
   meaning, so the two link-shaped fields on this site stay consistent with
@@ -361,25 +392,25 @@ projects from each other.
 ## Testing Plan
 
 * [x] `GET /projects` renders each card (Fishing Game, Kitchen Shift, Puzzle
-      Solver) with correct title, description, and tag pills —
-      `e2e/projects.spec.js`'s `PROJECTS` fixture (all three entries) and
-      `cards.toHaveCount(PROJECTS.length)` assertion cover the current
-      three-card grid.
+      Solver, Library Shift, Bus Stop Finder, Bus Rush) with correct title,
+      description, and tag pills — `e2e/projects.spec.js`'s `PROJECTS`
+      fixture (all six entries) and `cards.toHaveCount(PROJECTS.length)`
+      assertion cover the current grid.
 * [x] A card with `ImagePath` set renders a real `<img>`; a card without it
-      renders the "Screenshot coming soon" placeholder tile — visually
-      verified for the `<img>` branch (all three current cards have
-      `ImagePath` set and render their real screenshots in both themes);
-      the no-`ImagePath` placeholder-tile branch is currently unexercised
-      by any entry in `projectItems`, same pre-existing gap noted before
-      Puzzle Solver joined the grid.
+      renders the "Screenshot coming soon" placeholder tile — the `<img>`
+      branch is visually verified (five cards), and the placeholder branch
+      is covered by `e2e/projects.spec.js` via the Bus Rush card (no
+      `<img>`, "Screenshot coming soon" shown).
 * [x] A card with `LiveURL` set and `External: true` renders a "Live demo"
       link that opens in a new tab with `rel="noopener noreferrer"`; a card
       without `LiveURL` renders no such link — `e2e/projects.spec.js` asserts
-      zero "Live demo" links exist (still true, since the Fishing Game is
-      the only entry and it sets `External: false`) and separately asserts
-      the Fishing Game card specifically has no "Live demo" link.
-* [x] A card with `LiveURL` set and `External: false` (the Fishing Game)
-      renders a "Play now" link that navigates to `/fishing-game` via the
+      zero "Live demo" links exist (no entry sets `External: true`) and
+      separately asserts each "Play now" card has no "Live demo" link.
+* [x] A `FullPageLoad` card (Bus Stop Finder) renders "Open" with no
+      `hx-get`, and clicking it is a real document load, not an HTMX swap —
+      `e2e/projects.spec.js`.
+* [x] Every non-`FullPageLoad` card has a "Play now" link; the Fishing
+      Game's (and Kitchen Shift's) navigates to its route via the
       same HTMX swap `#primary-nav` uses, not a full page reload —
       `e2e/projects.spec.js` covers this directly: the link is visible on the
       Fishing Game card, clicking it lands on `/fishing-game` with the real
@@ -428,9 +459,11 @@ projects from each other.
   once that game shipped, following the exact same pattern (internal
   `LiveURL`, real screenshot, no `External` flag); Puzzle Solver
   (`docs/features/puzzle-solver.md`) followed as a third, same pattern
-  including its own real screenshot.
+  including its own real screenshot. Library Shift, Bus Stop Finder and Bus
+  Rush followed the same way (Bus Stop Finder as a `FullPageLoad` card;
+  Bus Rush still without a screenshot).
 * More of Vincent's actual work (copy, screenshots, live links) to keep
-  growing the grid beyond these three cards.
+  growing the grid beyond these six cards.
 * Should `projectItems` move to Postgres, following the same path
   `docs/features/resume.md` took for resume content, once there's a
   concrete reason (e.g. an admin/CMS UI, or wanting to edit project content
@@ -445,10 +478,10 @@ projects from each other.
 * **Resolved**: a real screenshot for the Fishing Game card's thumbnail —
   `web/static/images/fishing/screenshot.png`, a live Playwright capture of
   an actual round (see Visual Direction), not the individual sprite assets
-  `web/static/images/fishing/` otherwise holds. Kitchen Shift and Puzzle
-  Solver each got the same treatment once they shipped
-  (`web/static/images/cooking/screenshot.png`,
-  `web/static/images/puzzle/screenshot.png`).
+  `web/static/images/fishing/` otherwise holds. Kitchen Shift, Puzzle
+  Solver, Library Shift and Bus Stop Finder each got the same treatment
+  once they shipped (`web/static/images/{cooking,puzzle,library,bus}/
+  screenshot.png`). Bus Rush doesn't have one yet.
 
 ---
 

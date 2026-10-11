@@ -1,7 +1,9 @@
 // /projects page: heading + subhead, and a grid of project cards
-// (internal/handler/pages.go's projectItems). Fishing Game, Kitchen Shift,
-// and Puzzle Solver are all real (this site's own shipped mini-games/demos,
-// each linked via an internal "Play now" HTMX nav link) — the pulled-in
+// (internal/handler/pages.go's projectItems). All six — Fishing Game,
+// Kitchen Shift, Puzzle Solver, Library Shift, Bus Stop Finder and Bus Rush
+// — are real (this site's own shipped mini-games/demos, each linked via an
+// internal "Play now" HTMX nav link, except Bus Stop Finder's full-page
+// "Open") — the pulled-in
 // design mockup's four fictional sample cards (Fieldnotes/Tidewatch/Loom
 // UI/Nightlight, from a claude.ai/design "Personal website and portfolio"
 // project's Projects.dc.html) were removed once real projects existed. See
@@ -40,7 +42,7 @@ const PROJECTS = [
 	},
 	{
 		title: 'Bus Rush',
-		description: 'A top-down arcade driving game — steer a bus through oncoming traffic, collect fares, and spend them at the depot on a faster engine, with a public leaderboard for the best runs.',
+		description: 'A top-down arcade getaway — flee the police in a stolen bus across five Singapore districts, dodge oncoming traffic, bait cruisers into wrecks, and upgrade at the depot, with a public leaderboard for the best runs.',
 		tags: ['Go', 'Canvas', 'PostgreSQL'],
 	},
 ];
@@ -89,6 +91,15 @@ for (const project of PROJECTS.filter((p) => !p.fullPageLoad)) {
 		await expect(card.getByRole('link', { name: 'Live demo' })).toHaveCount(0);
 	});
 }
+
+// Bus Rush has no ImagePath yet (no screenshot), so it's the one card that
+// exercises projects.html's placeholder-tile branch.
+test('a card without a screenshot renders the placeholder tile, not an <img>', async ({ page }) => {
+	await page.goto('/projects');
+	const card = page.locator('.project-card').filter({ hasText: 'Bus Rush' });
+	await expect(card).toContainText('Screenshot coming soon');
+	await expect(card.locator('img')).toHaveCount(0);
+});
 
 test('the Bus Stop Finder card opens /bus-stops with a full page load, not an HTMX swap', async ({ page }) => {
 	await page.goto('/projects');
