@@ -38,8 +38,22 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
 * Lives: a collision with a car or van costs one life, drops the bus to
   the current district's speed floor, and grants a short invulnerability
   window (`HIT_GRACE_SECONDS`). The run ends at zero lives.
-* Trucks (from 800 m) and semi trucks (from 1500 m) are lethal: touching
-  one ends the run instantly, regardless of lives left or grace.
+* Garbage trucks (from 500 m), trucks (from 800 m) and semi trucks (from
+  1500 m) are lethal: touching one ends the run instantly, regardless of
+  lives left or grace.
+* **Garbage**: most garbage trucks (80%) spill 1–3 garbage piles from
+  their rear, the same way trucks drop bananas. Running one over halves
+  the bus's top speed (never below the district's floor) for
+  `GARBAGE_SLOW_SECONDS` (5.5 s), bleeding speed off at braking rate
+  rather than instantly; another pile resets the timer. No life lost, but
+  a slowed bus is slower than pursuing police (50% vs. 80%+ of stock top
+  speed), so it must weave to avoid being caught. Police ignore garbage.
+* **Buses** (Depot Shop → Buses): buy once with tokens, then pick which to
+  drive; the choice is saved. Single-decker (free, balanced); Minibus (60:
+  smaller, lane changes 25% quicker, one fewer life); Double-decker (100:
+  +1 life, accelerates 30% slower); Electric bus (150: accelerates 60%
+  faster). No bus is longer than `BUS_LENGTH` or steers slower than the
+  single-decker, so the row-spacing guarantee holds for all of them.
 * **Bananas**: some trucks and semis (60%) are leaky and drop 1–2
   bananas from their rear as they come down the screen. A dropped banana
   lies still on the road, so it falls in behind its truck. Running one
@@ -70,10 +84,11 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
   (1.5 m/s, ~5 km/h), with an extra kick of 2 × that on entry. Each
   district starts the wanted level one star higher; every 10 fares adds
   another.
-* Depot shop between runs (tokens → leveled upgrades): Engine (top speed),
-  Steering (faster lane changes), Bumpers (+1 life), Fare Box (more tokens
-  per fare).
-* Progress (tokens, upgrade levels, bests) in `localStorage`, same as the
+* Depot shop between runs (tokens → buses, and leveled upgrades): Engine
+  (top speed), Steering (faster lane changes), Bumpers (+1 life), Fare Box
+  (more tokens per fare).
+* Progress (tokens, upgrade levels, owned/selected buses, bests) in
+  `localStorage`, same as the
   Fishing Game — there are no visitor accounts.
 * Public leaderboard (Postgres), submitted voluntarily with a display name.
 * A `/projects` card ("Play now", HTMX nav).
@@ -95,16 +110,18 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
 ```text
 1. Visitor opens /bus-rush (or "Play now" on /projects).
 2. Start screen ("Hot-wired and ready?") shows tokens, best score, best
-   distance and the controls; "Start Run" / "Depot Shop".
+   distance, the bus being driven and the controls; "Start Run" / "Depot
+   Shop".
 3. Run: a "LEVEL 1 / CBD" banner, then traffic and fares scroll down while
    police close in from behind; the player switches lanes and manages
    speed. Every 800 m a new district begins (banner, bonus, lives refilled).
-4. A car/van hit costs a life; a truck, semi or any police car ends the run
-   at once. When the run ends, the Run Over screen ("Busted!" / "Flattened
+4. A car/van hit costs a life; a banana skids the bus, garbage slows it;
+   a truck, semi, garbage truck or any police car ends the run at once. When the run ends, the Run Over screen ("Busted!" / "Flattened
    by a truck!" / "New best run!") shows distance, fares, level reached,
    police wrecked, score and tokens earned, with an optional leaderboard
    submit.
-5. "Depot Shop" spends tokens on upgrades; "Drive Again" starts a new run.
+5. "Depot Shop" spends tokens on buses and upgrades; "Drive Again" starts
+   a new run.
 ```
 
 ---
@@ -115,7 +132,7 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
 web/templates/
 ├── pages/bus-rush.html                (canvas, HUD, start/run-over overlays)
 └── components/
-    ├── bus-rush-shop.html             (upgrade shop overlay)
+    ├── bus-rush-shop.html             (depot shop overlay: buses + upgrades)
     └── bus-rush-leaderboard.html      (leaderboard fragment)
 web/static/js/
 ├── bus-rush.js                        (canvas loop, input, localStorage, DOM wiring)
@@ -147,7 +164,13 @@ manholes, worn lane paint, striped kerbs and street lamps. Per district:
 | Changi | a dense avenue of trees with pink bougainvillea blooms |
 
 Trees are sized to overhang the footpath and kerb so they read at the
-canvas edge. Vehicles are drawn live with body shading, glass, wheels,
+canvas edge. Each player bus has its own paint and roof (`BUS_LOOKS`):
+terracotta single-decker with an aircon pod, mustard minibus with roof
+rails, sage double-decker with an upper-deck window band, blue electric
+bus with battery packs and a lightning bolt. The garbage truck is green
+with a ribbed compactor body and an open rear hopper full of rubbish;
+garbage piles are bin bags, a can and paper scraps, and a slowed bus
+trails green stink lines and buzzing flies. Vehicles are drawn live with body shading, glass, wheels,
 mirrors and lights; about 15% of cars are taxis. Trucks and semis carry
 red/white rear chevrons and side tape to show they're lethal. Police
 cruisers are white with a chequered navy livery and a flashing red/blue
@@ -218,9 +241,14 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
 
 * **Speed** (`stepSpeed`): between `minSpeed(level)` and
   `maxSpeed(engineLevel, level)` — the district raises both by
-  `LEVEL_SPEED_STEP`. Holding up accelerates, down brakes (brake wins if
-  both are held), neither holds speed. A hit resets speed to the current
-  district's floor.
+  `LEVEL_SPEED_STEP`. Holding up accelerates (scaled by the bus's
+  `accel`), down brakes (brake wins if both are held), neither holds
+  speed. While slowed by garbage the cap is `slowedTopSpeed` (half, floored
+  at `minSpeed`), approached at braking rate. A hit resets speed to the
+  current district's floor.
+* **Buses** (`BUSES`, `busDef`): `lives` adds to `maxLives`, `steer`
+  scales `laneChangeSeconds`, `accel` scales acceleration; unknown keys
+  fall back to the single-decker; lives never start below one.
 * **Traffic**: oncoming vehicles close in at the bus's speed *plus* their
   own (`TRAFFIC_SPEED`, one shared value so rows never drift into each
   other), so they arrive faster when the bus is faster. Spawns come in
@@ -232,11 +260,12 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
   `VEHICLES` (truck, semi) or `POLICE_CAR` takes every life, even during
   post-hit grace; anything else takes one life, or none while grace is
   active. Bumpers therefore never save you from a truck or the police.
-* **Bananas** (`bananaDrops`, `skidLane`): only lethal non-police vehicles
-  (truck, semi) carry cargo; each is leaky with `BANANA_TRUCK_CHANCE` and
-  then drops 1–2 bananas at rear heights within
-  [`BANANA_DROP_MIN_Y`, `BANANA_DROP_MAX_Y`] (20–220 px), so every banana
-  starts high enough on screen to be dodged. A dropped banana slides and
+* **Spills** (`spillDrops`, `SPILLS`, `skidLane`): a vehicle drops only
+  what its `spills` field says — bananas for trucks and semis (60% leaky,
+  1–2 each), garbage for garbage trucks (80% leaky, 1–3 each) — at rear
+  heights within
+  [`BANANA_DROP_MIN_Y`, `BANANA_DROP_MAX_Y`] (20–220 px), so every spill
+  starts high enough on screen to be dodged. A dropped spill slides and
   spins briefly, then scrolls at the bus's speed (world-stationary). A skid
   always moves exactly one lane and never off the road. Bananas affect the
   bus and pursuing police (a banana is used up by whichever runs it over
@@ -299,8 +328,10 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
       bonus), upgrade costs/max, lethal vs. one-life hits, wanted level,
       police scaling (a stock bus at full throttle outruns every star in
       every district), roadblock chance, district progression and
-      checkpoint points, banana drops (only trucks/semis, inside the drop
-      window) and skids (always exactly one lane, never off the road).
+      checkpoint points, spill drops (only trucks, the right kind, inside
+      the drop window), skids (always exactly one lane, never off the
+      road), garbage slowdown (half, floored, bled off gradually), and
+      buses (row spacing fits every bus; each bus's handling).
 * [x] Go: validation bounds, service rejects invalid input before the repo,
       handler empty/populated/escaped leaderboard, 400 on bad input, 429 on
       flood, error fragment on DB failure.
@@ -314,14 +345,17 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
       Over); a new level refills lives; at full throttle with no damage,
       level 2 police fall behind; running over a banana skids the bus one
       lane over, ignores steering mid-skid, and costs no life; a police car
-      that runs over a banana skids one lane over. Plus
+      that runs over a banana skids one lane over; buying a bus drives it,
+      changes its lives and persists; garbage halves top speed then
+      recovers, costing no life. Plus
       `e2e/projects.spec.js`'s card tests.
 * Test hooks (`window.__busRushTestHooks`, used only by tests): `crash()`,
   `spawn(kind)` (a vehicle in the bus's lane), `banana()` (one just ahead
-  of the bus), `policeBanana()` (a non-re-aiming cruiser behind the bus
+  of the bus), `garbage()` (a pile just ahead of the bus), `noPolice()`,
+  `policeBanana()` (a non-re-aiming cruiser behind the bus
   with a banana at its nose), `policeRam()`,
   `warp(meters)`, `noTraffic()`, `snapshot()` (status, level, km/h, lane,
-  skidding, bananas on the road, wanted, each pursuer's gap behind the
+  lives, bus, skidding, slowed, bananas and garbage on the road, wanted, each pursuer's gap behind the
   bus, pursuer lanes, pursuers skidding), `grantTokens(n)`.
 
 ---

@@ -49,8 +49,13 @@ import {
   fareOffset,
   BANANA_DROP_MIN_Y,
   BANANA_DROP_MAX_Y,
-  bananaDrops,
+  spillDrops,
   skidLane,
+  SPILLS,
+  BUSES,
+  busDef,
+  slowedTopSpeed,
+  GARBAGE_SPEED_FACTOR,
 } from './rules.js';
 
 // Small deterministic PRNG so the property-style tests below are repeatable.
@@ -93,7 +98,7 @@ describe('speed', () => {
 });
 
 describe('upgrade effects', () => {
-  test('steering shortens lane changes but never below 0.1s', () => {
+  test('steering shortens lane changes but never below 0.1s (single-decker)', () => {
     assert.ok(laneChangeSeconds(1) < laneChangeSeconds(0));
     assert.ok(laneChangeSeconds(99) >= 0.1);
   });
@@ -221,11 +226,14 @@ describe('traffic', () => {
     }
   });
 
-  test('the minimum row spacing leaves room for one lane change at top speed', () => {
+  test('the minimum row spacing leaves room for one lane change at top speed, for every bus', () => {
     const longest = Math.max(...VEHICLES.map((v) => v.length));
     const topRelativePxPerSec = (maxSpeed(UPGRADES.engine.maxLevel, LEVELS.length - 1) + TRAFFIC_SPEED) * PX_PER_METER;
-    const windowSeconds = (ROW_SPACING_MIN - longest - BUS_LENGTH) / topRelativePxPerSec;
-    assert.ok(windowSeconds >= laneChangeSeconds(0), `window ${windowSeconds}s`);
+    for (const [key, bus] of Object.entries(BUSES)) {
+      assert.ok(bus.length <= BUS_LENGTH, `${key} fits BUS_LENGTH`);
+      const windowSeconds = (ROW_SPACING_MIN - longest - bus.length) / topRelativePxPerSec;
+      assert.ok(windowSeconds >= laneChangeSeconds(0, key), `${key}: window ${windowSeconds}s`);
+    }
   });
 
   test('fares never overlap the vehicle in their lane or the next row', () => {
@@ -250,9 +258,9 @@ describe('traffic', () => {
     assert.equal(late.size, VEHICLES.length);
   });
 
-  test('trucks and semis are lethal; cars and vans are not', () => {
+  test('trucks, semis and garbage trucks are lethal; cars and vans are not', () => {
     const lethal = VEHICLES.filter((v) => v.lethal).map((v) => v.kind).sort();
-    assert.deepEqual(lethal, ['semi', 'truck']);
+    assert.deepEqual(lethal, ['garbage', 'semi', 'truck']);
   });
 
   test('a lethal hit takes every life, even during grace', () => {
@@ -309,25 +317,27 @@ describe('levels', () => {
 });
 
 describe('bananas', () => {
-  test('only trucks and semis drop bananas, 1–2 of them, inside the drop window', () => {
+  test('only trucks drop spills, up to their kind\'s max, inside the drop window', () => {
     const rng = seeded(3);
     for (const v of VEHICLES) {
       for (let i = 0; i < 200; i++) {
-        const drops = bananaDrops(rng, v);
-        if (!v.lethal) {
+        const drops = spillDrops(rng, v);
+        if (!v.spills) {
           assert.deepEqual(drops, [], `${v.kind} never drops`);
           continue;
         }
-        assert.ok(drops.length <= 2);
+        assert.ok(drops.length <= SPILLS[v.spills].max);
         drops.forEach((y) => assert.ok(y >= BANANA_DROP_MIN_Y && y <= BANANA_DROP_MAX_Y));
         assert.deepEqual(drops, [...drops].sort((a, b) => a - b));
       }
     }
-    assert.deepEqual(bananaDrops(rng, POLICE_CAR), []);
+    assert.deepEqual(spillDrops(rng, POLICE_CAR), []);
     // Some trucks are leaky and some aren't.
     const truck = VEHICLES.find((v) => v.kind === 'truck');
-    const counts = Array.from({ length: 200 }, () => bananaDrops(rng, truck).length);
+    const counts = Array.from({ length: 200 }, () => spillDrops(rng, truck).length);
     assert.ok(counts.includes(0) && counts.some((c) => c > 0));
+    assert.equal(VEHICLES.find((v) => v.kind === 'garbage').spills, 'garbage');
+    assert.equal(truck.spills, 'banana');
   });
 
   test('a skid always throws the bus exactly one lane, and never off the road', () => {
@@ -338,6 +348,55 @@ describe('bananas', () => {
         assert.equal(Math.abs(next - lane), 1);
         assert.ok(next >= 0 && next < LANES);
       }
+    }
+  });
+});
+
+describe('garbage', () => {
+  test('slowed top speed is half, never below the district floor', () => {
+    for (let lvl = 0; lvl < LEVELS.length; lvl++) {
+      for (let eng = 0; eng <= UPGRADES.engine.maxLevel; eng++) {
+        const slow = slowedTopSpeed(eng, lvl);
+        assert.ok(slow >= minSpeed(lvl));
+        assert.ok(slow <= maxSpeed(eng, lvl));
+        assert.equal(slow, Math.max(minSpeed(lvl), maxSpeed(eng, lvl) * GARBAGE_SPEED_FACTOR));
+      }
+    }
+  });
+
+  test('while slowed, excess speed bleeds off gradually and ↑ cannot exceed the cap', () => {
+    const top = maxSpeed(6, 2);
+    const cap = slowedTopSpeed(6, 2);
+    const next = stepSpeed(top, {}, 0.1, 6, 2, { slowed: true });
+    assert.ok(next < top && next > cap, 'drops, but not instantly');
+    let v = top;
+    for (let i = 0; i < 100; i++) v = stepSpeed(v, { accelerate: true }, 0.05, 6, 2, { slowed: true });
+    assert.equal(v, cap);
+    assert.equal(stepSpeed(cap, { accelerate: true }, 0.1, 6, 2), Math.min(top, cap + 0.6));
+  });
+});
+
+describe('buses', () => {
+  test('the single-decker is free and the default; unknown keys fall back to it', () => {
+    assert.equal(BUSES.single.cost, 0);
+    assert.equal(busDef('nope'), BUSES.single);
+    assert.equal(busDef('__proto__'), BUSES.single);
+  });
+
+  test('each bus changes handling the way its shop row says', () => {
+    assert.ok(laneChangeSeconds(0, 'minibus') < laneChangeSeconds(0));
+    assert.equal(maxLives(0, 'minibus'), maxLives(0) - 1);
+    assert.equal(maxLives(0, 'double'), maxLives(0) + 1);
+    assert.ok(stepSpeed(10, { accelerate: true }, 0.1, 0, 0, { accel: BUSES.electric.accel })
+      > stepSpeed(10, { accelerate: true }, 0.1, 0, 0));
+    assert.ok(stepSpeed(10, { accelerate: true }, 0.1, 0, 0, { accel: BUSES.double.accel })
+      < stepSpeed(10, { accelerate: true }, 0.1, 0, 0));
+  });
+
+  test('no bus starts with fewer than one life, and none steers slower than the single-decker', () => {
+    for (const key of Object.keys(BUSES)) {
+      assert.ok(maxLives(0, key) >= 1);
+      assert.ok(BUSES[key].steer <= 1);
     }
   });
 });

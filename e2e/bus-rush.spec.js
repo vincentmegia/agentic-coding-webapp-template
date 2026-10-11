@@ -212,3 +212,52 @@ test('a police car that runs over a banana skids one lane over', async ({ page }
 	expect(s.bananas).toBe(0);
 	expect(s.status).toBe('playing');
 });
+
+test('buying a bus in the depot drives it, changes its lives, and persists', async ({ page }) => {
+	await page.goto('/bus-rush');
+	await page.evaluate(() => window.localStorage.removeItem('bus-rush:v1'));
+	await page.reload();
+	await expect(page.locator('#bus-rush-start-bus')).toHaveText('Single-decker');
+	await page.evaluate(() => window.__busRushTestHooks.grantTokens(100));
+	await page.locator('#bus-rush-start-shop-button').click();
+	const single = page.locator('[data-bus-key="single"] [data-bus-select]');
+	const minibus = page.locator('[data-bus-key="minibus"] [data-bus-select]');
+	await expect(single).toHaveText('Driving');
+	await expect(single).toBeDisabled();
+	await minibus.click();
+	await expect(minibus).toHaveText('Driving');
+	await expect(single).toHaveText('Drive');
+	await expect(page.locator('#bus-rush-shop-tokens')).toHaveText('40');
+	await expect(page.locator('[data-bus-key="electric"] [data-bus-select]')).toBeDisabled(); // 150 > 40
+
+	await page.reload();
+	await expect(page.locator('#bus-rush-start-bus')).toHaveText('Minibus');
+	await page.locator('#bus-rush-start-button').click();
+	await expect(page.locator('#bus-rush-hud-lives')).toHaveText('2'); // one fewer than the single-decker's 3
+	expect((await page.evaluate(() => window.__busRushTestHooks.snapshot())).bus).toBe('minibus');
+});
+
+test('running over garbage halves top speed for a while, then it recovers, costing no life', async ({ page }) => {
+	await page.goto('/bus-rush');
+	await page.locator('#bus-rush-start-button').click();
+	// No traffic or police: a slowed bus that never steers would otherwise be
+	// caught by a cruiser (police run at 80% of stock top speed; slowed is 50%).
+	await page.evaluate(() => {
+		window.__busRushTestHooks.noTraffic();
+		window.__busRushTestHooks.noPolice();
+	});
+	const snap = () => page.evaluate(() => window.__busRushTestHooks.snapshot());
+	await page.keyboard.down('ArrowUp');
+	await expect.poll(async () => (await snap()).kmh).toBe(58); // stock top speed, level 1
+	const lives = (await snap()).lives;
+	await page.evaluate(() => window.__busRushTestHooks.garbage());
+	await expect.poll(async () => (await snap()).slowed, { timeout: 3000 }).toBe(true);
+	// Bleeds down to the slowed cap (half of 58, floored at 29 km/h) even with ↑ held.
+	await expect.poll(async () => (await snap()).kmh, { timeout: 3000 }).toBe(29);
+	await expect.poll(async () => (await snap()).slowed, { timeout: 8000 }).toBe(false);
+	await expect.poll(async () => (await snap()).kmh, { timeout: 5000 }).toBe(58);
+	const after = await snap();
+	expect(after.status).toBe('playing');
+	expect(after.lives).toBe(lives);
+	expect(after.garbage).toBe(0);
+});

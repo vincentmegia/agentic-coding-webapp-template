@@ -51,7 +51,10 @@ import {
   levelAt,
   checkpointPoints,
   SKID_SECONDS,
-  bananaDrops,
+  spillDrops,
+  BUSES,
+  busDef,
+  GARBAGE_SLOW_SECONDS,
   skidLane,
 } from './busrush/rules.js';
 
@@ -61,7 +64,6 @@ const WIDTH = 480;
 const HEIGHT = 640;
 const SHOULDER = 40;
 const LANE_WIDTH = (WIDTH - SHOULDER * 2) / LANES;
-const BUS_WIDTH = 54;
 // Room below the bus for pursuing police to close in from.
 const BUS_Y = HEIGHT - BUS_LENGTH - 110;
 const POLICE_LANE_SECONDS = 0.35;
@@ -86,6 +88,8 @@ function defaultProgress() {
     bestScore: 0,
     bestDistance: 0,
     upgrades: Object.fromEntries(Object.keys(UPGRADES).map((k) => [k, 0])),
+    buses: ['single'], // owned
+    bus: 'single', // selected
   };
 }
 
@@ -117,6 +121,12 @@ function loadProgress() {
       const lvl = wholeNumber(saved.upgrades && saved.upgrades[key]);
       progress.upgrades[key] = Math.min(lvl, UPGRADES[key].maxLevel);
     });
+    if (Array.isArray(saved.buses)) {
+      saved.buses.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(BUSES, key) && !progress.buses.includes(key)) progress.buses.push(key);
+      });
+    }
+    if (progress.buses.includes(saved.bus)) progress.bus = saved.bus;
   } catch {
     // fall through with defaults
   }
@@ -155,7 +165,6 @@ const TAILLIGHT = '#c9402c';
 const TYRE = '#1f1d1b';
 const SHADOW = 'rgba(28,22,16,0.3)';
 const BUS_COLOR = '#c4532d';
-const BUS_ROOF = '#efe4d0';
 const CARGO = '#e9e3d6';
 
 const TAXI_COLORS = ['#2f78c4', '#e3bf3f'];
@@ -748,6 +757,36 @@ function drawSemi(ctx, v, x, y, w, l) {
   ctx.fill();
 }
 
+/**
+ * Garbage truck: green cab, ribbed compactor body, and an open rear hopper
+ * with rubbish visible inside. Rear chevrons, like the other lethal trucks.
+ */
+function drawGarbageTruck(ctx, v, x, y, w, l) {
+  const cab = 32;
+  const hopper = 22;
+  drawWheels(ctx, x, y, w, l, [0.14, 0.3, 0.85]);
+  drawBody(ctx, '#5c8a52', x, y, w, l - cab - 3, 6);
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  for (let ry = y + hopper + 6; ry < y + l - cab - 8; ry += 9) ctx.fillRect(x + 4, ry, w - 8, 2);
+  fillRoundRect(ctx, '#e9e3d6', x + 8, y + hopper + 18, w - 16, 18, 3); // side stripe panel
+  ctx.fillStyle = '#5c8a52';
+  ctx.font = 'bold 9px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('♻', x + w / 2, y + hopper + 27);
+  // Open hopper at the rear, rubbish poking out.
+  fillRoundRect(ctx, '#2b2724', x + 5, y + 3, w - 10, hopper, 4);
+  [['#3b3f36', 14, 10, 7], ['#4f6b3f', 30, 14, 6], ['#e8e1d3', 42, 9, 4], ['#c9402c', 22, 18, 3], ['#3b3f36', 44, 18, 5]]
+    .forEach(([c, bx, by, r]) => {
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.arc(x + bx * (w / 60), y + by, r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  drawChevrons(ctx, x, y - 2, w);
+  drawCab(ctx, '#e9e3d6', x + 2, y + l - cab, w - 4, cab);
+}
+
 // Oncoming vehicle, nose pointing down the screen.
 function drawVehicle(ctx, v, t) {
   if (v.police) {
@@ -757,6 +796,7 @@ function drawVehicle(ctx, v, t) {
   const x = v.x - v.width / 2;
   drawShadow(ctx, x, v.y, v.width, v.length, 8);
   if (v.kind === 'semi') drawSemi(ctx, v, x, v.y, v.width, v.length);
+  else if (v.kind === 'garbage') drawGarbageTruck(ctx, v, x, v.y, v.width, v.length);
   else if (v.kind === 'truck') drawTruck(ctx, v, x, v.y, v.width, v.length);
   else if (v.kind === 'van') drawVan(ctx, v, x, v.y, v.width, v.length);
   else drawCar(ctx, v, x, v.y, v.width, v.length);
@@ -913,6 +953,41 @@ function bananaBox(b) {
   return { x: b.x - BANANA_HALF, y: b.y - BANANA_HALF, w: BANANA_HALF * 2, h: BANANA_HALF * 2 };
 }
 
+/** A spilled garbage pile, top-down: two tied bin bags, a can and paper. */
+function drawGarbage(ctx, b) {
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(b.angle * 0.3);
+  ctx.fillStyle = SHADOW;
+  ctx.beginPath();
+  ctx.ellipse(3, 5, 17, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e8e1d3'; // paper scraps
+  ctx.fillRect(-15, 4, 7, 5);
+  ctx.fillRect(9, -10, 6, 4);
+  const bag = (bx, by, r, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(bx, by, r, r * 0.85, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.beginPath();
+    ctx.ellipse(bx - r * 0.35, by - r * 0.35, r * 0.35, r * 0.22, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = shade(color.startsWith('#') ? color : '#3b3f36', -0.3); // knot
+    ctx.beginPath();
+    ctx.arc(bx + r * 0.5, by - r * 0.6, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  bag(-5, -1, 10, '#3b3f36');
+  bag(7, 4, 8, '#4f6b3f');
+  ctx.fillStyle = '#b9bfc4'; // can
+  ctx.fillRect(-2, 8, 7, 4);
+  ctx.fillStyle = '#c9402c';
+  ctx.fillRect(1, 8, 2, 4);
+  ctx.restore();
+}
+
 /**
  * A banana peel lying on the road (slipped out of a truck), top-down: the
  * classic cartoon peel, five splayed flaps around a stem.
@@ -962,49 +1037,25 @@ function drawBanana(ctx, b) {
   ctx.restore();
 }
 
-/**
- * The player's bus, nose up. `braking` lights the brake lamps; `angle`
- * (radians) twists it about its centre for a banana skid.
- */
-function drawBus(ctx, x, flashing, braking, angle = 0) {
-  ctx.save();
-  if (angle) {
-    ctx.translate(x, BUS_Y + BUS_LENGTH / 2);
-    ctx.rotate(angle);
-    ctx.translate(-x, -(BUS_Y + BUS_LENGTH / 2));
-  }
-  if (flashing) ctx.globalAlpha = 0.4;
-  const left = x - BUS_WIDTH / 2;
-  const top = BUS_Y;
-  const w = BUS_WIDTH;
-  const l = BUS_LENGTH;
-  drawShadow(ctx, left, top, w, l, 10);
-  drawWheels(ctx, left, top, w, l, [0.2, 0.76]);
-  drawBody(ctx, BUS_COLOR, left, top, w, l, 10);
-  drawMirrors(ctx, left - 1, top + 6, w + 2, BUS_COLOR);
+/** Per-bus paint: body colour and roof colour. */
+const BUS_LOOKS = {
+  single: { body: '#c4532d', roof: '#efe4d0' },
+  minibus: { body: '#d9a93f', roof: '#f4ecd8' },
+  double: { body: '#5f8a5b', roof: '#e9e1cf' },
+  electric: { body: '#3f6e9e', roof: '#e3e8ea' },
+};
 
-  // Windscreen across the nose.
-  quad(ctx, left + 5, left + w - 5, top + 4, left + 6, left + w - 6, top + 15);
-  drawGlass(ctx);
-  ctx.fillStyle = GLASS_SHINE;
-  quad(ctx, left + 10, left + 17, top + 5, left + 12, left + 18, top + 14);
-  ctx.fill();
-
-  // Side window strips with pillars.
-  ctx.fillStyle = GLASS;
-  for (let y = top + 20; y < top + l - 14; y += 13) {
-    ctx.fillRect(left + 2, y, 4, 10);
-    ctx.fillRect(left + w - 6, y, 4, 10);
-  }
-
-  // Cream roof with destination sign, aircon pod and a rear hatch.
-  fillRoundRect(ctx, BUS_ROOF, left + 7, top + 17, w - 14, l - 28, 5);
-  fillRoundRect(ctx, '#2b2724', left + 12, top + 19, w - 24, 10, 2);
+function drawDestinationSign(ctx, x, y, w) {
+  fillRoundRect(ctx, '#2b2724', x - w / 2, y, w, 10, 2);
   ctx.fillStyle = '#ffb547';
   ctx.font = 'bold 9px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('88', x, top + 24.5);
+  ctx.fillText('88', x, y + 5.5);
+}
+
+/** Single-decker roof: aircon pod with twin fans and a rear hatch. */
+function drawSingleRoof(ctx, x, left, top, w) {
   fillRoundRect(ctx, '#d7ccb8', left + 11, top + 34, w - 22, 26, 4);
   ctx.strokeStyle = '#bfb39d';
   ctx.lineWidth = 1;
@@ -1021,10 +1072,108 @@ function drawBus(ctx, x, flashing, braking, angle = 0) {
     ctx.fill();
   });
   fillRoundRect(ctx, '#d7ccb8', left + 17, top + 65, w - 34, 10, 2);
+}
 
-  // Engine grille and lamps at the rear.
-  ctx.fillStyle = shade(BUS_COLOR, -0.3);
-  for (let gx = left + 14; gx < left + w - 14; gx += 4) ctx.fillRect(gx, top + l - 8, 2, 5);
+/** Double-decker roof: upper-deck window band all round, two escape hatches. */
+function drawDoubleRoof(ctx, x, left, top, w, l) {
+  ctx.fillStyle = GLASS;
+  ctx.fillRect(left + 8, top + 31, 4, l - 44);
+  ctx.fillRect(left + w - 12, top + 31, 4, l - 44);
+  ctx.fillStyle = BUS_LOOKS.double.roof;
+  for (let y = top + 38; y < top + l - 14; y += 12) {
+    ctx.fillRect(left + 8, y, 4, 2);
+    ctx.fillRect(left + w - 12, y, 4, 2);
+  }
+  fillRoundRect(ctx, '#d7ccb8', left + 18, top + 40, w - 36, 12, 2);
+  fillRoundRect(ctx, '#d7ccb8', left + 18, top + 62, w - 36, 12, 2);
+  ctx.strokeStyle = '#bfb39d';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(left + 18.5, top + 40.5, w - 37, 11);
+  ctx.strokeRect(left + 18.5, top + 62.5, w - 37, 11);
+}
+
+/** Electric bus roof: battery packs with a lightning bolt, plus a charging rail. */
+function drawElectricRoof(ctx, x, left, top, w, l) {
+  fillRoundRect(ctx, '#3a4248', left + 11, top + 34, w - 22, 34, 4);
+  ctx.strokeStyle = '#59636b';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, top + 35);
+  ctx.lineTo(x, top + 67);
+  ctx.stroke();
+  ctx.fillStyle = '#ffd34d';
+  ctx.beginPath(); // bolt
+  ctx.moveTo(x + 3, top + 40);
+  ctx.lineTo(x - 5, top + 52);
+  ctx.lineTo(x, top + 52);
+  ctx.lineTo(x - 3, top + 63);
+  ctx.lineTo(x + 5, top + 50);
+  ctx.lineTo(x, top + 50);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#8a959c';
+  ctx.fillRect(left + 14, top + l - 18, w - 28, 3);
+}
+
+/** Minibus roof: short panel with one hatch and a roof rail each side. */
+function drawMiniRoof(ctx, x, left, top, w, l) {
+  ctx.fillStyle = '#bfb39d';
+  ctx.fillRect(left + 9, top + 32, 2, l - 44);
+  ctx.fillRect(left + w - 11, top + 32, 2, l - 44);
+  fillRoundRect(ctx, '#d7ccb8', left + 15, top + 38, w - 30, 14, 3);
+}
+
+/**
+ * The player's bus, nose up, in the selected style (`busKey`, a BUSES key).
+ * `braking` lights the brake lamps; `angle` (radians) twists it about its
+ * centre for a banana skid.
+ */
+function drawBus(ctx, x, flashing, braking, angle = 0, busKey = 'single') {
+  const def = busDef(busKey);
+  const look = BUS_LOOKS[busKey] || BUS_LOOKS.single;
+  const w = def.width;
+  const l = def.length;
+  const left = x - w / 2;
+  const top = BUS_Y;
+  ctx.save();
+  if (angle) {
+    ctx.translate(x, top + l / 2);
+    ctx.rotate(angle);
+    ctx.translate(-x, -(top + l / 2));
+  }
+  if (flashing) ctx.globalAlpha = 0.4;
+  drawShadow(ctx, left, top, w, l, 10);
+  drawWheels(ctx, left, top, w, l, [0.2, 0.76]);
+  drawBody(ctx, look.body, left, top, w, l, busKey === 'minibus' ? 12 : 10);
+  drawMirrors(ctx, left - 1, top + 6, w + 2, look.body);
+
+  // Windscreen across the nose.
+  quad(ctx, left + 5, left + w - 5, top + 4, left + 6, left + w - 6, top + 15);
+  drawGlass(ctx);
+  ctx.fillStyle = GLASS_SHINE;
+  quad(ctx, left + 10, left + 17, top + 5, left + 12, left + 18, top + 14);
+  ctx.fill();
+
+  // Side window strips with pillars.
+  ctx.fillStyle = GLASS;
+  for (let y = top + 20; y < top + l - 14; y += 13) {
+    ctx.fillRect(left + 2, y, 4, 10);
+    ctx.fillRect(left + w - 6, y, 4, 10);
+  }
+
+  // Roof, destination sign, then each bus's own roof kit.
+  fillRoundRect(ctx, look.roof, left + 7, top + 17, w - 14, l - 28, 5);
+  drawDestinationSign(ctx, x, top + 19, w - 24);
+  if (busKey === 'double') drawDoubleRoof(ctx, x, left, top, w, l);
+  else if (busKey === 'electric') drawElectricRoof(ctx, x, left, top, w, l);
+  else if (busKey === 'minibus') drawMiniRoof(ctx, x, left, top, w, l);
+  else drawSingleRoof(ctx, x, left, top, w);
+
+  // Engine grille (none on the electric) and lamps at the rear.
+  if (busKey !== 'electric') {
+    ctx.fillStyle = shade(look.body, -0.3);
+    for (let gx = left + 14; gx < left + w - 14; gx += 4) ctx.fillRect(gx, top + l - 8, 2, 5);
+  }
   ctx.fillStyle = HEADLIGHT;
   ctx.fillRect(left + 4, top + 1, 9, 3);
   ctx.fillRect(left + w - 13, top + 1, 9, 3);
@@ -1040,6 +1189,36 @@ function drawBus(ctx, x, flashing, braking, angle = 0) {
   ctx.fillRect(left + w - 13, top + l - 4, 9, 3);
   ctx.globalAlpha = 1;
   ctx.restore();
+}
+
+/** Green stink lines and buzzing flies around a bus slowed by garbage. */
+function drawStink(ctx, x, t, busKey) {
+  const l = busDef(busKey).length;
+  const cy = BUS_Y + l / 2;
+  ctx.strokeStyle = 'rgba(150,180,90,0.7)';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const k = (t * 0.9 + i / 3) % 1;
+    const sx = x + (i - 1) * 16;
+    ctx.globalAlpha = 1 - k;
+    ctx.beginPath();
+    for (let j = 0; j <= 6; j++) {
+      const yy = BUS_Y + l * 0.3 - k * 40 - j * 4;
+      const xx = sx + Math.sin(j * 1.3 + t * 6 + i) * 3;
+      if (j === 0) ctx.moveTo(xx, yy);
+      else ctx.lineTo(xx, yy);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#1f1d1b';
+  for (let i = 0; i < 4; i++) {
+    const a = t * (5 + i) + i * 1.7;
+    ctx.beginPath();
+    ctx.arc(x + Math.cos(a) * (34 + i * 3), cy + Math.sin(a * 1.3) * (l / 2 + 6), 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 /** Sparks and debris: { x, y, vx, vy, life, max, size, color } in canvas px/s. */
@@ -1130,6 +1309,7 @@ function init(canvas, el) {
 
   function renderStart() {
     el.start.tokens.textContent = progress.tokens;
+    if (el.start.bus) el.start.bus.textContent = busDef(progress.bus).label;
     el.start.bestScore.textContent = progress.bestScore;
     el.start.bestDistance.textContent = `${progress.bestDistance} m`;
     if (el.start.storageNotice) el.start.storageNotice.classList.toggle('hidden', hasStorage);
@@ -1144,6 +1324,15 @@ function init(canvas, el) {
       item.cost.textContent = cost === null ? '—' : cost;
       item.buy.disabled = !canBuy(key, lvl, progress.tokens);
       item.buy.textContent = cost === null ? 'Maxed' : 'Buy';
+    });
+    Object.entries(el.shop.buses).forEach(([key, item]) => {
+      const owned = progress.buses.includes(key);
+      const selected = progress.bus === key;
+      const cost = BUSES[key].cost;
+      item.cost.textContent = owned ? 'Owned' : `${cost} tok`;
+      item.button.textContent = selected ? 'Driving' : owned ? 'Drive' : 'Buy';
+      item.button.disabled = selected || (!owned && progress.tokens < cost);
+      item.row.classList.toggle('border-primary', selected);
     });
   }
 
@@ -1169,7 +1358,7 @@ function init(canvas, el) {
     const stars = r ? wantedLevel(r.distance, r.fares) : 0;
     el.hud.level.textContent = r ? r.level + 1 : 1;
     el.hud.wanted.textContent = '★'.repeat(stars) + '☆'.repeat(WANTED_MAX - stars);
-    el.hud.lives.textContent = r ? r.lives : maxLives(progress.upgrades.bumpers);
+    el.hud.lives.textContent = r ? r.lives : maxLives(progress.upgrades.bumpers, progress.bus);
     el.hud.fares.textContent = r ? r.fares : 0;
   }
 
@@ -1181,14 +1370,15 @@ function init(canvas, el) {
       distance: 0,
       speed: MIN_SPEED,
       fares: 0,
-      lives: maxLives(progress.upgrades.bumpers),
+      lives: maxLives(progress.upgrades.bumpers, progress.bus),
       grace: 0,
       lane: 1,
       busX: laneCenter(1),
       vehicles: [],
       fareItems: [],
-      bananas: [],
+      spills: [],
       skid: 0,
+      slow: 0,
       sinceRow: 0,
       prevOpen: null,
       scroll: 0,
@@ -1255,7 +1445,7 @@ function init(canvas, el) {
     r.grace = HIT_GRACE_SECONDS;
     if (r.lives <= 0) {
       r.busted = Boolean(vehicle && vehicle.police);
-      r.killedBy = vehicle && vehicle.lethal && !r.busted ? vehicle.kind : null;
+      r.killedBy = vehicle && vehicle.lethal && !r.busted ? vehicle.label || vehicle.kind : null;
       endRun();
     }
   }
@@ -1277,7 +1467,9 @@ function init(canvas, el) {
       r.vehicles.push({
         kind: kind.kind,
         lethal: Boolean(kind.lethal),
-        drops: bananaDrops(Math.random, kind),
+        drops: spillDrops(Math.random, kind),
+        spills: kind.spills,
+        label: kind.label || kind.kind,
         x: laneCenter(lane),
         y: -kind.length + overshoot,
         width: kind.width,
@@ -1299,7 +1491,11 @@ function init(canvas, el) {
 
   function update(dt) {
     const r = run;
-    r.speed = stepSpeed(r.speed, input, dt, progress.upgrades.engine, r.level);
+    r.slow = Math.max(0, r.slow - dt);
+    r.speed = stepSpeed(r.speed, input, dt, progress.upgrades.engine, r.level, {
+      accel: busDef(progress.bus).accel,
+      slowed: r.slow > 0,
+    });
     r.distance = Math.min(r.distance + r.speed * dt, DISTANCE_MAX);
     r.grace = Math.max(0, r.grace - dt);
     r.scroll += r.speed * dt * PX_PER_METER;
@@ -1308,13 +1504,13 @@ function init(canvas, el) {
     // Lane change: slide toward the target lane at one lane per
     // laneChangeSeconds.
     const targetX = laneCenter(r.lane);
-    const step = (LANE_WIDTH / laneChangeSeconds(progress.upgrades.steering)) * dt;
+    const step = (LANE_WIDTH / laneChangeSeconds(progress.upgrades.steering, progress.bus)) * dt;
     r.busX = Math.abs(targetX - r.busX) <= step ? targetX : r.busX + Math.sign(targetX - r.busX) * step;
 
     // Traffic and fares close in at the bus's speed plus traffic's own.
     const closing = (r.speed + TRAFFIC_SPEED) * dt * PX_PER_METER;
     r.vehicles.forEach((v) => { v.y += closing; });
-    updateBananas(r, dt);
+    updateSpills(r, dt);
     r.fareItems.forEach((f) => { f.y += closing; });
     r.vehicles = r.vehicles.filter((v) => v.y < HEIGHT);
     r.fareItems = r.fareItems.filter((f) => f.y - FARE_RADIUS < HEIGHT);
@@ -1327,7 +1523,8 @@ function init(canvas, el) {
     }
 
     // Slightly forgiving hitboxes so a near-miss reads as a near-miss.
-    const bus = { x: r.busX - BUS_WIDTH / 2 + 5, y: BUS_Y + 6, w: BUS_WIDTH - 10, h: BUS_LENGTH - 10 };
+    const dims = busDef(progress.bus);
+    const bus = { x: r.busX - dims.width / 2 + 5, y: BUS_Y + 6, w: dims.width - 10, h: dims.length - 10 };
     for (const v of r.vehicles) {
       if (rectsOverlap(bus, { x: v.x - v.width / 2 + 3, y: v.y + 3, w: v.width - 6, h: v.length - 6 })) {
         hit(r, v);
@@ -1337,11 +1534,20 @@ function init(canvas, el) {
     updatePolice(r, dt, bus);
     if (r.status !== 'playing') return;
 
+    // Run over garbage: top speed halved for a while (refreshed by more).
+    const trash = r.spills.find((b) => b.kind === 'garbage' && rectsOverlap(bus, bananaBox(b)));
+    if (trash) {
+      r.spills = r.spills.filter((b) => b !== trash);
+      r.slow = GARBAGE_SLOW_SECONDS;
+      burst(effects, trash.x, trash.y, ['#3b3f36', '#6b7a4f', '#c9b48a', '#8a8276'], 12, 200, 5);
+      effects.push({ x: r.busX, y: BUS_Y - 14, vx: 0, vy: -60, life: 0.9, max: 0.9, text: 'SLOWED!', color: '#b9d48a' });
+    }
+
     // Run over a banana: skid one lane over, steering locked meanwhile.
     if (r.skid <= 0) {
-      const slipped = r.bananas.find((b) => rectsOverlap(bus, bananaBox(b)));
+      const slipped = r.spills.find((b) => b.kind === 'banana' && rectsOverlap(bus, bananaBox(b)));
       if (slipped) {
-        r.bananas = r.bananas.filter((b) => b !== slipped);
+        r.spills = r.spills.filter((b) => b !== slipped);
         r.skid = SKID_SECONDS;
         r.lane = skidLane(r.lane, Math.random);
         burst(effects, slipped.x, slipped.y, ['#f2d34c', '#b8860b', '#fff6c2'], 10, 200, 4);
@@ -1371,8 +1577,8 @@ function init(canvas, el) {
     if (lvl !== r.level) {
       const points = checkpointPoints(lvl);
       r.bonus += points;
-      const refilled = r.lives < maxLives(progress.upgrades.bumpers);
-      r.lives = maxLives(progress.upgrades.bumpers);
+      const refilled = r.lives < maxLives(progress.upgrades.bumpers, progress.bus);
+      r.lives = maxLives(progress.upgrades.bumpers, progress.bus);
       // A kick of speed on entry; the higher floor/ceiling keep it after.
       r.speed = Math.min(r.speed + LEVEL_SPEED_STEP * 2, maxSpeed(progress.upgrades.engine, lvl));
       r.fadeFrom = r.level;
@@ -1386,17 +1592,19 @@ function init(canvas, el) {
   }
 
   /**
-   * Leaky trucks/semis drop a banana from their rear each time it passes one
-   * of their `drops` heights. A dropped banana lies still on the road — it
-   * scrolls at the bus's speed, slower than traffic, so it falls in behind
-   * its truck — after a brief slide and spin as it slips out.
+   * Leaky trucks drop their spill (bananas, or garbage from a garbage
+   * truck) from their rear each time they pass one of their `drops`
+   * heights. A dropped spill lies still on the road — it scrolls at the
+   * bus's speed, slower than traffic, so it falls in behind its truck —
+   * after a brief slide and spin as it slips out.
    */
-  function updateBananas(r, dt) {
+  function updateSpills(r, dt) {
     r.skid = Math.max(0, r.skid - dt);
     for (const v of r.vehicles) {
       while (v.drops && v.drops.length && v.y >= v.drops[0]) {
         v.drops.shift();
-        r.bananas.push({
+        r.spills.push({
+          kind: v.spills,
           x: v.x + (Math.random() - 0.5) * 14,
           y: v.y - 4,
           vx: (Math.random() - 0.5) * 90,
@@ -1407,14 +1615,14 @@ function init(canvas, el) {
     }
     const scroll = r.speed * PX_PER_METER * dt;
     const settle = Math.max(0, 1 - 4 * dt);
-    for (const b of r.bananas) {
+    for (const b of r.spills) {
       b.y += scroll;
       b.x += b.vx * dt;
       b.angle += b.spin * dt;
       b.vx *= settle;
       b.spin *= settle;
     }
-    r.bananas = r.bananas.filter((b) => b.y < HEIGHT + 10);
+    r.spills = r.spills.filter((b) => b.y < HEIGHT + 20);
   }
 
   function spawnPolice(r, lane, y) {
@@ -1448,7 +1656,7 @@ function init(canvas, el) {
   function updatePolice(r, dt, bus) {
     const wanted = wantedLevel(r.distance, r.fares);
     r.policeTimer -= dt;
-    if (r.policeTimer <= 0 && r.police.length < maxPolice(wanted)) {
+    if (!r.noPolice && r.policeTimer <= 0 && r.police.length < maxPolice(wanted)) {
       r.policeTimer = POLICE_SPAWN_SECONDS;
       const lane = Math.min(Math.max(r.lane + Math.floor(Math.random() * 3) - 1, 0), LANES - 1);
       spawnPolice(r, lane, HEIGHT + 20);
@@ -1485,9 +1693,9 @@ function init(canvas, el) {
     // which can throw them into traffic (a wreck) or into the bus (Busted).
     for (const p of r.police) {
       if (p.skid > 0) continue;
-      const slipped = r.bananas.find((b) => rectsOverlap(box(p), bananaBox(b)));
+      const slipped = r.spills.find((b) => b.kind === 'banana' && rectsOverlap(box(p), bananaBox(b)));
       if (!slipped) continue;
-      r.bananas = r.bananas.filter((b) => b !== slipped);
+      r.spills = r.spills.filter((b) => b !== slipped);
       p.skid = SKID_SECONDS;
       p.lane = skidLane(p.lane, Math.random);
       burst(effects, slipped.x, slipped.y, ['#f2d34c', '#b8860b', '#fff6c2'], 8, 180, 4);
@@ -1527,7 +1735,7 @@ function init(canvas, el) {
     }
     if (r) {
       r.wrecks.forEach((wk) => drawWreck(ctx, wk, t));
-      r.bananas.forEach((b) => drawBanana(ctx, b));
+      r.spills.forEach((b) => (b.kind === 'garbage' ? drawGarbage(ctx, b) : drawBanana(ctx, b)));
       r.fareItems.forEach((f) => drawFare(ctx, f, t));
       r.vehicles.forEach((v) => drawVehicle(ctx, v, t));
       r.police.forEach((p) => {
@@ -1536,9 +1744,10 @@ function init(canvas, el) {
       });
       const flashing = r.grace > 0 && Math.floor(r.grace * 10) % 2 === 0;
       const wobble = r.skid > 0 ? Math.sin(r.skid * 40) * 0.3 * (r.skid / SKID_SECONDS) : 0;
-      drawBus(ctx, r.busX, flashing, r.status === 'playing' && input.brake, wobble);
+      drawBus(ctx, r.busX, flashing, r.status === 'playing' && input.brake, wobble, progress.bus);
+      if (r.slow > 0) drawStink(ctx, r.busX, t, progress.bus);
     } else {
-      drawBus(ctx, laneCenter(1), false, false);
+      drawBus(ctx, laneCenter(1), false, false, 0, progress.bus);
     }
     drawEffects(ctx, effects);
     if (r && r.banner) drawBanner(ctx, r.banner);
@@ -1644,6 +1853,21 @@ function init(canvas, el) {
     renderShop();
     renderHud();
   });
+  // Buying a bus also selects it; an owned bus is selected for free.
+  Object.entries(el.shop.buses).forEach(([key, item]) => {
+    item.button.addEventListener('click', () => {
+      if (!progress.buses.includes(key)) {
+        if (progress.tokens < BUSES[key].cost) return;
+        progress.tokens -= BUSES[key].cost;
+        progress.buses.push(key);
+      }
+      progress.bus = key;
+      saveProgress(progress);
+      renderShop();
+      renderStart();
+      renderHud();
+    });
+  });
   Object.entries(el.shop.items).forEach(([key, item]) => {
     item.buy.addEventListener('click', () => {
       const cost = upgradeCost(key, progress.upgrades[key]);
@@ -1691,7 +1915,11 @@ function init(canvas, el) {
         kmh: toKmh(run.speed),
         lane: run.lane,
         skidding: run.skid > 0,
-        bananas: run.bananas.length,
+        bananas: run.spills.filter((b) => b.kind === 'banana').length,
+        garbage: run.spills.filter((b) => b.kind === 'garbage').length,
+        slowed: run.slow > 0,
+        bus: progress.bus,
+        lives: run.lives,
         policeLanes: run.police.map((p) => p.lane),
         policeSkidding: run.police.filter((p) => p.skid > 0).length,
         wanted: wantedLevel(run.distance, run.fares),
@@ -1706,7 +1934,18 @@ function init(canvas, el) {
     // run it over through the real skid path.
     banana() {
       if (!run || run.status !== 'playing') return;
-      run.bananas.push({ x: laneCenter(run.lane), y: BUS_Y - 20, vx: 0, angle: 0, spin: 0 });
+      run.spills.push({ kind: 'banana', x: laneCenter(run.lane), y: BUS_Y - 20, vx: 0, angle: 0, spin: 0 });
+    },
+    // Stops police spawning (and clears any) to isolate other mechanics.
+    noPolice() {
+      if (!run) return;
+      run.noPolice = true;
+      run.police = [];
+    },
+    // Drops a garbage pile just ahead of the bus in its lane.
+    garbage() {
+      if (!run || run.status !== 'playing') return;
+      run.spills.push({ kind: 'garbage', x: laneCenter(run.lane), y: BUS_Y - 20, vx: 0, angle: 0, spin: 0 });
     },
     // A cruiser in the bus's lane, behind it and not re-aiming, with a
     // banana just ahead of its nose — it runs the banana over through the
@@ -1718,7 +1957,7 @@ function init(canvas, el) {
       const y = BUS_Y + BUS_LENGTH + 60;
       spawnPolice(run, run.lane, y);
       run.police[run.police.length - 1].retarget = 99;
-      run.bananas.push({ x: laneCenter(run.lane), y: y - 12, vx: 0, angle: 0, spin: 0 });
+      run.spills.push({ kind: 'banana', x: laneCenter(run.lane), y: y - 12, vx: 0, angle: 0, spin: 0 });
     },
     policeRam() {
       if (!run || run.status !== 'playing') return;
@@ -1793,6 +2032,12 @@ function bootstrap() {
       buy: row.querySelector('[data-upgrade-buy]'),
     };
   });
+  const buses = {};
+  Object.keys(BUSES).forEach((key) => {
+    const row = shopRoot && shopRoot.querySelector(`[data-bus-key="${key}"]`);
+    if (!row) return;
+    buses[key] = { row, cost: row.querySelector('[data-bus-cost]'), button: row.querySelector('[data-bus-select]') };
+  });
   const submit = $('bus-rush-submit-button');
 
   init(canvas, {
@@ -1812,6 +2057,7 @@ function bootstrap() {
       bestDistance: $('bus-rush-start-best-distance'),
       storageNotice: $('bus-rush-storage-notice'),
       startButton: $('bus-rush-start-button'),
+      bus: $('bus-rush-start-bus'),
       shopButton: $('bus-rush-start-shop-button'),
     },
     runOver: {
@@ -1836,6 +2082,7 @@ function bootstrap() {
       close: $('bus-rush-shop-close-button'),
       reset: $('bus-rush-shop-reset-button'),
       items,
+      buses,
     },
     controls: [...document.querySelectorAll('[data-bus-rush-control]')],
   });

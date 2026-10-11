@@ -48,8 +48,9 @@ export const UPGRADES = {
 export const VEHICLES = [
   { kind: 'car', length: 64, width: 50, minDistance: 0 },
   { kind: 'van', length: 82, width: 56, minDistance: 300 },
-  { kind: 'truck', length: 118, width: 62, minDistance: 800, lethal: true },
-  { kind: 'semi', length: 170, width: 64, minDistance: 1500, lethal: true },
+  { kind: 'garbage', label: 'garbage truck', length: 110, width: 60, minDistance: 500, lethal: true, spills: 'garbage' },
+  { kind: 'truck', length: 118, width: 62, minDistance: 800, lethal: true, spills: 'banana' },
+  { kind: 'semi', length: 170, width: 64, minDistance: 1500, lethal: true, spills: 'banana' },
 ];
 
 function level(n, max) {
@@ -74,18 +75,29 @@ export function maxSpeed(engineLevel, levelIndex = 0) {
   return BASE_MAX_SPEED + level(engineLevel, UPGRADES.engine.maxLevel) * ENGINE_SPEED_STEP + levelSpeedBonus(levelIndex);
 }
 
+/** Top speed while slowed by garbage: halved, never below the district's floor. */
+export function slowedTopSpeed(engineLevel, levelIndex = 0) {
+  return Math.max(minSpeed(levelIndex), maxSpeed(engineLevel, levelIndex) * GARBAGE_SPEED_FACTOR);
+}
+
 /**
- * Advances speed by one frame: holding accelerate speeds up, brake slows
- * down (brake wins if both are held), neither holds speed. Always clamped
- * to [minSpeed(levelIndex), maxSpeed(engineLevel, levelIndex)].
+ * Advances speed by one frame: holding accelerate speeds up (scaled by the
+ * bus's `accel`), brake slows down (brake wins if both are held), neither
+ * holds speed. While `slowed`, anything above slowedTopSpeed bleeds off at
+ * braking rate rather than snapping down. Always clamped to
+ * [minSpeed(levelIndex), maxSpeed(engineLevel, levelIndex)].
  */
-export function stepSpeed(speed, input, dt, engineLevel, levelIndex = 0) {
+export function stepSpeed(speed, input, dt, engineLevel, levelIndex = 0, { accel = 1, slowed = false } = {}) {
   const floor = minSpeed(levelIndex);
-  let next = Number.isFinite(speed) ? speed : floor;
+  const ceiling = maxSpeed(engineLevel, levelIndex);
+  const cap = slowed ? slowedTopSpeed(engineLevel, levelIndex) : ceiling;
+  const start = Number.isFinite(speed) ? speed : floor;
+  let next = start;
   const step = Number.isFinite(dt) && dt > 0 ? dt : 0;
   if (input && input.brake) next -= BRAKING * step;
-  else if (input && input.accelerate) next += ACCELERATION * step;
-  return Math.min(Math.max(next, floor), maxSpeed(engineLevel, levelIndex));
+  else if (input && input.accelerate) next += ACCELERATION * accel * step;
+  if (next > cap) next = Math.max(cap, Math.min(next, start - BRAKING * step));
+  return Math.min(Math.max(next, floor), ceiling);
 }
 
 /** m/s → whole km/h for the HUD. */
@@ -93,14 +105,33 @@ export function toKmh(speed) {
   return Math.round(speed * 3.6);
 }
 
-/** Seconds a lane change takes at a Steering level. */
-export function laneChangeSeconds(steeringLevel) {
-  return Math.max(0.1, 0.24 - level(steeringLevel, UPGRADES.steering.maxLevel) * 0.035);
+/**
+ * Player buses: bought once in the depot shop, then selectable. Every bus
+ * fits within BUS_LENGTH and none steers slower than the single-decker, so
+ * the row-spacing guarantee ("every row is passable") holds for all of
+ * them. `lives` adds to the starting lives, `steer` scales lane-change time
+ * (lower is quicker), `accel` scales acceleration.
+ */
+export const BUSES = {
+  single: { label: 'Single-decker', cost: 0, length: 88, width: 54, lives: 0, steer: 1, accel: 1 },
+  minibus: { label: 'Minibus', cost: 60, length: 70, width: 46, lives: -1, steer: 0.75, accel: 1 },
+  double: { label: 'Double-decker', cost: 100, length: 88, width: 56, lives: 1, steer: 1, accel: 0.7 },
+  electric: { label: 'Electric bus', cost: 150, length: 88, width: 54, lives: 0, steer: 1, accel: 1.6 },
+};
+
+/** A bus's definition; anything unknown is the single-decker. */
+export function busDef(key) {
+  return Object.prototype.hasOwnProperty.call(BUSES, key) ? BUSES[key] : BUSES.single;
 }
 
-/** Lives at the start of a run for a Bumpers level. */
-export function maxLives(bumpersLevel) {
-  return BASE_LIVES + level(bumpersLevel, UPGRADES.bumpers.maxLevel);
+/** Seconds a lane change takes at a Steering level, for a bus. */
+export function laneChangeSeconds(steeringLevel, busKey = 'single') {
+  return Math.max(0.1, 0.24 - level(steeringLevel, UPGRADES.steering.maxLevel) * 0.035) * busDef(busKey).steer;
+}
+
+/** Lives at the start of a run for a Bumpers level and bus — always at least one. */
+export function maxLives(bumpersLevel, busKey = 'single') {
+  return Math.max(1, BASE_LIVES + level(bumpersLevel, UPGRADES.bumpers.maxLevel) + busDef(busKey).lives);
 }
 
 /** Tokens each collected fare is worth at a Fare Box level. */
@@ -246,31 +277,40 @@ export function rowSpacingPx(distanceMeters) {
 }
 
 // ---------------------------------------------------------------------------
-// Bananas — cargo that slips out of the back of trucks and semis.
+// Spills — cargo that slips out of the back of trucks: bananas from trucks
+// and semis, garbage from garbage trucks.
 // ---------------------------------------------------------------------------
 
-/** Chance a truck/semi is a leaky one that drops bananas. */
-export const BANANA_TRUCK_CHANCE = 0.6;
+/** Per spill kind: chance a truck carrying it leaks, and most it drops. */
+export const SPILLS = {
+  banana: { chance: 0.6, max: 2 },
+  garbage: { chance: 0.8, max: 3 },
+};
 
 /**
- * Screen y range (px, the truck's rear) where bananas may drop. The floor
- * keeps every banana high enough up the screen to be seen and dodged; a
- * dropped banana lies still, so it then scrolls down at the bus's speed.
+ * Screen y range (px, the truck's rear) where spills may drop. The floor
+ * keeps every spill high enough up the screen to be seen and dodged; a
+ * dropped spill lies still, so it then scrolls down at the bus's speed.
  */
 export const BANANA_DROP_MIN_Y = 20;
 export const BANANA_DROP_MAX_Y = 220;
+
+/** Garbage: how long it slows the bus, and the top-speed factor meanwhile. */
+export const GARBAGE_SLOW_SECONDS = 5.5;
+export const GARBAGE_SPEED_FACTOR = 0.5;
 
 /** Seconds the bus skids (steering locked) after running over a banana. */
 export const SKID_SECONDS = 0.5;
 
 /**
- * The rear-y positions at which one vehicle drops bananas, sorted: none for
- * anything not lethal (only trucks and semis carry cargo), none for a
- * non-leaky truck, otherwise 1–2 within [BANANA_DROP_MIN_Y, BANANA_DROP_MAX_Y].
+ * The rear-y positions at which one vehicle drops its spill, sorted: none
+ * for a vehicle without `spills` or a non-leaky one, otherwise 1..max of
+ * that spill kind within [BANANA_DROP_MIN_Y, BANANA_DROP_MAX_Y].
  */
-export function bananaDrops(rng, vehicle) {
-  if (!vehicle || !vehicle.lethal || vehicle.police || rng() >= BANANA_TRUCK_CHANCE) return [];
-  const count = 1 + Math.floor(rng() * 2);
+export function spillDrops(rng, vehicle) {
+  const spec = vehicle && SPILLS[vehicle.spills];
+  if (!spec || rng() >= spec.chance) return [];
+  const count = 1 + Math.floor(rng() * spec.max);
   return Array.from({ length: count }, () => BANANA_DROP_MIN_Y + rng() * (BANANA_DROP_MAX_Y - BANANA_DROP_MIN_Y))
     .sort((a, b) => a - b);
 }

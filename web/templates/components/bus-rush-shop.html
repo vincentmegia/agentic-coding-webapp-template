@@ -1,6 +1,7 @@
-{{/* Bus Rush depot shop overlay (docs/features/bus-rush.md). Each row's
-     data-upgrade-key must match a key in web/static/js/busrush/rules.js's
-     UPGRADES; bus-rush.js fills in level/cost and enables/disables Buy. */}}
+{{/* Bus Rush depot shop overlay (docs/features/bus-rush.md). Each bus row's
+     data-bus-key must match a key in web/static/js/busrush/rules.js's
+     BUSES, and each upgrade row's data-upgrade-key a key in UPGRADES;
+     bus-rush.js fills in costs/levels and the Buy/Drive buttons. */}}
 {{define "bus-rush-shop"}}
 <div id="bus-rush-shop-screen" class="hidden absolute inset-0 overflow-y-auto p-4">
 	<div class="mx-auto w-full max-w-sm space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
@@ -16,6 +17,66 @@
 			<span class="text-muted">Tokens</span>
 			<span id="bus-rush-shop-tokens" class="font-mono tabular-nums text-ink">0</span>
 		</div>
+		<h3 class="text-sm font-semibold text-ink">Buses</h3>
+		<ul class="space-y-3">
+			<li data-bus-key="single" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Single-decker</p>
+						<p class="text-xs text-muted">The classic. Balanced in every way.</p>
+					</div>
+					<p data-bus-cost class="shrink-0 font-mono text-xs tabular-nums text-ink">0 tok</p>
+				</div>
+				<button
+					type="button"
+					data-bus-select
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Buy</button>
+			</li>
+			<li data-bus-key="minibus" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Minibus</p>
+						<p class="text-xs text-muted">Smaller, lane changes 25% quicker — but one fewer life</p>
+					</div>
+					<p data-bus-cost class="shrink-0 font-mono text-xs tabular-nums text-ink">0 tok</p>
+				</div>
+				<button
+					type="button"
+					data-bus-select
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Buy</button>
+			</li>
+			<li data-bus-key="double" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Double-decker</p>
+						<p class="text-xs text-muted">+1 life — but accelerates 30% slower</p>
+					</div>
+					<p data-bus-cost class="shrink-0 font-mono text-xs tabular-nums text-ink">0 tok</p>
+				</div>
+				<button
+					type="button"
+					data-bus-select
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Buy</button>
+			</li>
+			<li data-bus-key="electric" class="rounded-card border border-line p-3">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-sm font-medium text-ink">Electric bus</p>
+						<p class="text-xs text-muted">Accelerates 60% faster</p>
+					</div>
+					<p data-bus-cost class="shrink-0 font-mono text-xs tabular-nums text-ink">0 tok</p>
+				</div>
+				<button
+					type="button"
+					data-bus-select
+					class="mt-2 w-full rounded-card bg-primary px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>Buy</button>
+			</li>
+		</ul>
+		<h3 class="text-sm font-semibold text-ink">Upgrades</h3>
 		<ul class="space-y-3">
 			<li data-upgrade-key="engine" class="rounded-card border border-line p-3">
 				<div class="flex items-start justify-between gap-3">
