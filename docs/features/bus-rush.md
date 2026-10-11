@@ -10,11 +10,11 @@ screenshot yet (placeholder tile).
 ## Summary
 
 A top-down canvas driving game at `/bus-rush`: the player has stolen a bus
-and flees the police across four lanes of oncoming traffic, collecting
-fares and dodging cars, vans and trucks while police cruisers chase from
-behind. Fares earn tokens, which are spent between runs in a
-depot shop on upgrades — chiefly a faster engine. A public Postgres
-leaderboard shows the best runs.
+and flees the police across four lanes of oncoming traffic and five
+Singapore districts (levels), collecting fares and dodging cars, vans and
+trucks while police cruisers chase from behind. Fares earn tokens, which
+are spent between runs in a depot shop on upgrades — chiefly a faster
+engine. A public Postgres leaderboard shows the best runs.
 
 ## Problem / Motivation
 
@@ -27,16 +27,26 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
 
 **In scope:**
 
-* Canvas game: four lanes, the bus near the bottom, traffic coming down the
+* Canvas game: four lanes, the bus in the lower part of the screen (with
+  room behind it for pursuing police), oncoming traffic coming down the
   screen toward it. Left/right changes lane; up/down accelerates/brakes.
+  Speed is manual — the bus holds whatever speed it has unless ↑ or ↓ is
+  held.
 * Speed is the core trade-off: driving faster covers more distance (score)
   but traffic arrives faster. The Engine upgrade raises top speed.
 * Fares (coins) spawn in lanes; collecting one adds to the run's fares.
 * Lives: a collision with a car or van costs one life, drops the bus to
-  minimum speed, and grants a short invulnerability window. The run ends at
-  zero lives.
+  the current district's speed floor, and grants a short invulnerability
+  window (`HIT_GRACE_SECONDS`). The run ends at zero lives.
 * Trucks (from 800 m) and semi trucks (from 1500 m) are lethal: touching
   one ends the run instantly, regardless of lives left or grace.
+* **Bananas**: some trucks and semis (60%) are leaky and drop 1–2
+  bananas from their rear as they come down the screen. A dropped banana
+  lies still on the road, so it falls in behind its truck. Running one
+  over makes the bus skid one lane left or right at random (inward at the
+  road edge), with steering locked for `SKID_SECONDS` (0.5 s) and a wobble.
+  It costs no life, but the skid can throw the bus into traffic or a
+  cruiser.
 * **Police pursuit** (the bus is stolen): cruisers close in from behind
   whenever they're faster than the bus and re-aim at its lane after a short
   reaction delay. Police are **lethal**: any contact with a cruiser,
@@ -50,17 +60,14 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
 * **Levels** (districts in one continuous run): every 800 m
   (`LEVEL_DISTANCE`) the bus escapes into the next of five districts —
   CBD → Heartland → Expressway → Industrial → Changi (the last is
-  endless). Each has its own scenery (office rooftops with street trees, rain trees and bus
-  shelters, guardrails and yellow edge lines, shipping containers and
-  hazard kerbs and street trees, a pink-blooming tree avenue). Trees
-  are sized to overhang the footpath and kerb so they read at the canvas edge, crossfaded on entry with a
-  "LEVEL n / district" banner and a checkpoint bonus (250 × district
-  index). Entering a district refills lives to full (`maxLives`, so
-  Bumpers count) and makes the bus faster: each district raises both the
-  speed floor and top speed by `LEVEL_SPEED_STEP` (1.5 m/s, ~5 km/h), with
-  an extra kick of speed on entry. A hit drops you to the district's
-  floor, not the first district's. Each district starts the wanted level one star higher; every
-  10 fares adds another.
+  endless). Each has its own scenery (see UI's Art style), crossfaded on
+  entry with a "LEVEL n / district" banner and a checkpoint bonus
+  (250 × district index). Entering a district refills lives to full
+  (`maxLives`, so Bumpers count) and makes the bus faster: each district
+  raises both the speed floor and top speed by `LEVEL_SPEED_STEP`
+  (1.5 m/s, ~5 km/h), with an extra kick of 2 × that on entry. Each
+  district starts the wanted level one star higher; every 10 fares adds
+  another.
 * Depot shop between runs (tokens → leveled upgrades): Engine (top speed),
   Steering (faster lane changes), Bumpers (+1 life), Fare Box (more tokens
   per fare).
@@ -85,10 +92,16 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
 
 ```text
 1. Visitor opens /bus-rush (or "Play now" on /projects).
-2. Start screen shows tokens, best score, best distance; "Start Run" / "Depot Shop".
-3. Run: traffic and fares scroll down; the player switches lanes and manages speed.
-4. Each hit costs a life; at zero lives the Run Over screen shows distance,
-   fares, score and tokens earned, with an optional leaderboard submit.
+2. Start screen ("Hot-wired and ready?") shows tokens, best score, best
+   distance and the controls; "Start Run" / "Depot Shop".
+3. Run: a "LEVEL 1 / CBD" banner, then traffic and fares scroll down while
+   police close in from behind; the player switches lanes and manages
+   speed. Every 800 m a new district begins (banner, bonus, lives refilled).
+4. A car/van hit costs a life; a truck, semi or any police car ends the run
+   at once. When the run ends, the Run Over screen ("Busted!" / "Flattened
+   by a truck!" / "New best run!") shows distance, fares, level reached,
+   police wrecked, score and tokens earned, with an optional leaderboard
+   submit.
 5. "Depot Shop" spends tokens on upgrades; "Drive Again" starts a new run.
 ```
 
@@ -107,18 +120,44 @@ web/static/js/
 └── busrush/rules.js (+ rules.test.js) (pure game rules, `node --test`)
 ```
 
+**HUD** (above the canvas): Distance, Speed (km/h), Score, Lives, Fares,
+Level (district number) and Wanted (★☆☆☆☆). Four per row on mobile,
+all seven in one row from `sm`.
+
+**Run Over** overlay: title, Distance, Fares collected, Level reached
+("3 · Expressway"), Police wrecked, Score, Tokens earned, the leaderboard
+form, and "Drive Again" / "Depot Shop".
+
 **Art style**: flat top-down vector art in the site's warm Organic
-palette, lit from the top-left. The static roadside (grass verge, paved
-footpath, striped kerbs, trees, street lamps, bus shelters with yellow
-zigzag bays, asphalt grain/cracks/manholes, lane paint) is painted once
-into a seeded offscreen tile (`buildScenery`) that scrolls seamlessly, so
-per-frame cost stays small. Vehicles are drawn live with body shading,
-glass, wheels, mirrors and lights; about 15% of cars are taxis. Trucks and
-semis carry red/white rear chevrons and side tape to show they're lethal.
-Coins spin, the bus's brake lights come on when braking, fare pickups
-throw sparks and a "+$", and hits shake the screen and scatter debris. The
-canvas is backed at `devicePixelRatio` (capped at 2) so it stays sharp on
-high-DPI screens.
+palette, lit from the top-left. Each district's static roadside and road
+surface is painted once into a seeded offscreen tile (`buildScenery`,
+themed by `DISTRICTS`) that scrolls seamlessly, so per-frame cost stays
+small; tiles are built on first use and pre-warmed just before each
+district boundary. Shared across districts: asphalt grain, cracks, patches,
+manholes, worn lane paint, striped kerbs and street lamps. Per district:
+
+| District | Roadside |
+| --- | --- |
+| CBD | plaza paving, office-tower rooftops (aircon units, water tanks), street trees in planters, bus shelters with yellow zigzag bays |
+| Heartland | grass verge, rain trees (some in bloom), shrubs, bus shelters |
+| Expressway | guardrails instead of footpaths, yellow edge lines, trees, lamps twice as often |
+| Industrial | dusty verge, stacked shipping containers, yellow/black hazard kerbs, street trees |
+| Changi | a dense avenue of trees with pink bougainvillea blooms |
+
+Trees are sized to overhang the footpath and kerb so they read at the
+canvas edge. Vehicles are drawn live with body shading, glass, wheels,
+mirrors and lights; about 15% of cars are taxis. Trucks and semis carry
+red/white rear chevrons and side tape to show they're lethal. Police
+cruisers are white with a chequered navy livery and a flashing red/blue
+light bar (pursuers face up the screen, roadblock cars face down); a
+pursuer still off-screen shows as a red/blue glow on the bottom edge, and
+a wrecked cruiser is left charred and smoking. Bananas are curved yellow
+peels with brown tips that spin out of a truck's back; a skid twists the
+bus and pops a "SKID!" label. Coins spin, the bus's brake
+lights come on when braking, fare pickups throw sparks and a "+$", hits
+shake the screen and scatter debris, and the level banner fades in and out
+across the road. The canvas is backed at `devicePixelRatio` (capped at 2)
+so it stays sharp on high-DPI screens.
 
 | State             | Behavior |
 | ----------------- | -------- |
@@ -173,18 +212,30 @@ Index on `score DESC` for the top-N query.
 All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
 *shape* is what's fixed:
 
-* **Speed**: between a floor (`MIN_SPEED`) and `maxSpeed(engineLevel)`.
-  Holding up accelerates, down brakes, neither holds speed. A hit resets
-  speed to the floor.
-* **Traffic**: vehicles move down the screen at the bus's speed minus their
-  own (slower) speed, so they always close in, faster when the bus is faster.
-  Spawns come in rows; a row never blocks all four lanes
-  (`pickBlockedLanes`), so every row is passable. The spawn gap shrinks with
-  distance down to a minimum (`spawnGapMeters`).
+* **Speed** (`stepSpeed`): between `minSpeed(level)` and
+  `maxSpeed(engineLevel, level)` — the district raises both by
+  `LEVEL_SPEED_STEP`. Holding up accelerates, down brakes (brake wins if
+  both are held), neither holds speed. A hit resets speed to the current
+  district's floor.
+* **Traffic**: oncoming vehicles close in at the bus's speed *plus* their
+  own (`TRAFFIC_SPEED`, one shared value so rows never drift into each
+  other), so they arrive faster when the bus is faster. Spawns come in
+  rows; a row never blocks all four lanes (`pickBlockedLanes`), so every
+  row is passable. Rows get denser (`maxBlockedLanes`) and closer
+  (`rowSpacingPx`, down to `ROW_SPACING_MIN`) with distance; vans unlock at
+  300 m, trucks at 800 m, semis at 1500 m (`VEHICLES`).
 * **Collisions** (`livesAfterHit`): a vehicle marked `lethal` in
   `VEHICLES` (truck, semi) or `POLICE_CAR` takes every life, even during
   post-hit grace; anything else takes one life, or none while grace is
   active. Bumpers therefore never save you from a truck or the police.
+* **Bananas** (`bananaDrops`, `skidLane`): only lethal non-police vehicles
+  (truck, semi) carry cargo; each is leaky with `BANANA_TRUCK_CHANCE` and
+  then drops 1–2 bananas at rear heights within
+  [`BANANA_DROP_MIN_Y`, `BANANA_DROP_MAX_Y`] (20–220 px), so every banana
+  starts high enough on screen to be dodged. A dropped banana slides and
+  spins briefly, then scrolls at the bus's speed (world-stationary). A skid
+  always moves exactly one lane and never off the road; bananas don't
+  affect police or traffic.
 * **Fare placement** (`fareOffset`): a fare sits centred in the clear gap
   behind its row — between the tail of the vehicle in its lane (if any)
   and the next row's front — with `FARE_CLEARANCE` to spare. (It used to
@@ -206,9 +257,15 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
   full throttle always pulls away — slowly at high stars — and police
   catch you only when you brake or a hit drops you to the floor. (An
   earlier flat per-star speed outpaced the per-level speed-up, so by
-  Heartland a stock bus could no longer outrun them.) Pursuers never overtake the bus (alongside at most), and
-  are "lost" once far enough behind. Roadblocks move at traffic speed and
-  use `pickBlockedLanes`, so they keep the every-row-is-passable guarantee.
+  Heartland a stock bus could no longer outrun them.) The first cruiser
+  arrives `POLICE_FIRST_SECONDS` into a run, later ones every
+  `POLICE_SPAWN_SECONDS` up to `maxPolice` (1/1/2/2/3 by star). New
+  pursuers spawn just below the screen, 130 px behind the bus's rear.
+  Pursuers never overtake the bus (alongside at most), and are "lost"
+  once far enough behind. Roadblocks (from `ROADBLOCK_MIN_DISTANCE`, 600 m;
+  chance 6% per star above one) move at traffic speed and use
+  `pickBlockedLanes`, so they keep the every-row-is-passable guarantee;
+  roadblock rows carry no fare.
 * **Upgrades**: cost grows per level (`upgradeCost`); every upgrade has a
   max level and the buy button disables at max or when tokens are short.
 * **Leaderboard bounds** (server, mirrored by CHECK constraints): name
@@ -230,17 +287,35 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
 
 ## Testing Plan
 
-* [x] `rules.test.js`: speed bounds, lane-blocking never blocks all lanes,
-      spawn gap shrinks and floors, score/token formulas, upgrade costs/max.
+* [x] `rules.test.js`: speed bounds (per Engine level and per district),
+      lane-blocking never blocks all lanes, row spacing shrinks and floors
+      and still fits a lane change at the fastest district's top speed,
+      fares never overlap a vehicle, score/token formulas (incl. wreck
+      bonus), upgrade costs/max, lethal vs. one-life hits, wanted level,
+      police scaling (a stock bus at full throttle outruns every star in
+      every district), roadblock chance, district progression and
+      checkpoint points, banana drops (only trucks/semis, inside the drop
+      window) and skids (always exactly one lane, never off the road).
 * [x] Go: validation bounds, service rejects invalid input before the repo,
       handler empty/populated/escaped leaderboard, 400 on bad input, 429 on
       flood, error fragment on DB failure.
 * [x] `cmd/server/e2e_test.go`: real round-trip through `bus_rush_scores`.
-* [x] Playwright `e2e/bus-rush.spec.js`: start a run (HUD distance
-      advances), shop purchase persists, run-over → leaderboard submit,
-      HTMX revisit still wires the game; plus the `/projects` card; a
-      police ram is instantly "Busted!" (`__busRushTestHooks.policeRam`);
-      crossing 800 m enters level 2 (`__busRushTestHooks.warp`).
+* [x] Playwright `e2e/bus-rush.spec.js` (Chromium + WebKit): overlays on
+      load; a run starts and ↑ raises speed; crash → tokens → shop purchase
+      persists across reload; trucks and semis are instant game over; a car
+      costs one life; run-over → leaderboard submit; HTMX revisit still
+      wires the game; a police ram is instantly "Busted!"; crossing 800 m
+      enters level 2 (faster, higher wanted level, "2 · Heartland" on Run
+      Over); a new level refills lives; at full throttle with no damage,
+      level 2 police fall behind; running over a banana skids the bus one
+      lane over, ignores steering mid-skid, and costs no life. Plus
+      `e2e/projects.spec.js`'s card tests.
+* Test hooks (`window.__busRushTestHooks`, used only by tests): `crash()`,
+  `spawn(kind)` (a vehicle in the bus's lane), `banana()` (one just ahead
+  of the bus), `policeRam()`,
+  `warp(meters)`, `noTraffic()`, `snapshot()` (status, level, km/h, lane,
+  skidding, bananas on the road, wanted, each pursuer's gap behind the
+  bus), `grantTokens(n)`.
 
 ---
 

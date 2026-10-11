@@ -180,3 +180,21 @@ test('at full throttle with no damage, level 2 police fall behind instead of cat
 	expect(snap.level).toBe(2);
 	expect(snap.police[0]).toBeGreaterThan(first);
 });
+
+test('running over a banana skids the bus one lane over, locks steering, and costs no life', async ({ page }) => {
+	await page.goto('/bus-rush');
+	await page.locator('#bus-rush-start-button').click();
+	const snap = () => page.evaluate(() => window.__busRushTestHooks.snapshot());
+	const lives = await page.locator('#bus-rush-hud-lives').textContent();
+	const before = (await snap()).lane;
+	await page.evaluate(() => window.__busRushTestHooks.banana());
+	await expect.poll(async () => (await snap()).skidding, { timeout: 3000 }).toBe(true);
+	const skidded = (await snap()).lane;
+	expect(Math.abs(skidded - before)).toBe(1);
+	// Steering is locked mid-skid: a lane change keypress is ignored.
+	await page.keyboard.press(skidded > before ? 'ArrowLeft' : 'ArrowRight');
+	expect((await snap()).lane).toBe(skidded);
+	await expect.poll(async () => (await snap()).skidding).toBe(false);
+	expect((await snap()).status).toBe('playing');
+	await expect(page.locator('#bus-rush-hud-lives')).toHaveText(lives);
+});

@@ -50,6 +50,9 @@ import {
   maxSpeed,
   levelAt,
   checkpointPoints,
+  SKID_SECONDS,
+  bananaDrops,
+  skidLane,
 } from './busrush/rules.js';
 
 const STORAGE_KEY = 'bus-rush:v1';
@@ -902,8 +905,46 @@ function drawFare(ctx, f, t) {
   }
 }
 
-/** The player's bus, nose up. `braking` lights the brake lamps. */
-function drawBus(ctx, x, flashing, braking) {
+/** A banana lying on the road (slipped out of a truck), curved, top-down. */
+function drawBanana(ctx, b) {
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(b.angle);
+  ctx.fillStyle = SHADOW;
+  ctx.beginPath();
+  ctx.ellipse(2, 4, 10, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineCap = 'round';
+  const curve = (color, width, r, from, to) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.arc(0, -9, r, Math.PI * from, Math.PI * to);
+    ctx.stroke();
+  };
+  curve('#b8860b', 8, 11, 0.18, 0.82);
+  curve('#f2d34c', 5.5, 11, 0.2, 0.8);
+  curve('rgba(255,255,255,0.45)', 1.5, 9.5, 0.3, 0.6);
+  ctx.fillStyle = '#5a4320';
+  [0.18, 0.82].forEach((a) => {
+    ctx.beginPath();
+    ctx.arc(Math.cos(Math.PI * a) * 11, -9 + Math.sin(Math.PI * a) * 11, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
+}
+
+/**
+ * The player's bus, nose up. `braking` lights the brake lamps; `angle`
+ * (radians) twists it about its centre for a banana skid.
+ */
+function drawBus(ctx, x, flashing, braking, angle = 0) {
+  ctx.save();
+  if (angle) {
+    ctx.translate(x, BUS_Y + BUS_LENGTH / 2);
+    ctx.rotate(angle);
+    ctx.translate(-x, -(BUS_Y + BUS_LENGTH / 2));
+  }
   if (flashing) ctx.globalAlpha = 0.4;
   const left = x - BUS_WIDTH / 2;
   const top = BUS_Y;
@@ -970,6 +1011,7 @@ function drawBus(ctx, x, flashing, braking) {
   ctx.fillRect(left + 4, top + l - 4, 9, 3);
   ctx.fillRect(left + w - 13, top + l - 4, 9, 3);
   ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 /** Sparks and debris: { x, y, vx, vy, life, max, size, color } in canvas px/s. */
@@ -1117,6 +1159,8 @@ function init(canvas, el) {
       busX: laneCenter(1),
       vehicles: [],
       fareItems: [],
+      bananas: [],
+      skid: 0,
       sinceRow: 0,
       prevOpen: null,
       scroll: 0,
@@ -1205,6 +1249,7 @@ function init(canvas, el) {
       r.vehicles.push({
         kind: kind.kind,
         lethal: Boolean(kind.lethal),
+        drops: bananaDrops(Math.random, kind),
         x: laneCenter(lane),
         y: -kind.length + overshoot,
         width: kind.width,
@@ -1241,6 +1286,7 @@ function init(canvas, el) {
     // Traffic and fares close in at the bus's speed plus traffic's own.
     const closing = (r.speed + TRAFFIC_SPEED) * dt * PX_PER_METER;
     r.vehicles.forEach((v) => { v.y += closing; });
+    updateBananas(r, dt);
     r.fareItems.forEach((f) => { f.y += closing; });
     r.vehicles = r.vehicles.filter((v) => v.y < HEIGHT);
     r.fareItems = r.fareItems.filter((f) => f.y - FARE_RADIUS < HEIGHT);
@@ -1262,6 +1308,18 @@ function init(canvas, el) {
     }
     updatePolice(r, dt, bus);
     if (r.status !== 'playing') return;
+
+    // Run over a banana: skid one lane over, steering locked meanwhile.
+    if (r.skid <= 0) {
+      const slipped = r.bananas.find((b) => rectsOverlap(bus, { x: b.x - 9, y: b.y - 5, w: 18, h: 10 }));
+      if (slipped) {
+        r.bananas = r.bananas.filter((b) => b !== slipped);
+        r.skid = SKID_SECONDS;
+        r.lane = skidLane(r.lane, Math.random);
+        burst(effects, slipped.x, slipped.y, ['#f2d34c', '#b8860b', '#fff6c2'], 10, 200, 4);
+        effects.push({ x: r.busX, y: BUS_Y - 14, vx: 0, vy: -60, life: 0.8, max: 0.8, text: 'SKID!', color: '#f2d34c' });
+      }
+    }
 
     r.fareItems = r.fareItems.filter((f) => {
       const caught = rectsOverlap(bus, { x: f.x - FARE_RADIUS, y: f.y - FARE_RADIUS, w: FARE_RADIUS * 2, h: FARE_RADIUS * 2 });
@@ -1297,6 +1355,38 @@ function init(canvas, el) {
     } else if (lvl + 1 < LEVELS.length && r.distance % LEVEL_DISTANCE > LEVEL_DISTANCE - 150) {
       sceneryFor(lvl + 1);
     }
+  }
+
+  /**
+   * Leaky trucks/semis drop a banana from their rear each time it passes one
+   * of their `drops` heights. A dropped banana lies still on the road — it
+   * scrolls at the bus's speed, slower than traffic, so it falls in behind
+   * its truck — after a brief slide and spin as it slips out.
+   */
+  function updateBananas(r, dt) {
+    r.skid = Math.max(0, r.skid - dt);
+    for (const v of r.vehicles) {
+      while (v.drops && v.drops.length && v.y >= v.drops[0]) {
+        v.drops.shift();
+        r.bananas.push({
+          x: v.x + (Math.random() - 0.5) * 14,
+          y: v.y - 4,
+          vx: (Math.random() - 0.5) * 90,
+          angle: Math.random() * Math.PI * 2,
+          spin: (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 6),
+        });
+      }
+    }
+    const scroll = r.speed * PX_PER_METER * dt;
+    const settle = Math.max(0, 1 - 4 * dt);
+    for (const b of r.bananas) {
+      b.y += scroll;
+      b.x += b.vx * dt;
+      b.angle += b.spin * dt;
+      b.vx *= settle;
+      b.spin *= settle;
+    }
+    r.bananas = r.bananas.filter((b) => b.y < HEIGHT + 10);
   }
 
   function spawnPolice(r, lane, y) {
@@ -1394,11 +1484,13 @@ function init(canvas, el) {
     }
     if (r) {
       r.wrecks.forEach((wk) => drawWreck(ctx, wk, t));
+      r.bananas.forEach((b) => drawBanana(ctx, b));
       r.fareItems.forEach((f) => drawFare(ctx, f, t));
       r.vehicles.forEach((v) => drawVehicle(ctx, v, t));
       r.police.forEach((p) => (p.y >= HEIGHT ? drawSirenCue(ctx, p, t) : drawPolice(ctx, p, t, true)));
       const flashing = r.grace > 0 && Math.floor(r.grace * 10) % 2 === 0;
-      drawBus(ctx, r.busX, flashing, r.status === 'playing' && input.brake);
+      const wobble = r.skid > 0 ? Math.sin(r.skid * 40) * 0.3 * (r.skid / SKID_SECONDS) : 0;
+      drawBus(ctx, r.busX, flashing, r.status === 'playing' && input.brake, wobble);
     } else {
       drawBus(ctx, laneCenter(1), false, false);
     }
@@ -1430,7 +1522,7 @@ function init(canvas, el) {
   // --- input --------------------------------------------------------------
 
   function steer(dir) {
-    if (!run || run.status !== 'playing') return;
+    if (!run || run.status !== 'playing' || run.skid > 0) return;
     run.lane = Math.min(Math.max(run.lane + dir, 0), LANES - 1);
   }
 
@@ -1551,6 +1643,9 @@ function init(canvas, el) {
         status: run.status,
         level: run.level + 1,
         kmh: toKmh(run.speed),
+        lane: run.lane,
+        skidding: run.skid > 0,
+        bananas: run.bananas.length,
         wanted: wantedLevel(run.distance, run.fares),
         police: run.police.map((p) => Math.round(p.y - (BUS_Y + BUS_LENGTH))),
       };
@@ -1558,6 +1653,12 @@ function init(canvas, el) {
     // Jumps the run to `meters` so district changes can be tested.
     warp(meters) {
       if (run && run.status === 'playing') run.distance = meters;
+    },
+    // Drops a banana just ahead of the bus in its lane, so the next frames
+    // run it over through the real skid path.
+    banana() {
+      if (!run || run.status !== 'playing') return;
+      run.bananas.push({ x: laneCenter(run.lane), y: BUS_Y - 20, vx: 0, angle: 0, spin: 0 });
     },
     policeRam() {
       if (!run || run.status !== 'playing') return;

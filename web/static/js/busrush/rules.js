@@ -245,6 +245,43 @@ export function rowSpacingPx(distanceMeters) {
   return Math.max(ROW_SPACING_MIN, ROW_SPACING_MAX - d / 10);
 }
 
+// ---------------------------------------------------------------------------
+// Bananas — cargo that slips out of the back of trucks and semis.
+// ---------------------------------------------------------------------------
+
+/** Chance a truck/semi is a leaky one that drops bananas. */
+export const BANANA_TRUCK_CHANCE = 0.6;
+
+/**
+ * Screen y range (px, the truck's rear) where bananas may drop. The floor
+ * keeps every banana high enough up the screen to be seen and dodged; a
+ * dropped banana lies still, so it then scrolls down at the bus's speed.
+ */
+export const BANANA_DROP_MIN_Y = 20;
+export const BANANA_DROP_MAX_Y = 220;
+
+/** Seconds the bus skids (steering locked) after running over a banana. */
+export const SKID_SECONDS = 0.5;
+
+/**
+ * The rear-y positions at which one vehicle drops bananas, sorted: none for
+ * anything not lethal (only trucks and semis carry cargo), none for a
+ * non-leaky truck, otherwise 1–2 within [BANANA_DROP_MIN_Y, BANANA_DROP_MAX_Y].
+ */
+export function bananaDrops(rng, vehicle) {
+  if (!vehicle || !vehicle.lethal || vehicle.police || rng() >= BANANA_TRUCK_CHANCE) return [];
+  const count = 1 + Math.floor(rng() * 2);
+  return Array.from({ length: count }, () => BANANA_DROP_MIN_Y + rng() * (BANANA_DROP_MAX_Y - BANANA_DROP_MIN_Y))
+    .sort((a, b) => a - b);
+}
+
+/** Lane a banana skid throws the bus into: one over, at random, inward at the edges. */
+export function skidLane(lane, rng) {
+  if (lane <= 0) return 1;
+  if (lane >= LANES - 1) return LANES - 2;
+  return lane + (rng() < 0.5 ? -1 : 1);
+}
+
 /** Clear space kept between a fare's edge and any vehicle, px. */
 export const FARE_CLEARANCE = 10;
 

@@ -47,6 +47,10 @@ import {
   minSpeed,
   FARE_CLEARANCE,
   fareOffset,
+  BANANA_DROP_MIN_Y,
+  BANANA_DROP_MAX_Y,
+  bananaDrops,
+  skidLane,
 } from './rules.js';
 
 // Small deterministic PRNG so the property-style tests below are repeatable.
@@ -301,5 +305,39 @@ describe('levels', () => {
   test('checkpoints pay more the deeper the district', () => {
     assert.equal(checkpointPoints(0), 0);
     assert.ok(checkpointPoints(2) > checkpointPoints(1));
+  });
+});
+
+describe('bananas', () => {
+  test('only trucks and semis drop bananas, 1–2 of them, inside the drop window', () => {
+    const rng = seeded(3);
+    for (const v of VEHICLES) {
+      for (let i = 0; i < 200; i++) {
+        const drops = bananaDrops(rng, v);
+        if (!v.lethal) {
+          assert.deepEqual(drops, [], `${v.kind} never drops`);
+          continue;
+        }
+        assert.ok(drops.length <= 2);
+        drops.forEach((y) => assert.ok(y >= BANANA_DROP_MIN_Y && y <= BANANA_DROP_MAX_Y));
+        assert.deepEqual(drops, [...drops].sort((a, b) => a - b));
+      }
+    }
+    assert.deepEqual(bananaDrops(rng, POLICE_CAR), []);
+    // Some trucks are leaky and some aren't.
+    const truck = VEHICLES.find((v) => v.kind === 'truck');
+    const counts = Array.from({ length: 200 }, () => bananaDrops(rng, truck).length);
+    assert.ok(counts.includes(0) && counts.some((c) => c > 0));
+  });
+
+  test('a skid always throws the bus exactly one lane, and never off the road', () => {
+    const rng = seeded(9);
+    for (let lane = 0; lane < LANES; lane++) {
+      for (let i = 0; i < 50; i++) {
+        const next = skidLane(lane, rng);
+        assert.equal(Math.abs(next - lane), 1);
+        assert.ok(next >= 0 && next < LANES);
+      }
+    }
   });
 });
