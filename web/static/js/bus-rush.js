@@ -905,32 +905,60 @@ function drawFare(ctx, f, t) {
   }
 }
 
-/** A banana lying on the road (slipped out of a truck), curved, top-down. */
+/** Drawn scale of a banana peel, and the half-size of its square skid hitbox to match. */
+const BANANA_SCALE = 1.5;
+const BANANA_HALF = 13;
+
+function bananaBox(b) {
+  return { x: b.x - BANANA_HALF, y: b.y - BANANA_HALF, w: BANANA_HALF * 2, h: BANANA_HALF * 2 };
+}
+
+/**
+ * A banana peel lying on the road (slipped out of a truck), top-down: the
+ * classic cartoon peel, five splayed flaps around a stem.
+ */
 function drawBanana(ctx, b) {
   ctx.save();
   ctx.translate(b.x, b.y);
   ctx.rotate(b.angle);
+  ctx.scale(BANANA_SCALE, BANANA_SCALE);
   ctx.fillStyle = SHADOW;
   ctx.beginPath();
-  ctx.ellipse(2, 4, 10, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(2, 4, 11, 6, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.lineCap = 'round';
-  const curve = (color, width, r, from, to) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
+  for (const a of [-2.4, -1.25, -0.1, 1.05, 2.2]) {
+    ctx.save();
+    ctx.rotate(a);
+    const g = ctx.createLinearGradient(0, 0, 0, 14);
+    g.addColorStop(0, '#e9b93a');
+    g.addColorStop(1, '#f7dc6b');
+    ctx.fillStyle = g;
+    ctx.strokeStyle = '#a8741a';
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.arc(0, -9, r, Math.PI * from, Math.PI * to);
-    ctx.stroke();
-  };
-  curve('#b8860b', 8, 11, 0.18, 0.82);
-  curve('#f2d34c', 5.5, 11, 0.2, 0.8);
-  curve('rgba(255,255,255,0.45)', 1.5, 9.5, 0.3, 0.6);
-  ctx.fillStyle = '#5a4320';
-  [0.18, 0.82].forEach((a) => {
-    ctx.beginPath();
-    ctx.arc(Math.cos(Math.PI * a) * 11, -9 + Math.sin(Math.PI * a) * 11, 2.2, 0, Math.PI * 2);
+    ctx.moveTo(-3.5, 0);
+    ctx.quadraticCurveTo(-5.5, 8, -1.5, 14);
+    ctx.quadraticCurveTo(0, 15.5, 1.5, 14);
+    ctx.quadraticCurveTo(5.5, 8, 3.5, 0);
+    ctx.closePath();
     ctx.fill();
-  });
+    ctx.stroke();
+    ctx.fillStyle = '#fff6d0'; // pale inside of the peel
+    ctx.beginPath();
+    ctx.ellipse(0, 7, 1.2, 4.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#5a4320'; // brown tip
+    ctx.beginPath();
+    ctx.arc(0, 14, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.fillStyle = '#c99a2e';
+  ctx.beginPath();
+  ctx.arc(0, 0, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#6b4f22'; // stem
+  ctx.fillRect(-1.5, -7, 3, 6);
   ctx.restore();
 }
 
@@ -1311,7 +1339,7 @@ function init(canvas, el) {
 
     // Run over a banana: skid one lane over, steering locked meanwhile.
     if (r.skid <= 0) {
-      const slipped = r.bananas.find((b) => rectsOverlap(bus, { x: b.x - 9, y: b.y - 5, w: 18, h: 10 }));
+      const slipped = r.bananas.find((b) => rectsOverlap(bus, bananaBox(b)));
       if (slipped) {
         r.bananas = r.bananas.filter((b) => b !== slipped);
         r.skid = SKID_SECONDS;
@@ -1457,7 +1485,7 @@ function init(canvas, el) {
     // which can throw them into traffic (a wreck) or into the bus (Busted).
     for (const p of r.police) {
       if (p.skid > 0) continue;
-      const slipped = r.bananas.find((b) => rectsOverlap(box(p), { x: b.x - 9, y: b.y - 5, w: 18, h: 10 }));
+      const slipped = r.bananas.find((b) => rectsOverlap(box(p), bananaBox(b)));
       if (!slipped) continue;
       r.bananas = r.bananas.filter((b) => b !== slipped);
       p.skid = SKID_SECONDS;

@@ -153,8 +153,10 @@ red/white rear chevrons and side tape to show they're lethal. Police
 cruisers are white with a chequered navy livery and a flashing red/blue
 light bar (pursuers face up the screen, roadblock cars face down); a
 pursuer still off-screen shows as a red/blue glow on the bottom edge, and
-a wrecked cruiser is left charred and smoking. Bananas are curved yellow
-peels with brown tips that spin out of a truck's back; a skid twists the
+a wrecked cruiser is left charred and smoking. Bananas are drawn as the
+classic cartoon banana peel (five splayed flaps around a stem, drawn at
+1.5× with a matching 26 px square skid hitbox) that spin out of a truck's
+back; a skid twists the
 bus and pops a "SKID!" label. Coins spin, the bus's brake
 lights come on when braking, fare pickups throw sparks and a "+$", hits
 shake the screen and scatter debris, and the level banner fades in and out
