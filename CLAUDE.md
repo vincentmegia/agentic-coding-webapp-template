@@ -61,7 +61,8 @@ touching that area rather than expecting this section to carry it:
   referrer-restricted `GOOGLE_MAPS_API_KEY` provisioned.
 - **Bus Rush** (`/bus-rush`, top-down canvas driving game — flee the police
   in a stolen bus (lethal pursuit cars, roadblocks, wanted level) through
-  five districts/levels (CBD → Changi), four buyable buses, bananas that
+  five districts/levels (CBD → Changi), four buyable buses, oncoming
+  school/city/double-decker/bendy buses, bananas that
   skid you and garbage that slows you, dodge oncoming
   traffic, collect fares, buy Engine/Steering/Bumpers/Fare Box upgrades;
   Postgres leaderboard, `localStorage` progress) — `docs/features/bus-rush.md`.

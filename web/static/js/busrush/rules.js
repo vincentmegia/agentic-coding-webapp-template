@@ -43,11 +43,18 @@ export const UPGRADES = {
 
 /**
  * Oncoming vehicle kinds; length/width in pixels. A `lethal` vehicle ends
- * the run on contact regardless of lives left or post-hit grace.
+ * the run on contact regardless of lives left or post-hit grace. `weight`
+ * (default 1) is the relative chance pickVehicle picks it once unlocked —
+ * buses (`bus: true`, non-lethal) are lighter so they add variety without
+ * crowding out the trucks.
  */
 export const VEHICLES = [
   { kind: 'car', length: 64, width: 50, minDistance: 0 },
+  { kind: 'schoolbus', label: 'school bus', length: 84, width: 54, minDistance: 150, bus: true, weight: 0.35 },
+  { kind: 'citybus', label: 'bus', length: 92, width: 56, minDistance: 200, bus: true, weight: 0.5 },
   { kind: 'van', length: 82, width: 56, minDistance: 300 },
+  { kind: 'doubledecker', label: 'double-decker', length: 92, width: 58, minDistance: 400, bus: true, weight: 0.4 },
+  { kind: 'bendy', label: 'bendy bus', length: 150, width: 56, minDistance: 1000, bus: true, weight: 0.35 },
   { kind: 'garbage', label: 'garbage truck', length: 110, width: 60, minDistance: 500, lethal: true, spills: 'garbage' },
   { kind: 'truck', length: 118, width: 62, minDistance: 800, lethal: true, spills: 'banana' },
   { kind: 'semi', length: 170, width: 64, minDistance: 1500, lethal: true, spills: 'banana' },
@@ -382,10 +389,16 @@ export function openLanes(blocked) {
   return [...Array(LANES).keys()].filter((l) => !blocked.includes(l));
 }
 
-/** Picks a vehicle kind, unlocking bigger ones as distance grows. */
+/** Picks a vehicle kind by `weight`, unlocking bigger ones as distance grows. */
 export function pickVehicle(rng, distanceMeters) {
   const pool = VEHICLES.filter((v) => distanceMeters >= v.minDistance);
-  return pool[Math.floor(rng() * pool.length)];
+  const total = pool.reduce((sum, v) => sum + (v.weight ?? 1), 0);
+  let roll = rng() * total;
+  for (const v of pool) {
+    roll -= v.weight ?? 1;
+    if (roll < 0) return v;
+  }
+  return pool[pool.length - 1];
 }
 
 /** Axis-aligned rectangle overlap ({x, y, w, h}); touching edges don't count. */

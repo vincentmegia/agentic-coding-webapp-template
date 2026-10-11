@@ -258,6 +258,22 @@ describe('traffic', () => {
     assert.equal(late.size, VEHICLES.length);
   });
 
+  test('oncoming buses unlock with distance, cost one life, and never crowd out trucks', () => {
+    const buses = VEHICLES.filter((v) => v.bus);
+    assert.deepEqual(buses.map((v) => v.kind).sort(), ['bendy', 'citybus', 'doubledecker', 'schoolbus']);
+    buses.forEach((v) => {
+      assert.ok(!v.lethal && !v.spills, `${v.kind} is a plain obstacle`);
+      assert.equal(livesAfterHit(3, v, 0), 2);
+    });
+    // Late-game traffic: buses are a minority, lethal vehicles still common.
+    const rng = seeded(11);
+    const picks = Array.from({ length: 5000 }, () => pickVehicle(rng, 5000));
+    const share = (f) => picks.filter(f).length / picks.length;
+    assert.ok(share((v) => v.bus) < 0.35, `bus share ${share((v) => v.bus)}`);
+    assert.ok(share((v) => v.lethal) > 0.35, `lethal share ${share((v) => v.lethal)}`);
+    assert.equal(new Set(picks.filter((v) => v.bus).map((v) => v.kind)).size, 4);
+  });
+
   test('trucks, semis and garbage trucks are lethal; cars and vans are not', () => {
     const lethal = VEHICLES.filter((v) => v.lethal).map((v) => v.kind).sort();
     assert.deepEqual(lethal, ['garbage', 'semi', 'truck']);

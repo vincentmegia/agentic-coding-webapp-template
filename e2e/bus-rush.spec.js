@@ -91,6 +91,17 @@ for (const kind of ['truck', 'semi']) {
 	});
 }
 
+for (const kind of ['schoolbus', 'citybus', 'doubledecker', 'bendy']) {
+	test(`hitting an oncoming ${kind} costs one life, not the run`, async ({ page }) => {
+		await page.goto('/bus-rush');
+		await page.locator('#bus-rush-start-button').click();
+		const lives = parseInt(await page.locator('#bus-rush-hud-lives').textContent(), 10);
+		await page.evaluate((k) => window.__busRushTestHooks.spawn(k), kind);
+		await expect(page.locator('#bus-rush-hud-lives')).toHaveText(String(lives - 1), { timeout: 5000 });
+		await expect(page.locator('#bus-rush-run-over-screen')).toBeHidden();
+	});
+}
+
 test('hitting a car costs one life, not the run', async ({ page }) => {
 	await page.goto('/bus-rush');
 	await page.locator('#bus-rush-start-button').click();

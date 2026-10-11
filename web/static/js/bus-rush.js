@@ -795,7 +795,8 @@ function drawVehicle(ctx, v, t) {
   }
   const x = v.x - v.width / 2;
   drawShadow(ctx, x, v.y, v.width, v.length, 8);
-  if (v.kind === 'semi') drawSemi(ctx, v, x, v.y, v.width, v.length);
+  if (v.bus) drawTrafficBus(ctx, v, x, v.y, v.width, v.length);
+  else if (v.kind === 'semi') drawSemi(ctx, v, x, v.y, v.width, v.length);
   else if (v.kind === 'garbage') drawGarbageTruck(ctx, v, x, v.y, v.width, v.length);
   else if (v.kind === 'truck') drawTruck(ctx, v, x, v.y, v.width, v.length);
   else if (v.kind === 'van') drawVan(ctx, v, x, v.y, v.width, v.length);
@@ -1045,13 +1046,18 @@ const BUS_LOOKS = {
   electric: { body: '#3f6e9e', roof: '#e3e8ea' },
 };
 
-function drawDestinationSign(ctx, x, y, w) {
+/** LED route sign; `flip` counter-rotates the text on a bus drawn upside down. */
+function drawDestinationSign(ctx, x, y, w, text = '88', flip = false) {
   fillRoundRect(ctx, '#2b2724', x - w / 2, y, w, 10, 2);
+  ctx.save();
+  ctx.translate(x, y + 5.5);
+  if (flip) ctx.rotate(Math.PI);
   ctx.fillStyle = '#ffb547';
   ctx.font = 'bold 9px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('88', x, y + 5.5);
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
 }
 
 /** Single-decker roof: aircon pod with twin fans and a rear hatch. */
@@ -1075,11 +1081,11 @@ function drawSingleRoof(ctx, x, left, top, w) {
 }
 
 /** Double-decker roof: upper-deck window band all round, two escape hatches. */
-function drawDoubleRoof(ctx, x, left, top, w, l) {
+function drawDoubleRoof(ctx, x, left, top, w, l, roof = BUS_LOOKS.double.roof) {
   ctx.fillStyle = GLASS;
   ctx.fillRect(left + 8, top + 31, 4, l - 44);
   ctx.fillRect(left + w - 12, top + 31, 4, l - 44);
-  ctx.fillStyle = BUS_LOOKS.double.roof;
+  ctx.fillStyle = roof;
   for (let y = top + 38; y < top + l - 14; y += 12) {
     ctx.fillRect(left + 8, y, 4, 2);
     ctx.fillRect(left + w - 12, y, 4, 2);
@@ -1123,28 +1129,27 @@ function drawMiniRoof(ctx, x, left, top, w, l) {
   fillRoundRect(ctx, '#d7ccb8', left + 15, top + 38, w - 30, 14, 3);
 }
 
+/** School bus roof: black rub stripes down both sides and a roof hatch. */
+function drawSchoolRoof(ctx, x, left, top, w, l) {
+  ctx.fillStyle = '#2b2724';
+  ctx.fillRect(left + 9, top + 32, 2, l - 44);
+  ctx.fillRect(left + w - 11, top + 32, 2, l - 44);
+  fillRoundRect(ctx, '#e8d9b0', left + 16, top + 44, w - 32, 14, 2);
+}
+
 /**
- * The player's bus, nose up, in the selected style (`busKey`, a BUSES key).
- * `braking` lights the brake lamps; `angle` (radians) twists it about its
- * centre for a banana skid.
+ * A bus body drawn nose-up with its nose at `top`: wheels, shaded body,
+ * mirrors, windscreen, side windows, roof + route sign, the roof `kit`
+ * ('single' | 'double' | 'electric' | 'minibus' | 'school'), then grille
+ * and lamps. `opts`: `braking` lights the brake lamps; `route` is the sign
+ * text and `flipSign` keeps it readable when the whole bus is rotated 180°;
+ * `shadow` false skips the drop shadow (drawn by the caller when rotating).
  */
-function drawBus(ctx, x, flashing, braking, angle = 0, busKey = 'single') {
-  const def = busDef(busKey);
-  const look = BUS_LOOKS[busKey] || BUS_LOOKS.single;
-  const w = def.width;
-  const l = def.length;
+function drawBusShape(ctx, x, top, w, l, look, kit, opts = {}) {
   const left = x - w / 2;
-  const top = BUS_Y;
-  ctx.save();
-  if (angle) {
-    ctx.translate(x, top + l / 2);
-    ctx.rotate(angle);
-    ctx.translate(-x, -(top + l / 2));
-  }
-  if (flashing) ctx.globalAlpha = 0.4;
-  drawShadow(ctx, left, top, w, l, 10);
+  if (opts.shadow !== false) drawShadow(ctx, left, top, w, l, 10);
   drawWheels(ctx, left, top, w, l, [0.2, 0.76]);
-  drawBody(ctx, look.body, left, top, w, l, busKey === 'minibus' ? 12 : 10);
+  drawBody(ctx, look.body, left, top, w, l, kit === 'minibus' ? 12 : 10);
   drawMirrors(ctx, left - 1, top + 6, w + 2, look.body);
 
   // Windscreen across the nose.
@@ -1161,33 +1166,108 @@ function drawBus(ctx, x, flashing, braking, angle = 0, busKey = 'single') {
     ctx.fillRect(left + w - 6, y, 4, 10);
   }
 
-  // Roof, destination sign, then each bus's own roof kit.
+  // Roof, route sign, then the kit.
   fillRoundRect(ctx, look.roof, left + 7, top + 17, w - 14, l - 28, 5);
-  drawDestinationSign(ctx, x, top + 19, w - 24);
-  if (busKey === 'double') drawDoubleRoof(ctx, x, left, top, w, l);
-  else if (busKey === 'electric') drawElectricRoof(ctx, x, left, top, w, l);
-  else if (busKey === 'minibus') drawMiniRoof(ctx, x, left, top, w, l);
+  drawDestinationSign(ctx, x, top + 19, w - 24, opts.route, opts.flipSign);
+  if (kit === 'double') drawDoubleRoof(ctx, x, left, top, w, l, look.roof);
+  else if (kit === 'electric') drawElectricRoof(ctx, x, left, top, w, l);
+  else if (kit === 'minibus') drawMiniRoof(ctx, x, left, top, w, l);
+  else if (kit === 'school') drawSchoolRoof(ctx, x, left, top, w, l);
   else drawSingleRoof(ctx, x, left, top, w);
 
   // Engine grille (none on the electric) and lamps at the rear.
-  if (busKey !== 'electric') {
+  if (kit !== 'electric') {
     ctx.fillStyle = shade(look.body, -0.3);
     for (let gx = left + 14; gx < left + w - 14; gx += 4) ctx.fillRect(gx, top + l - 8, 2, 5);
   }
   ctx.fillStyle = HEADLIGHT;
   ctx.fillRect(left + 4, top + 1, 9, 3);
   ctx.fillRect(left + w - 13, top + 1, 9, 3);
-  if (braking) {
+  if (opts.braking) {
     const glow = ctx.createRadialGradient(x, top + l, 2, x, top + l, 34);
     glow.addColorStop(0, 'rgba(255,70,40,0.45)');
     glow.addColorStop(1, 'rgba(255,70,40,0)');
     ctx.fillStyle = glow;
     ctx.fillRect(left - 10, top + l - 20, w + 20, 50);
   }
-  ctx.fillStyle = braking ? '#ff5a3c' : '#8e2f1f';
+  ctx.fillStyle = opts.braking ? '#ff5a3c' : '#8e2f1f';
   ctx.fillRect(left + 4, top + l - 4, 9, 3);
   ctx.fillRect(left + w - 13, top + l - 4, 9, 3);
+}
+
+/**
+ * The player's bus, nose up, in the selected style (`busKey`, a BUSES key).
+ * `braking` lights the brake lamps; `angle` (radians) twists it about its
+ * centre for a banana skid.
+ */
+function drawBus(ctx, x, flashing, braking, angle = 0, busKey = 'single') {
+  const def = busDef(busKey);
+  const look = BUS_LOOKS[busKey] || BUS_LOOKS.single;
+  ctx.save();
+  if (angle) {
+    ctx.translate(x, BUS_Y + def.length / 2);
+    ctx.rotate(angle);
+    ctx.translate(-x, -(BUS_Y + def.length / 2));
+  }
+  if (flashing) ctx.globalAlpha = 0.4;
+  drawBusShape(ctx, x, BUS_Y, def.width, def.length, look, busKey, { braking });
   ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/** Oncoming traffic buses: paint and roof kit per kind. */
+const TRAFFIC_BUS_LOOKS = {
+  schoolbus: { body: '#e3a43a', roof: '#f1d58a', kit: 'school' },
+  citybus: { body: '#7a4f8c', roof: '#ebe3ee', kit: 'single' },
+  doubledecker: { body: '#b5463a', roof: '#efe4d0', kit: 'double' },
+  bendy: { body: '#4f8a7a', roof: '#e6efe9', kit: 'single' },
+};
+const ROUTES = ['7', '12', '14', '32', '61', '75', '175', '190', '960', '10e'];
+
+/**
+ * An oncoming bus, nose pointing down the screen: drawn nose-up and rotated
+ * 180° about its centre, without its own shadow (drawVehicle's unrotated
+ * one keeps the light coming from the top-left). A bendy bus is two sections with a concertina
+ * joint between them.
+ */
+function drawTrafficBus(ctx, v, x, y, w, l) {
+  const look = TRAFFIC_BUS_LOOKS[v.kind] || TRAFFIC_BUS_LOOKS.citybus;
+  const cx = x + w / 2;
+  ctx.save();
+  ctx.translate(cx, y + l / 2);
+  ctx.rotate(Math.PI);
+  ctx.translate(-cx, -(y + l / 2));
+  const opts = { route: v.route, flipSign: true, shadow: false };
+  if (v.kind === 'bendy') {
+    const front = Math.round(l * 0.56);
+    const joint = 10;
+    const rearTop = y + front + joint;
+    const rear = l - front - joint;
+    // Rear section: plain body, windows, roof hatch, grille and lamps.
+    drawWheels(ctx, x, rearTop, w, rear, [0.7]);
+    drawBody(ctx, look.body, x, rearTop, w, rear, 8);
+    ctx.fillStyle = GLASS;
+    for (let wy = rearTop + 6; wy < rearTop + rear - 14; wy += 13) {
+      ctx.fillRect(x + 2, wy, 4, 10);
+      ctx.fillRect(x + w - 6, wy, 4, 10);
+    }
+    fillRoundRect(ctx, look.roof, x + 7, rearTop + 4, w - 14, rear - 14, 5);
+    fillRoundRect(ctx, '#d7ccb8', x + 17, rearTop + 16, w - 34, 12, 2);
+    ctx.fillStyle = shade(look.body, -0.3);
+    for (let gx = x + 14; gx < x + w - 14; gx += 4) ctx.fillRect(gx, rearTop + rear - 8, 2, 5);
+    ctx.fillStyle = '#8e2f1f';
+    ctx.fillRect(x + 4, rearTop + rear - 4, 9, 3);
+    ctx.fillRect(x + w - 13, rearTop + rear - 4, 9, 3);
+    // Concertina joint.
+    ctx.fillStyle = '#3a3734';
+    ctx.fillRect(x + 4, y + front - 2, w - 8, joint + 4);
+    ctx.fillStyle = '#5c5753';
+    for (let jy = y + front; jy < y + front + joint; jy += 3) ctx.fillRect(x + 4, jy, w - 8, 1.5);
+    // Front section last so its rear edge overlaps the joint cleanly.
+    drawBusShape(ctx, cx, y, w, front, look, 'bendy-front', opts);
+  } else {
+    drawBusShape(ctx, cx, y, w, l, look, look.kit, opts);
+  }
   ctx.restore();
 }
 
@@ -1470,6 +1550,8 @@ function init(canvas, el) {
         drops: spillDrops(Math.random, kind),
         spills: kind.spills,
         label: kind.label || kind.kind,
+        bus: Boolean(kind.bus),
+        route: ROUTES[Math.floor(Math.random() * ROUTES.length)],
         x: laneCenter(lane),
         y: -kind.length + overshoot,
         width: kind.width,
@@ -1972,6 +2054,22 @@ function init(canvas, el) {
         guard += 1;
       }
     },
+    // Places a vehicle of `kind` in `lane` at screen `y` (for screenshots
+    // and tests that need traffic somewhere other than the bus's lane).
+    place(kind, lane, y) {
+      const def = VEHICLES.find((v) => v.kind === kind);
+      if (!run || !def) return;
+      run.vehicles.push({
+        ...def,
+        lethal: Boolean(def.lethal),
+        bus: Boolean(def.bus),
+        x: laneCenter(lane),
+        y,
+        color: VEHICLE_COLORS[0],
+        route: ROUTES[0],
+        drops: [],
+      });
+    },
     // Drops one vehicle of `kind` into the bus's lane just above the
     // screen, so it collides through the real update() path.
     spawn(kind) {
@@ -1979,7 +2077,10 @@ function init(canvas, el) {
       if (!run || run.status !== 'playing' || !def) return;
       run.vehicles.push({
         kind: def.kind,
+        label: def.label || def.kind,
         lethal: Boolean(def.lethal),
+        bus: Boolean(def.bus),
+        route: ROUTES[0],
         x: laneCenter(run.lane),
         y: -def.length,
         width: def.width,

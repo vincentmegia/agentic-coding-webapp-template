@@ -35,7 +35,13 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
 * Speed is the core trade-off: driving faster covers more distance (score)
   but traffic arrives faster. The Engine upgrade raises top speed.
 * Fares (coins) spawn in lanes; collecting one adds to the run's fares.
-* Lives: a collision with a car or van costs one life, drops the bus to
+* **Oncoming buses**: school buses (from 150 m), single-decker city buses
+  (200 m), double-deckers (400 m) and long bendy buses with a concertina
+  joint (1000 m) join the traffic, each showing a random route number.
+  They're plain obstacles — a hit costs one life, like a car — and are
+  weighted lighter than other traffic (`weight`) so late-game roads stay
+  mostly cars, vans and lethal trucks.
+* Lives: a collision with a car, van or oncoming bus costs one life, drops the bus to
   the current district's speed floor, and grants a short invulnerability
   window (`HIT_GRACE_SECONDS`). The run ends at zero lives.
 * Garbage trucks (from 500 m), trucks (from 800 m) and semi trucks (from
@@ -115,7 +121,7 @@ and its leaderboard stack, so it adds a new game without new infrastructure.
 3. Run: a "LEVEL 1 / CBD" banner, then traffic and fares scroll down while
    police close in from behind; the player switches lanes and manages
    speed. Every 800 m a new district begins (banner, bonus, lives refilled).
-4. A car/van hit costs a life; a banana skids the bus, garbage slows it;
+4. A car, van or oncoming bus hit costs a life; a banana skids the bus, garbage slows it;
    a truck, semi, garbage truck or any police car ends the run at once. When the run ends, the Run Over screen ("Busted!" / "Flattened
    by a truck!" / "New best run!") shows distance, fares, level reached,
    police wrecked, score and tokens earned, with an optional leaderboard
@@ -167,7 +173,12 @@ Trees are sized to overhang the footpath and kerb so they read at the
 canvas edge. Each player bus has its own paint and roof (`BUS_LOOKS`):
 terracotta single-decker with an aircon pod, mustard minibus with roof
 rails, sage double-decker with an upper-deck window band, blue electric
-bus with battery packs and a lightning bolt. The garbage truck is green
+bus with battery packs and a lightning bolt. Oncoming buses reuse the
+same bus shape (`drawBusShape`) rotated to face down the screen
+(`drawTrafficBus`, `TRAFFIC_BUS_LOOKS`): orange school bus with black rub
+stripes, plum city bus, red double-decker, teal bendy bus in two sections
+with a concertina joint; their route sign text is counter-rotated so it
+stays readable. The garbage truck is green
 with a ribbed compactor body and an open rear hopper full of rubbish;
 garbage piles are bin bags, a can and paper scraps, and a slowed bus
 trails green stink lines and buzzing flies. Vehicles are drawn live with body shading, glass, wheels,
@@ -254,8 +265,12 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
   other), so they arrive faster when the bus is faster. Spawns come in
   rows; a row never blocks all four lanes (`pickBlockedLanes`), so every
   row is passable. Rows get denser (`maxBlockedLanes`) and closer
-  (`rowSpacingPx`, down to `ROW_SPACING_MIN`) with distance; vans unlock at
-  300 m, trucks at 800 m, semis at 1500 m (`VEHICLES`).
+  (`rowSpacingPx`, down to `ROW_SPACING_MIN`) with distance. `VEHICLES`
+  unlock by distance: school bus 150 m, city bus 200 m, van 300 m,
+  double-decker 400 m, garbage truck 500 m, truck 800 m, bendy bus
+  1000 m, semi 1500 m; `pickVehicle` picks by `weight` (buses 0.35–0.5,
+  everything else 1), and a unit test keeps late-game buses under 35% and
+  lethal vehicles over 35% of traffic.
 * **Collisions** (`livesAfterHit`): a vehicle marked `lethal` in
   `VEHICLES` (truck, semi) or `POLICE_CAR` takes every life, even during
   post-hit grace; anything else takes one life, or none while grace is
@@ -331,7 +346,8 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
       checkpoint points, spill drops (only trucks, the right kind, inside
       the drop window), skids (always exactly one lane, never off the
       road), garbage slowdown (half, floored, bled off gradually), and
-      buses (row spacing fits every bus; each bus's handling).
+      buses (row spacing fits every bus; each bus's handling), oncoming
+      buses (non-lethal, unlock by distance, weighted below trucks).
 * [x] Go: validation bounds, service rejects invalid input before the repo,
       handler empty/populated/escaped leaderboard, 400 on bad input, 429 on
       flood, error fragment on DB failure.
@@ -347,10 +363,12 @@ All numbers live in `web/static/js/busrush/rules.js` and are tunable; the
       lane over, ignores steering mid-skid, and costs no life; a police car
       that runs over a banana skids one lane over; buying a bus drives it,
       changes its lives and persists; garbage halves top speed then
-      recovers, costing no life. Plus
+      recovers, costing no life; each oncoming bus kind costs one life.
+      Plus
       `e2e/projects.spec.js`'s card tests.
 * Test hooks (`window.__busRushTestHooks`, used only by tests): `crash()`,
-  `spawn(kind)` (a vehicle in the bus's lane), `banana()` (one just ahead
+  `spawn(kind)` (a vehicle in the bus's lane), `place(kind, lane, y)` (a
+  vehicle anywhere, for screenshots), `banana()` (one just ahead
   of the bus), `garbage()` (a pile just ahead of the bus), `noPolice()`,
   `policeBanana()` (a non-re-aiming cruiser behind the bus
   with a banana at its nose), `policeRam()`,
