@@ -509,6 +509,12 @@ export const COFFEE_POUR_BAND_WIDTH = 0.12;
 export const COFFEE_POUR_GOOD_MARGIN = 0.1;
 export const COFFEE_PERFECT_TIP_GARD = 10;
 export const COFFEE_SANITY_RESTORE = { perfect: SANITY_MAX, good: 70, sloppy: 40, spilled: -50 };
+/**
+ * Ward Mood restored per grade — a caffeinated nurse calms the ward (the
+ * user: "make the coffee also improve the mood"). Unlike Library Shift,
+ * where coffee only touches Sanity. A spill helps nobody.
+ */
+export const COFFEE_MOOD_RESTORE = { perfect: 20, good: 12, sloppy: 6, spilled: 0 };
 
 export function coffeePourTargetBand(roll) {
   const r = clamp(Number.isFinite(roll) ? roll : 0, 0, 1);

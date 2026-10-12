@@ -51,6 +51,7 @@ import {
   CLOSING_WAIT_SECONDS,
   COFFEE_SANITY_RESTORE,
   COFFEE_PERFECT_TIP_GARD,
+  COFFEE_MOOD_RESTORE,
   TREATMENT_TIP_GARD,
   DISCHARGE_GARD,
   RATING_MAX,
@@ -471,13 +472,14 @@ export function enterOffice(state) {
   return { ...state, phase: 'paycheck', payout: Math.round(gross * multiplier) };
 }
 
-/** A finished Coffee Pour: that grade's Sanity change, plus a tip for a perfect pour. */
+/** A finished Coffee Pour: that grade's Sanity and Ward Mood change, plus a tip for a perfect pour. */
 export function brewCoffee(state, grade) {
   if (state.phase !== 'playing') return state;
-  const restore = COFFEE_SANITY_RESTORE[grade] ?? COFFEE_SANITY_RESTORE.sloppy;
+  const known = grade in COFFEE_SANITY_RESTORE ? grade : 'sloppy';
   return {
     ...state,
-    sanity: clampSanity(state.sanity + restore),
+    sanity: clampSanity(state.sanity + COFFEE_SANITY_RESTORE[known]),
+    wardMood: clampWardMood(state.wardMood + COFFEE_MOOD_RESTORE[known]),
     bonusGard: state.bonusGard + (grade === 'perfect' ? COFFEE_PERFECT_TIP_GARD : 0),
   };
 }

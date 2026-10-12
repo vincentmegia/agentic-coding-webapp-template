@@ -279,10 +279,11 @@ test.describe('treatments', () => {
 });
 
 test.describe('Coffee Machine', () => {
-	test('a perfect pour refills Sanity and tips', async ({ page }) => {
+	test('a perfect pour refills Sanity, lifts Ward Mood and tips', async ({ page }) => {
 		await page.goto('/hospital-shift');
 		await startShift(page);
 		await hooks(page, 'setSanity', 30);
+		await hooks(page, 'setWardMood', 50);
 		await walkTo(page, 'coffee-machine');
 		const overlay = await waitForOverlay(page, 'coffee-pour');
 		await page.keyboard.down('Space');
@@ -290,6 +291,7 @@ test.describe('Coffee Machine', () => {
 		await page.keyboard.up('Space');
 		const s = await shiftState(page);
 		expect(s.sanity).toBeGreaterThan(95);
+		expect(s.wardMood).toBe(70);
 		expect(s.bonusGard).toBeGreaterThanOrEqual(10);
 	});
 });

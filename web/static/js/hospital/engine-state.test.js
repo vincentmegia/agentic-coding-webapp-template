@@ -42,6 +42,7 @@ import {
   KAREN_EVENT_TIMER_SECONDS,
   CLOSING_WAIT_SECONDS,
   COFFEE_PERFECT_TIP_GARD,
+  COFFEE_MOOD_RESTORE,
   shiftPaycheck,
 } from './rules.js';
 
@@ -360,6 +361,16 @@ describe('payout and extras', () => {
     assert.equal(brewCoffee(s, 'perfect').bonusGard, COFFEE_PERFECT_TIP_GARD);
     assert.equal(brewCoffee(s, 'good').sanity, 100);
     assert.equal(brewCoffee(s, 'spilled').sanity, 0);
+  });
+
+  test('coffee also lifts Ward Mood by grade, capped at full; a spill does nothing for it', () => {
+    const s = playing(1, { wardMood: 50 });
+    assert.equal(brewCoffee(s, 'perfect').wardMood, 50 + COFFEE_MOOD_RESTORE.perfect);
+    assert.equal(brewCoffee(s, 'good').wardMood, 50 + COFFEE_MOOD_RESTORE.good);
+    assert.equal(brewCoffee(s, 'sloppy').wardMood, 50 + COFFEE_MOOD_RESTORE.sloppy);
+    assert.equal(brewCoffee(s, 'spilled').wardMood, 50);
+    assert.equal(brewCoffee(playing(1, { wardMood: 95 }), 'perfect').wardMood, 100);
+    assert.equal(brewCoffee(s, 'mystery').wardMood, 50 + COFFEE_MOOD_RESTORE.sloppy);
   });
 
   test('a ghost patient costs a little Sanity, not a mistake', () => {

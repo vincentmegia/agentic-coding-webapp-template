@@ -89,12 +89,16 @@ The user asked for a new project, "hospital shift." When asked, they chose:
   mother be seen first. "Explain Triage" (+30 Gard) or "Let Her Cut In" (a
   mistake and −50 Ward Mood); a 12 s timer auto-resolves as the latter.
 * **Ward Mood** (Library Mood's analog): starts at 100, −25 per mistake,
+  raised by coffee (below),
   scales new patients' wait and treatment patience (×1.0 → ×0.6), drives
   the HUD status (Calm / Busy / Chaotic).
 * **Sanity + Coffee Machine**: Sanity drains passively and −15 per mistake,
   slowing the walk; the break room's Coffee Machine opens Library Shift's
-  **Coffee Pour** (perfect +100 & 10 Gard tip, good +70, sloppy +40,
-  spilled −50 and a coffee stain).
+  **Coffee Pour** — machine art and pour screen copied verbatim from
+  Library Shift (perfect +100 Sanity & 10 Gard tip, good +70, sloppy +40,
+  spilled −50 and a coffee stain). Unlike Library Shift, coffee also lifts
+  **Ward Mood** (`COFFEE_MOOD_RESTORE`: perfect +20, good +12, sloppy +6,
+  spilled 0) — the user asked for "the coffee also improve the mood".
 * **Hallucinations** below 25 Sanity (Library Shift's v2.16 system, ER
   flavored): vignette, shadow figures, whispers ("code blue…", "bed five
   is empty"), flicker, shake; shaky hands (narrower/faster skill checks),
@@ -139,7 +143,7 @@ The user asked for a new project, "hospital shift." When asked, they chose:
    - Surgery: at the bed you take the gurney; walk to the Operating Room →
      three-stage skill check → patient returns to the bed.
 5. Last step done → discharged (+Gard), bed frees.
-6. Coffee Machine any time: Coffee Pour restores Sanity.
+6. Coffee Machine any time: Coffee Pour restores Sanity and lifts Ward Mood.
 7. 7:00 PM → 20 s handover → enter the Charge Nurse's office → paycheck.
 8. Repeat for 30 shifts (Karen once, shift 10–15). Shift 30: Final Paycheck +
    optional leaderboard submission; "Start New Month" resets.

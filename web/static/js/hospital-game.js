@@ -52,6 +52,7 @@ import {
   gradeCoffeePour,
   COFFEE_POUR_SECONDS_TO_BRIM,
   COFFEE_PERFECT_TIP_GARD,
+  COFFEE_MOOD_RESTORE,
   RATING_MAX,
   RATING_PENALTY_PER_WALKOUT,
   paycheckMultiplierForRating,
@@ -799,7 +800,7 @@ export function init(canvas, elements) {
   }
 
   function onOverlayClick(x, y) {
-    if (insideRect(CLOSE_RECT, x, y) && overlay.kind !== 'karen') {
+    if (insideRect(CLOSE_RECT, x, y) && overlay.kind !== 'karen' && overlay.kind !== 'coffee-pour') {
       closeOverlay();
       return;
     }
@@ -824,9 +825,9 @@ export function init(canvas, elements) {
 
   const COFFEE_RESULT_SECONDS = 1.2;
   const COFFEE_RESULT_TEXT = {
-    perfect: `Perfect pour! Fully refreshed, +${COFFEE_PERFECT_TIP_GARD} Gard tip.`,
-    good: 'Nice cup — feeling better.',
-    sloppy: 'A bit sloppy, but coffee is coffee.',
+    perfect: `Perfect pour! Fully refreshed, +${COFFEE_MOOD_RESTORE.perfect} Mood, +${COFFEE_PERFECT_TIP_GARD} Gard tip.`,
+    good: `Nice cup — feeling better. +${COFFEE_MOOD_RESTORE.good} Mood.`,
+    sloppy: `A bit sloppy, but coffee is coffee. +${COFFEE_MOOD_RESTORE.sloppy} Mood.`,
     spilled: 'Ow! Hot coffee all over your scrubs — −50 Sanity.',
   };
   const COFFEE_SPLASH_SECONDS = 6;
@@ -1341,27 +1342,65 @@ export function init(canvas, elements) {
     }
   }
 
+  // Ported verbatim from library-game.js so the two machines match.
   function drawCoffeeMachineDetail(st) {
     const half = st.w / 2;
+    // Bean hopper on top: a clear trapezoid full of beans.
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath();
+    ctx.moveTo(-12, -half + 4);
+    ctx.lineTo(12, -half + 4);
+    ctx.lineTo(7, -half + 16);
+    ctx.lineTo(-7, -half + 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#6a4a30';
+    for (const [bx, by] of [[-6, -half + 9], [0, -half + 8], [6, -half + 9], [-3, -half + 12], [3, -half + 12], [0, -half + 14.5]]) {
+      ctx.beginPath();
+      ctx.ellipse(bx, by, 2.1, 1.4, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Machine body (a slightly lighter top band for a metallic read).
     drawRoundRect(ctx, -half + 9, -half + 16, half * 2 - 18, half * 2 - 24, 7, '#7a5a42');
     drawRoundRect(ctx, -half + 9, -half + 16, half * 2 - 18, 10, [7, 7, 0, 0], '#8f6c50');
+    // Display + buttons.
     drawRoundRect(ctx, -10, -half + 19, 20, 5, 1.5, '#9fe0a8');
+    for (const [bx, color] of [[-half + 17, '#e8b95a'], [half - 17, '#e06a5b']]) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(bx, -half + 21.5, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Recessed brewing bay.
     drawRoundRect(ctx, -half + 15, -half + 30, half * 2 - 30, half + 4, 5, '#4a3424');
+    // Group head + spouts.
     drawRoundRect(ctx, -9, -half + 30, 18, 6, 2, '#b0a090');
-    drawRoundRect(ctx, -8, half - 25, 16, 12, [1, 1, 4, 4], CREAM);
+    ctx.fillStyle = '#b0a090';
+    ctx.fillRect(-5, -half + 35, 3, 5);
+    ctx.fillRect(2, -half + 35, 3, 5);
+    // A coffee drip.
+    ctx.fillStyle = '#c47f4e';
+    ctx.fillRect(-0.75, -half + 40, 1.5, 4);
+    // Cup with coffee + handle.
+    drawRoundRect(ctx, -8, half - 25, 16, 12, [1, 1, 4, 4], '#fdf8ee');
     drawRoundRect(ctx, -6.5, half - 24, 13, 2.5, 1, '#6a4a30');
-    ctx.strokeStyle = CREAM;
+    ctx.strokeStyle = '#fdf8ee';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(9, half - 19.5, 3.2, -Math.PI / 2, Math.PI / 2);
     ctx.stroke();
+    // Drip tray grate.
     drawRoundRect(ctx, -half + 13, half - 13, half * 2 - 26, 5, 2, '#b0a090');
+    ctx.fillStyle = 'rgba(58,42,42,0.4)';
+    for (let gx = -half + 17; gx < half - 15; gx += 5) ctx.fillRect(gx, half - 12, 1.5, 3);
+    // Steam wisps curling out of the bay.
     ctx.strokeStyle = 'rgba(255,255,255,0.8)';
     ctx.lineWidth = 1.5;
     for (const dx of [-14, 14]) {
       ctx.beginPath();
       ctx.moveTo(dx, half - 26);
       ctx.quadraticCurveTo(dx - 4, half - 32, dx, half - 38);
+      ctx.quadraticCurveTo(dx + 4, half - 43, dx, half - 48);
       ctx.stroke();
     }
   }
@@ -1568,6 +1607,16 @@ export function init(canvas, elements) {
       ctx.beginPath();
       ctx.arc(player.x + dx * s, player.y + dy * s, r * s, 0, Math.PI * 2);
       ctx.fill();
+    }
+    // Steam curling off the stain.
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.5;
+    const t = performance.now() / 300;
+    for (const dx of [-6, 4]) {
+      ctx.beginPath();
+      ctx.moveTo(player.x + dx * s, player.y - 24 * s);
+      ctx.quadraticCurveTo(player.x + (dx - 3 + Math.sin(t)) * s, player.y - 30 * s, player.x + dx * s, player.y - 36 * s);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -2096,27 +2145,52 @@ export function init(canvas, elements) {
   }
 
   function drawCoffeePourOverlay() {
-    drawPanel('Pour a Coffee', 'Hold mouse/tap or Space/Enter to pour. Let go in the gold band.');
+    ctx.fillStyle = 'rgba(20,30,30,0.55)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     const cx = CANVAS_WIDTH / 2;
-    drawRoundRect(ctx, cx - 70, 140, 140, 34, 8, '#7a5a42');
-    drawRoundRect(ctx, cx - 24, 174, 48, 12, 3, '#b0a090');
-    const cupTop = 236;
-    const cupBottom = 440;
+    drawRoundRect(ctx, cx - 210, 110, 420, 400, 18, '#f2e9da');
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('Pour a Coffee', cx, 145);
+    ctx.font = '13px sans-serif';
+    ctx.fillText('Hold mouse/tap or Space/Enter to pour. Let go in the gold band.', cx, 167);
+
+    // Machine head + spout above the cup.
+    drawRoundRect(ctx, cx - 70, 180, 140, 34, 8, '#7a5a42');
+    drawRoundRect(ctx, cx - 24, 214, 48, 12, 3, '#b0a090');
+    ctx.fillStyle = '#9fe0a8';
+    ctx.fillRect(cx - 40, 190, 26, 8);
+    ctx.fillStyle = overlay.pouring ? '#e06a5b' : '#e8b95a';
+    ctx.beginPath();
+    ctx.arc(cx + 44, 197, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cup geometry: a slightly tapered mug, fill measured bottom -> brim.
+    const cupTop = 268;
+    const cupBottom = 450;
     const cupH = cupBottom - cupTop;
-    const topHalfW = 80;
-    const bottomHalfW = 66;
+    const topHalfW = 78;
+    const bottomHalfW = 64;
+    const halfWAt = (y) => bottomHalfW + (topHalfW - bottomHalfW) * ((cupBottom - y) / cupH);
     const yForFill = (f) => cupBottom - f * cupH;
+
+    // Stream while pouring.
     if (overlay.pouring) {
       ctx.fillStyle = '#6a4a30';
-      ctx.fillRect(cx - 3, 186, 6, yForFill(overlay.fill) - 186);
+      const surfaceY = yForFill(overlay.fill);
+      ctx.fillRect(cx - 3, 226, 6, surfaceY - 226);
     }
-    drawRoundRect(ctx, cx - 112, cupBottom + 4, 224, 14, 7, '#e3d6c2');
-    ctx.strokeStyle = CREAM;
+
+    // Saucer, mug body (cream), handle.
+    drawRoundRect(ctx, cx - 110, cupBottom + 4, 220, 14, 7, '#e3d6c2');
+    ctx.strokeStyle = '#fdf8ee';
     ctx.lineWidth = 14;
     ctx.beginPath();
-    ctx.arc(cx + topHalfW + 6, cupTop + 76, 32, -Math.PI / 2, Math.PI / 2);
+    ctx.arc(cx + topHalfW + 6, cupTop + 70, 30, -Math.PI / 2, Math.PI / 2);
     ctx.stroke();
-    ctx.fillStyle = CREAM;
+    ctx.fillStyle = '#fdf8ee';
     ctx.beginPath();
     ctx.moveTo(cx - topHalfW, cupTop);
     ctx.lineTo(cx + topHalfW, cupTop);
@@ -2124,12 +2198,15 @@ export function init(canvas, elements) {
     ctx.quadraticCurveTo(cx, cupBottom + 10, cx - bottomHalfW, cupBottom);
     ctx.closePath();
     ctx.fill();
+
+    // Coffee inside the cup, clipped to the mug's inner shape.
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(cx - topHalfW + 8, cupTop + 2);
-    ctx.lineTo(cx + topHalfW - 8, cupTop + 2);
-    ctx.lineTo(cx + bottomHalfW - 8, cupBottom - 8);
-    ctx.lineTo(cx - bottomHalfW + 8, cupBottom - 8);
+    const inset = 8;
+    ctx.moveTo(cx - topHalfW + inset, cupTop + 2);
+    ctx.lineTo(cx + topHalfW - inset, cupTop + 2);
+    ctx.lineTo(cx + bottomHalfW - inset, cupBottom - inset);
+    ctx.lineTo(cx - bottomHalfW + inset, cupBottom - inset);
     ctx.closePath();
     ctx.clip();
     ctx.fillStyle = '#efe4d2';
@@ -2137,8 +2214,10 @@ export function init(canvas, elements) {
     const surfaceY = yForFill(overlay.fill);
     ctx.fillStyle = '#6a4a30';
     ctx.fillRect(cx - topHalfW, surfaceY, topHalfW * 2, cupBottom - surfaceY);
-    ctx.fillStyle = '#c49a6c';
+    ctx.fillStyle = '#c49a6c'; // crema on top
     ctx.fillRect(cx - topHalfW, surfaceY, topHalfW * 2, Math.min(6, cupBottom - surfaceY));
+
+    // Target band.
     const bandTop = yForFill(overlay.band.high);
     const bandBottom = yForFill(overlay.band.low);
     ctx.fillStyle = 'rgba(242,217,138,0.45)';
@@ -2154,9 +2233,11 @@ export function init(canvas, elements) {
     }
     ctx.setLineDash([]);
     ctx.restore();
+
+    // Side markers so the band reads even when the coffee covers it.
     ctx.fillStyle = '#e0a83a';
     for (const dir of [-1, 1]) {
-      const bx = cx + dir * (topHalfW + 14);
+      const bx = cx + dir * (halfWAt(bandTop) + 12);
       ctx.beginPath();
       ctx.moveTo(bx - dir * 8, (bandTop + bandBottom) / 2);
       ctx.lineTo(bx, bandTop);
@@ -2164,23 +2245,47 @@ export function init(canvas, elements) {
       ctx.closePath();
       ctx.fill();
     }
+
+    // Spill: coffee sloshes over the rim and splashes out at you.
     if (overlay.grade === 'spilled') {
       ctx.fillStyle = '#6a4a30';
-      for (const [sx, sy, r] of [[-40, -40, 9], [30, -55, 7], [-10, -70, 6], [55, -25, 5], [-62, -18, 5]]) {
+      for (const [sx, sy, r] of [[-40, -40, 9], [30, -55, 7], [-10, -70, 6], [55, -25, 5], [-62, -18, 5], [12, -88, 4]]) {
         ctx.beginPath();
         ctx.arc(cx + sx, cupTop + sy, r, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.fillStyle = '#6a4a30';
+      for (const [dx, len] of [[-topHalfW + 4, 30], [-topHalfW + 22, 16], [topHalfW - 10, 24]]) {
+        drawRoundRect(ctx, cx + dx, cupTop - 2, 7, len, 3.5, '#6a4a30');
+      }
+      ctx.beginPath();
+      ctx.ellipse(cx - 30, cupBottom + 12, 34, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
     }
+
+    // Steam once it's done.
+    if (overlay.grade && overlay.grade !== 'spilled') {
+      ctx.strokeStyle = 'rgba(120,100,80,0.45)';
+      ctx.lineWidth = 3;
+      for (const dx of [-24, 0, 24]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + dx, cupTop - 6);
+        ctx.quadraticCurveTo(cx + dx - 8, cupTop - 18, cx + dx, cupTop - 30);
+        ctx.quadraticCurveTo(cx + dx + 8, cupTop - 40, cx + dx, cupTop - 50);
+        ctx.stroke();
+      }
+    }
+
+    // Result banner.
     if (overlay.grade) {
       const label = { perfect: 'Perfect!', good: 'Good', sloppy: 'Sloppy', spilled: 'Spilled!' }[overlay.grade];
       const color = { perfect: '#e0a83a', good: '#7fb0d6', sloppy: '#a08a7a', spilled: '#e06a5b' }[overlay.grade];
-      drawRoundRect(ctx, cx - 70, 476, 140, 30, 15, color);
-      ctx.fillStyle = CREAM;
+      drawRoundRect(ctx, cx - 70, 474, 140, 30, 15, color);
+      ctx.fillStyle = '#fdf8ee';
       ctx.font = 'bold 16px sans-serif';
-      ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(label, cx, 491);
+      ctx.fillText(label, cx, 489);
+      ctx.textBaseline = 'alphabetic';
     }
   }
 
@@ -2363,6 +2468,7 @@ export function init(canvas, elements) {
     setSkillGauge(pos) { if (overlay?.kind === 'skill') { overlay.gauge = pos; overlay.direction = 0; } },
     setCoffeePourFill(fill) { if (overlay?.kind === 'coffee-pour' && !overlay.grade) overlay.fill = fill; },
     setSanity(value) { if (shiftState) shiftState = { ...shiftState, sanity: value }; },
+    setWardMood(value) { if (shiftState) shiftState = { ...shiftState, wardMood: value }; },
     forceKarenShiftNow() {
       if (!shiftState) return;
       shiftState = { ...shiftState, karen: { ...shiftState.karen, shiftNumber: currentShiftNumber } };
