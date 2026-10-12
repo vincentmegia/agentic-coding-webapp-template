@@ -341,6 +341,70 @@ test.describe('the Supply Room (2nd Floor)', () => {
 	});
 });
 
+test.describe('helping staff', () => {
+	async function clickStaff(page, key) {
+		const member = (await hooks(page, 'getStaff')).find((a) => a.key === key);
+		await clickCanvasPoint(page, { x: member.x, y: member.y - 20 });
+	}
+
+	test('Dr. Okafor steps in for a patient about to be transferred', async ({ page }) => {
+		await page.goto('/hospital-shift');
+		await startShift(page);
+		const [id, bed] = await admit(page, 'sprain', 'green');
+		await hooks(page, 'setBedPatienceFraction', bed, 0.2);
+		await hooks(page, 'setDoctorCooldown', 0);
+		await expect.poll(async () => (await shiftState(page)).doctorAssists, { timeout: 15000 }).toBe(1);
+		const s = await shiftState(page);
+		expect(s.beds[bed].id).toBe(id);
+		expect(s.beds[bed].step).toBe(1);
+		expect(s.beds[bed].patienceRemainingSeconds / s.beds[bed].patienceMaxSeconds).toBeGreaterThanOrEqual(0.45);
+		await expect(page.locator('#hospital-toast')).toContainText('Dr. Okafor stepped in');
+	});
+
+	test('the Orderly wheels a surgery patient to the OR when clicked', async ({ page }) => {
+		await seedSave(page);
+		await page.goto('/hospital-shift');
+		await startShift(page);
+		const [id, bed] = await admit(page, 'appendicitis', 'red');
+		for (let step = 0; step < 2; step++) {
+			await walkTo(page, 'bed', bed);
+			await waitForOverlay(page, 'skill');
+			await passSkillCheck(page);
+			await expect.poll(async () => (await shiftState(page)).beds[bed]?.step).toBe(step + 1);
+		}
+		await clickStaff(page, 'orderly');
+		await expect(page.locator('#hospital-toast')).toContainText('Orderly is on his way');
+		await expect.poll(async () => (await shiftState(page)).orPatient?.patientId, { timeout: 20000 }).toBe(id);
+		await walkTo(page, 'operating-room');
+		await waitForOverlay(page, 'skill');
+		for (let i = 0; i < 3; i++) {
+			await passSkillCheck(page);
+			await page.waitForTimeout(50);
+		}
+		const s = await shiftState(page);
+		expect(s.beds[bed]).toBeNull();
+		expect(s.orPatient).toBeNull();
+	});
+
+	test('the Orderly says so when nobody needs surgery', async ({ page }) => {
+		await page.goto('/hospital-shift');
+		await startShift(page);
+		await clickStaff(page, 'orderly');
+		await expect(page.locator('#hospital-toast')).toContainText('Nobody needs wheeling');
+	});
+
+	test('the Stock tech comes downstairs and hands you a bandage roll', async ({ page }) => {
+		await page.goto('/hospital-shift');
+		await startShift(page);
+		await hooks(page, 'bringStockTechDownNow');
+		await expect.poll(async () => (await hooks(page, 'getStaff')).find((a) => a.key === 'stockTech').floor).toBe(1);
+		await hooks(page, 'freezeStaff', 'stockTech');
+		await clickStaff(page, 'stockTech');
+		await expect.poll(async () => (await shiftState(page)).carried?.kind, { timeout: 10000 }).toBe('bandage');
+		expect(await hooks(page, 'getCurrentFloor')).toBe(1);
+	});
+});
+
 test.describe('Coffee Machine', () => {
 	test('a perfect pour refills Sanity, lifts Ward Mood and tips', async ({ page }) => {
 		await page.goto('/hospital-shift');

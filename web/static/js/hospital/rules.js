@@ -665,3 +665,21 @@ export function hallucinationPayMultiplier(zeroSanitySeconds) {
 export function monthTotal(shiftPayouts) {
   return Array.isArray(shiftPayouts) ? shiftPayouts.reduce((sum, p) => sum + (Number.isFinite(p) ? p : 0), 0) : 0;
 }
+
+// ---------------------------------------------------------------------------
+// 15. Helping staff — the user picked all three jobs for the background
+//     workers ("help"): Dr. Okafor rescues patients about to be transferred,
+//     the Orderly wheels surgery patients to the OR on request, and the
+//     Stock tech brings bandage rolls downstairs now and then.
+// ---------------------------------------------------------------------------
+
+/** Dr. Okafor steps in for a patient below this share of their patience... */
+export const DOCTOR_ASSIST_PATIENCE_FRACTION = 0.3;
+/** ...finishes their current step (never surgery) and tops their patience up to at least this share... */
+export const DOCTOR_ASSIST_PATIENCE_REFILL = 0.5;
+/** ...then needs this long before he can help again (also his delay at shift start). */
+export const DOCTOR_ASSIST_COOLDOWN_SECONDS = 50;
+
+/** The Stock tech's rhythm: this long upstairs, then this long downstairs with bandage rolls. */
+export const STOCK_TECH_UPSTAIRS_SECONDS = 35;
+export const STOCK_TECH_DOWNSTAIRS_SECONDS = 25;

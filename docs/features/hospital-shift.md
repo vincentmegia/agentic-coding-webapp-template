@@ -147,9 +147,26 @@ The user asked for a new project, "hospital shift." When asked, they chose:
   arrivals are spread evenly (`patientArrivalTimes`: two in the opening
   4–20 s, then one per equal slice of the window up to 85% of the shift)
   instead of uniformly random, so there are no long dead spells. Three
-  non-interactive background staff wander the floors — Dr. Okafor and an
-  Orderly in the ER (routes kept clear of the triage line), a Stock tech in
-  the Supply Room.
+  background staff wander the floors — Dr. Okafor and an Orderly in the ER
+  (routes kept clear of the triage line), a Stock tech in the Supply Room.
+* **Helping staff** (the user then asked what the workers do, and picked
+  all three proposed jobs — engine-state.js "Helping staff", rules.js
+  section 15):
+  - **Dr. Okafor** (automatic): when a bedded patient drops below 30% of
+    their patience (`DOCTOR_ASSIST_PATIENCE_FRACTION`) he walks over and
+    finishes their current step — any step but surgery, never the patient
+    you're mid-minigame with or carrying meds for — and tops their patience
+    back up to 50%. No step tip (you didn't do it), but a discharge he
+    completes still pays. Then a 50 s cooldown (also his delay at shift
+    start).
+  - **Orderly** (click him): wheels the most urgent surgery patient to the
+    OR (`orderlyTakePatient` → `orderlyDeliverToOR`); their patience is
+    paused from pickup until the operation. The OR table holds one waiting
+    patient (`orPatient`); walk to the OR with free hands to operate. His
+    label reads "Orderly (click: to OR)" whenever someone's waiting.
+  - **Stock tech** (click him): 35 s upstairs, then 25 s in the ER with
+    bandage rolls ("Stock tech · rolls (click)"). Clicking him makes him
+    wait while you walk over, then he hands you a roll — no trip upstairs.
 
 **Out of scope (v1):**
 

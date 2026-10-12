@@ -67,6 +67,8 @@ import {
   hallucinationPayMultiplier,
   TREATMENT_TIP_GARD,
   DISCHARGE_GARD,
+  STOCK_TECH_UPSTAIRS_SECONDS,
+  STOCK_TECH_DOWNSTAIRS_SECONDS,
 } from './hospital/rules.js';
 import {
   createInitialState,
@@ -94,6 +96,11 @@ import {
   enterOffice,
   brewCoffee,
   startleFromHallucination,
+  nextSurgeryBedIndex,
+  orderlyTakePatient,
+  orderlyDeliverToOR,
+  doctorAssistTarget,
+  doctorAssist,
 } from './hospital/engine-state.js';
 import {
   buildStations,
@@ -235,8 +242,12 @@ export const PERSON_TEMPLATES = {
   },
 };
 
-// Background staff (set dressing — the user asked to make the ER "more
-// busier"): they wander between waypoints and can't be clicked.
+// Helping staff: they wander between waypoints (set dressing first — the
+// user asked to make the ER "more busier") and then do their jobs (the
+// user picked all three: "help"): Dr. Okafor rescues a patient about to be
+// transferred, the Orderly wheels a surgery patient to the OR when you
+// click him, and the Stock tech brings bandage rolls downstairs now and
+// then — click him for one.
 PERSON_TEMPLATES.doctor = {
   label: 'Dr. Okafor',
   bodyColor: '#f6f5f0', pantsColor: '#4f5d70', headColor: '#6b4226', hairColor: '#1a120c', accentColor: '#34343e',
@@ -265,6 +276,12 @@ const AMBIENT_STAFF = [
   { key: 'stockTech', name: 'Stock tech', floor: 2, waypoints: [[160, 250], [600, 330], [240, 430], [560, 440], [700, 200]] },
 ];
 const AMBIENT_SPEED = 70;
+/** Staff on an errand walk faster than when they're idling. */
+const ERRAND_SPEED = 130;
+/** Where the Stock tech walks while he's downstairs with bandages (start and end at the Elevator). */
+const STOCK_TECH_ER_WAYPOINTS = [[700, 505], [560, 470], [400, 525], [600, 520]];
+const STOCK_TECH_ER_ELEVATOR = [840, 530];
+const STOCK_TECH_SUPPLY_WAYPOINTS = AMBIENT_STAFF.find((d) => d.key === 'stockTech').waypoints;
 
 /** Every design a patient can have (not Karen, not the nurse). */
 export const PATIENT_PERSONALITY_KEYS = ['grumpyRegular', 'shyStudent', 'cheerfulKid', 'teen', 'grandma', 'businessman', 'artist', 'bearded', 'curly'];
@@ -333,41 +350,216 @@ export function init(canvas, elements) {
   const patientInfo = new Map();
 
   let ambient = [];
+  let pendingStaffPickup = false; // walking up to the Stock tech for a roll
 
   function resetAmbient() {
     ambient = AMBIENT_STAFF.map((def, i) => {
       const [x, y] = def.waypoints[i % def.waypoints.length];
-      return { ...def, x, y, target: (i + 1) % def.waypoints.length, pause: random() * 2 };
+      return {
+        ...def, x, y, target: (i + 1) % def.waypoints.length, pause: random() * 2,
+        errand: null, // { kind, ...} — overrides wandering while set
+        dest: null, // [x, y] the errand is walking to
+        phaseSeconds: def.key === 'stockTech' ? STOCK_TECH_UPSTAIRS_SECONDS : 0,
+      };
     });
+    pendingStaffPickup = false;
+  }
+
+  const staff = (key) => ambient.find((a) => a.key === key);
+
+  /** Steps a staff member toward [x, y]; true once they're there. */
+  function walkToward(a, [tx, ty], speed, dt) {
+    const dx = tx - a.x;
+    const dy = ty - a.y;
+    const dist = Math.hypot(dx, dy);
+    const step = speed * dt;
+    if (dist <= step) {
+      a.x = tx;
+      a.y = ty;
+      return true;
+    }
+    a.x += (dx / dist) * step;
+    a.y += (dy / dist) * step;
+    return false;
+  }
+
+  function wander(a, dt) {
+    if (a.pause > 0) { a.pause -= dt; return; }
+    if (walkToward(a, a.waypoints[a.target], AMBIENT_SPEED, dt)) {
+      a.pause = 0.8 + random() * 2.2;
+      let next = Math.floor(random() * a.waypoints.length);
+      if (next === a.target) next = (next + 1) % a.waypoints.length;
+      a.target = next;
+    }
+  }
+
+  /** The spot just below a bed where staff stand to work on it. */
+  function bedSide(bedIndex) {
+    const bed = bedStation(bedIndex);
+    return [bed.x + 26, bed.y + bed.h / 2 + 30];
+  }
+
+  function updateDoctor(a, dt) {
+    if (shiftState?.phase !== 'playing') { a.errand = null; wander(a, dt); return; }
+    if (!a.errand) {
+      const bedIndex = doctorAssistTarget(shiftState);
+      if (bedIndex !== -1) a.errand = { kind: 'assist', bedIndex, patientId: shiftState.beds[bedIndex].id };
+    }
+    if (!a.errand) { wander(a, dt); return; }
+    if (!walkToward(a, bedSide(a.errand.bedIndex), ERRAND_SPEED, dt)) return;
+    const { bedIndex, patientId } = a.errand;
+    a.errand = null;
+    a.pause = 1.5;
+    const before = shiftState;
+    const step = currentStep(before.beds[bedIndex]);
+    shiftState = doctorAssist(shiftState, bedIndex, patientId);
+    if (shiftState === before) return;
+    const name = patientInfo.get(patientId)?.name ?? 'a patient';
+    showToast(shiftState.beds[bedIndex]
+      ? `Dr. Okafor stepped in at ${bedLabel(bedIndex)} — did ${name}'s ${TREATMENT_LABELS[step]} and bought you time.`
+      : `Dr. Okafor stepped in at ${bedLabel(bedIndex)} — ${name} is discharged! +${DISCHARGE_GARD[before.beds[bedIndex].level]}g`, 3.4);
+  }
+
+  /** Clicking the Orderly: send him for the most urgent surgery patient. */
+  function requestOrderly() {
+    const a = staff('orderly');
+    if (a.errand) {
+      showToast('The Orderly is already moving a patient.');
+      return;
+    }
+    if (shiftState.orPatient) {
+      showToast("There's already a patient on the OR table — go operate first.");
+      return;
+    }
+    const bedIndex = nextSurgeryBedIndex(shiftState);
+    if (bedIndex === -1) {
+      showToast('Nobody needs wheeling to the Operating Room right now.');
+      return;
+    }
+    a.errand = { kind: 'fetch', bedIndex, patientId: shiftState.beds[bedIndex].id };
+    showToast(`The Orderly is on his way to ${bedLabel(bedIndex)} to take them to the OR.`);
+  }
+
+  function updateOrderly(a, dt) {
+    if (shiftState?.phase !== 'playing') {
+      a.errand = null;
+      wander(a, dt);
+      return;
+    }
+    if (!a.errand) { wander(a, dt); return; }
+    if (a.errand.kind === 'fetch') {
+      if (!walkToward(a, bedSide(a.errand.bedIndex), ERRAND_SPEED, dt)) return;
+      const before = shiftState;
+      shiftState = orderlyTakePatient(shiftState, a.errand.bedIndex);
+      if (shiftState === before || shiftState.orderlyGurney?.patientId !== a.errand.patientId) {
+        showToast(`The Orderly found ${bedLabel(a.errand.bedIndex)} already handled.`);
+        a.errand = null;
+        return;
+      }
+      a.errand = { ...a.errand, kind: 'deliver' };
+      return;
+    }
+    const or = stationOfKind('operating-room');
+    if (!walkToward(a, [or.x - or.w / 2 - 40, or.y + 20], ERRAND_SPEED * 0.8, dt)) return;
+    shiftState = orderlyDeliverToOR(shiftState);
+    showToast(`${bedLabel(a.errand.bedIndex)}'s patient is on the OR table — go scrub in.`, 3.4);
+    a.errand = null;
+    a.pause = 2;
+  }
+
+  /** Upstairs for a while, then downstairs with bandage rolls, then back up. */
+  function updateStockTech(a, dt) {
+    if (a.errand?.kind === 'leaving') {
+      if (walkToward(a, STOCK_TECH_ER_ELEVATOR, ERRAND_SPEED, dt)) {
+        a.errand = null;
+        a.floor = FLOOR_2;
+        a.waypoints = STOCK_TECH_SUPPLY_WAYPOINTS;
+        a.target = 0;
+        a.phaseSeconds = STOCK_TECH_UPSTAIRS_SECONDS;
+      }
+      return;
+    }
+    a.phaseSeconds -= dt;
+    if (a.phaseSeconds <= 0) {
+      if (a.floor === FLOOR_2) {
+        a.floor = FLOOR_1;
+        [a.x, a.y] = STOCK_TECH_ER_ELEVATOR;
+        a.waypoints = STOCK_TECH_ER_WAYPOINTS;
+        a.target = 0;
+        a.pause = 0;
+        a.phaseSeconds = STOCK_TECH_DOWNSTAIRS_SECONDS;
+        if (currentFloor === FLOOR_1 && shiftState?.phase === 'playing') showToast('The Stock tech is down with bandage rolls — click him for one.');
+      } else {
+        a.errand = { kind: 'leaving' };
+      }
+      return;
+    }
+    wander(a, dt);
   }
 
   function updateAmbient(dt) {
     for (const a of ambient) {
-      if (a.pause > 0) { a.pause -= dt; continue; }
-      const [tx, ty] = a.waypoints[a.target];
-      const dx = tx - a.x;
-      const dy = ty - a.y;
-      const dist = Math.hypot(dx, dy);
-      const step = AMBIENT_SPEED * dt;
-      if (dist <= step) {
-        a.x = tx;
-        a.y = ty;
-        a.pause = 0.8 + random() * 2.2;
-        let next = Math.floor(random() * a.waypoints.length);
-        if (next === a.target) next = (next + 1) % a.waypoints.length;
-        a.target = next;
-      } else {
-        a.x += (dx / dist) * step;
-        a.y += (dy / dist) * step;
-      }
+      if (a.key === 'doctor') updateDoctor(a, dt);
+      else if (a.key === 'orderly') updateOrderly(a, dt);
+      else if (a.key === 'stockTech') updateStockTech(a, dt);
+      else wander(a, dt);
     }
+  }
+
+  function staffAtPoint(x, y) {
+    return ambient.find((a) => a.floor === currentFloor && Math.abs(x - a.x) <= 20 && y >= a.y - 46 && y <= a.y + 24) || null;
+  }
+
+  /** Clicking a staff member: the Orderly takes an order; the Stock tech waits while you walk over for a roll. */
+  function onStaffClick(a) {
+    if (shiftState?.phase !== 'playing') return;
+    if (a.key === 'orderly') {
+      requestOrderly();
+    } else if (a.key === 'stockTech') {
+      if (shiftState.carried) {
+        showToast(`Your hands are full — ${handsFullReason()}`);
+        return;
+      }
+      a.pause = 5;
+      pendingStaffPickup = true;
+      moveTarget = { x: a.x - 36, y: a.y, station: null };
+    } else {
+      showToast('Dr. Okafor steps in by himself when a patient is about to be transferred.');
+    }
+  }
+
+  function arriveAtStockTech() {
+    pendingStaffPickup = false;
+    const a = staff('stockTech');
+    if (a.floor !== currentFloor || Math.hypot(a.x - player.x, a.y - player.y) > 90) {
+      showToast('The Stock tech moved on — try again.');
+      return;
+    }
+    const before = shiftState;
+    shiftState = pickUpBandage(shiftState);
+    if (shiftState !== before) showToast('The Stock tech hands you a bandage roll.');
+  }
+
+  function staffLabel(a) {
+    if (a.key === 'orderly') {
+      if (a.errand) return 'Orderly → OR';
+      return shiftState && nextSurgeryBedIndex(shiftState) !== -1 && !shiftState.orPatient ? 'Orderly (click: to OR)' : 'Orderly';
+    }
+    if (a.key === 'stockTech' && a.floor === FLOOR_1) return 'Stock tech · rolls (click)';
+    if (a.key === 'doctor' && a.errand) return 'Dr. Okafor (helping)';
+    return a.name;
   }
 
   function drawAmbient() {
     for (const a of ambient) {
       if (a.floor !== currentFloor) continue;
+      if (a.key === 'orderly' && a.errand?.kind === 'deliver') drawGurney(a.x + 34, a.y - 6, a.errand.patientId);
       drawHospitalPerson(ctx, a.x, a.y, { personalityKey: a.key, scale: 0.8 });
-      drawLabelChip(ctx, a.x, a.y + 20, a.name, '9px sans-serif', 'rgba(255,251,246,0.75)');
+      if (a.key === 'stockTech' && a.floor === FLOOR_1) drawBandageRoll(a.x + 16, a.y - 58, 1);
+      const label = staffLabel(a);
+      const actionable = label !== a.name;
+      drawLabelChip(ctx, a.x, a.y + 20, label, actionable ? 'bold 9px sans-serif' : '9px sans-serif',
+        actionable ? '#2f5f6f' : 'rgba(255,251,246,0.75)', actionable ? CREAM : LABEL_TEXT_COLOR);
     }
   }
 
@@ -477,6 +669,7 @@ export function init(canvas, elements) {
 
   function commitStationTarget(station, rawPoint) {
     if (station?.kind !== 'office') waitingAtOffice = false;
+    pendingStaffPickup = false;
     if (station) {
       const approach = approachPoint(station.x, station.y, player.x, player.y, standoffFor(station, player.x, player.y));
       moveTarget = { x: approach.x, y: approach.y, station };
@@ -497,6 +690,7 @@ export function init(canvas, elements) {
       const arrived = moveTarget.station;
       moveTarget = null;
       if (arrived) handleArrival(arrived);
+      else if (pendingStaffPickup) arriveAtStockTech();
     } else {
       player = clampToCanvas(player.x + (dx / dist) * step, player.y + (dy / dist) * step);
     }
@@ -755,7 +949,8 @@ export function init(canvas, elements) {
       const before = shiftState;
       shiftState = startSurgery(shiftState);
       if (shiftState !== before) openSkillOverlay('surgery');
-      else showToast('Bring a patient who needs surgery — take their gurney from the bed.');
+      else if (shiftState.orPatient && shiftState.carried) showToast(`A patient is waiting on the table — free your hands to scrub in (${handsFullReason()})`);
+      else showToast('Bring a patient who needs surgery — take their gurney from the bed, or click the Orderly.');
       return;
     }
 
@@ -779,7 +974,7 @@ export function init(canvas, elements) {
       return;
     }
     if (patient.inSurgery) {
-      showToast(`${label}'s patient is with you on the gurney — head to the OR.`);
+      showToast(`${label}'s patient is in surgery — head to the Operating Room.`);
       return;
     }
     if (carried?.kind === 'meds') {
@@ -1175,6 +1370,11 @@ export function init(canvas, elements) {
       onOverlayClick(x, y);
       return;
     }
+    const member = staffAtPoint(x, y);
+    if (member && shiftState?.phase === 'playing') {
+      onStaffClick(member);
+      return;
+    }
     if (shiftState?.phase === 'playing') {
       const slot = triageSlotAtPoint(x, y);
       if (slot) {
@@ -1209,7 +1409,7 @@ export function init(canvas, elements) {
     if (overlay) { canvas.style.cursor = ''; return; }
     const { x, y } = canvasCoordsFromEvent(e);
     hoverStation = stationAtPoint(x, y, visibleStations());
-    canvas.style.cursor = hoverStation || triageSlotAtPoint(x, y) ? 'pointer' : '';
+    canvas.style.cursor = hoverStation || triageSlotAtPoint(x, y) || staffAtPoint(x, y) ? 'pointer' : '';
   }
 
   function onWindowPointerUp() {
@@ -1594,8 +1794,9 @@ export function init(canvas, elements) {
     ctx.moveTo(-hw + 10, -hh + 21); ctx.lineTo(-hw + 17, -hh + 21); ctx.lineTo(-hw + 20, -hh + 14); ctx.lineTo(-hw + 23, -hh + 26); ctx.lineTo(-hw + 26, -hh + 21); ctx.lineTo(-hw + 32, -hh + 21);
     ctx.stroke();
     // A patient on the table while the operation's under way.
-    if (shiftState?.activeTask?.kind === 'surgery') {
-      drawHospitalPerson(ctx, 0, 6, { personalityKey: patientInfo.get(shiftState.activeTask.patientId)?.personalityKey, scale: 0.6 });
+    const onTable = shiftState?.activeTask?.kind === 'surgery' ? shiftState.activeTask.patientId : shiftState?.orPatient?.patientId;
+    if (onTable) {
+      drawHospitalPerson(ctx, 0, 6, { personalityKey: patientInfo.get(onTable)?.personalityKey, scale: 0.6 });
       drawRoundRect(ctx, -18, -14, 36, 50, 5, '#7fb8a4');
     }
   }
@@ -1806,7 +2007,7 @@ export function init(canvas, elements) {
       ctx.stroke();
       drawRoundRect(ctx, -7.5, 1, 15, 11, 3, '#5a5060');
     }
-    const pulse = (st.kind === 'operating-room' && shiftState?.carried?.kind === 'gurney')
+    const pulse = (st.kind === 'operating-room' && (shiftState?.carried?.kind === 'gurney' || shiftState?.orPatient))
       || (st.kind === 'med-cabinet' && shiftState && !shiftState.carried && shiftState.beds.some((b) => currentStep(b) === 'meds'))
       || (st.kind === 'supply-cart' && shiftState && !shiftState.carried && shiftState.beds.some((b) => currentStep(b) === 'bandage'));
     stationOutline(st, pulse ? `rgba(224,168,58,${0.55 + 0.45 * Math.sin(performance.now() / 180)})` : null);
@@ -1878,7 +2079,8 @@ export function init(canvas, elements) {
     if (patient) {
       const step = currentStep(patient);
       if (patient.inSurgery) {
-        drawLabelChip(ctx, 0, -hh - 16, 'In the OR', 'bold 10px sans-serif', '#3a6a5a', CREAM);
+        const withOrderly = shiftState.orderlyGurney?.patientId === patient.id;
+        drawLabelChip(ctx, 0, -hh - 16, withOrderly ? 'Orderly → OR' : 'In the OR', 'bold 10px sans-serif', '#3a6a5a', CREAM);
       } else {
         let text = TREATMENT_LABELS[step];
         if (step === 'meds') text = `Meds: ${findCondition(patient.conditionId).med.drug} ×${findCondition(patient.conditionId).med.dose}`;
@@ -2916,6 +3118,14 @@ export function init(canvas, elements) {
     setPlayerPosition: (x, y) => { player = { x, y }; },
     isPlayerMoving: () => moveTarget !== null,
     getCurrentFloor: () => currentFloor,
+    getStaff: () => ambient.map((a) => ({ key: a.key, x: a.x, y: a.y, floor: a.floor, errand: a.errand ? { ...a.errand } : null })),
+    setDoctorCooldown(seconds) { if (shiftState) shiftState = { ...shiftState, doctorCooldownSeconds: seconds }; },
+    setBedPatienceFraction(bedIndex, fraction) {
+      if (!shiftState?.beds[bedIndex]) return;
+      shiftState = { ...shiftState, beds: shiftState.beds.map((b, i) => (i === bedIndex ? { ...b, patienceRemainingSeconds: b.patienceMaxSeconds * fraction } : b)) };
+    },
+    bringStockTechDownNow() { const a = staff('stockTech'); if (a && a.floor === FLOOR_2) a.phaseSeconds = 0; },
+    freezeStaff(key) { const a = staff(key); if (a) a.pause = 9999; },
     getShiftState: () => shiftState,
     getOverlay: () => (overlay ? JSON.parse(JSON.stringify(overlay)) : null),
     getTriageSlots: () => triageSlots(),

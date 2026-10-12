@@ -18,6 +18,10 @@
 //       // the minigame in progress: 'vitals' | 'oxygen' | 'iv' | 'bandage'
 //       // (at a bed), 'meds-dispense' (at the cabinet), 'surgery' (in the OR)
 //
+//     orderlyGurney: null | { bedIndex, patientId }, // the Orderly wheeling a patient to the OR
+//     orPatient: null | { bedIndex, patientId },     // a patient the Orderly left waiting on the OR table
+//     doctorCooldownSeconds: number,                 // until Dr. Okafor can step in again
+//     doctorAssists: number,                         // times he did this shift
 //     karen: { shiftNumber, active, triggered, resolved, outcome, timerSecondsRemaining },
 //     wardMood, sanity, rating, walkouts, transfers, discharged,
 //     zeroSanitySeconds, mistakeCount, bonusGard, payout,
@@ -61,6 +65,9 @@ import {
   paycheckMultiplierForRating,
   hallucinationPayMultiplier,
   HALLUCINATION_STARTLE_SANITY,
+  DOCTOR_ASSIST_PATIENCE_FRACTION,
+  DOCTOR_ASSIST_PATIENCE_REFILL,
+  DOCTOR_ASSIST_COOLDOWN_SECONDS,
 } from './rules.js';
 
 export { WARD_MOOD_MAX, SANITY_MAX, RATING_MAX };
@@ -81,6 +88,10 @@ export function createInitialState(shiftNumber, karenShiftNumber, overrides = {}
     beds: Array.from({ length: BED_COUNT }, () => null),
     carried: null,
     activeTask: null,
+    orderlyGurney: null,
+    orPatient: null,
+    doctorCooldownSeconds: DOCTOR_ASSIST_COOLDOWN_SECONDS,
+    doctorAssists: 0,
 
     karen: {
       shiftNumber: karenShiftNumber,
@@ -150,10 +161,10 @@ export function freeBedIndex(state) {
  * and if that was the last step, discharges them (DISCHARGE_GARD by level)
  * and frees the bed.
  */
-function advanceStep(state, bedIndex) {
+function advanceStep(state, bedIndex, { tip: earnsTip = true } = {}) {
   const patient = state.beds[bedIndex];
   const nextStep = patient.step + 1;
-  const tip = state.bonusGard + TREATMENT_TIP_GARD;
+  const tip = state.bonusGard + (earnsTip ? TREATMENT_TIP_GARD : 0);
   if (nextStep >= patient.plan.length) {
     return {
       ...state,
@@ -338,7 +349,7 @@ export function pickUpBandage(state) {
 export function startSurgeryTransport(state, bedIndex) {
   if (state.phase !== 'playing' || state.activeTask || state.carried) return state;
   const patient = state.beds[bedIndex];
-  if (currentStep(patient) !== 'surgery') return state;
+  if (currentStep(patient) !== 'surgery' || patient.inSurgery) return state;
   return {
     ...state,
     carried: { kind: 'gurney', bedIndex, patientId: patient.id },
@@ -346,11 +357,17 @@ export function startSurgeryTransport(state, bedIndex) {
   };
 }
 
-/** Arriving at the Operating Room with a gurney opens the surgery. */
+/**
+ * Arriving at the Operating Room opens the surgery — for the gurney you're
+ * pushing, or else for a patient the Orderly left on the table (your hands
+ * must be free to scrub in).
+ */
 export function startSurgery(state) {
+  if (state.phase !== 'playing' || state.activeTask) return state;
   const carried = state.carried;
-  if (state.phase !== 'playing' || state.activeTask || carried?.kind !== 'gurney') return state;
-  return { ...state, activeTask: { kind: 'surgery', bedIndex: carried.bedIndex, patientId: carried.patientId } };
+  const patient = carried?.kind === 'gurney' ? carried : (!carried ? state.orPatient : null);
+  if (!patient) return state;
+  return { ...state, activeTask: { kind: 'surgery', bedIndex: patient.bedIndex, patientId: patient.patientId } };
 }
 
 /** Success: the patient goes back to their bed with Surgery done. Failure: a mistake, stay on the table. */
@@ -358,7 +375,84 @@ export function resolveSurgery(state, success) {
   const task = state.activeTask;
   if (state.phase !== 'playing' || task?.kind !== 'surgery') return state;
   if (!success) return { ...state, ...applyMistake(state) };
-  return advanceStep({ ...state, activeTask: null, carried: null }, task.bedIndex);
+  const carried = state.carried?.patientId === task.patientId ? null : state.carried;
+  const orPatient = state.orPatient?.patientId === task.patientId ? null : state.orPatient;
+  return advanceStep({ ...state, activeTask: null, carried, orPatient }, task.bedIndex);
+}
+
+// ---------------------------------------------------------------------------
+// Helping staff (rules.js section 15)
+// ---------------------------------------------------------------------------
+
+/** A bed waiting on surgery that nobody has wheeled out yet, or -1. The lowest-patience one first. */
+export function nextSurgeryBedIndex(state) {
+  let best = -1;
+  state.beds.forEach((patient, i) => {
+    if (currentStep(patient) !== 'surgery' || patient.inSurgery) return;
+    if (best === -1 || patient.patienceRemainingSeconds < state.beds[best].patienceRemainingSeconds) best = i;
+  });
+  return best;
+}
+
+/** The Orderly reaches a surgery patient's bed and takes them (their patience pauses). One at a time; the OR table must be free. */
+export function orderlyTakePatient(state, bedIndex) {
+  if (state.phase !== 'playing' || state.orderlyGurney || state.orPatient) return state;
+  const patient = state.beds[bedIndex];
+  if (currentStep(patient) !== 'surgery' || patient.inSurgery) return state;
+  return {
+    ...state,
+    orderlyGurney: { bedIndex, patientId: patient.id },
+    beds: setBed(state.beds, bedIndex, { ...patient, inSurgery: true }),
+  };
+}
+
+/** The Orderly reaches the OR: the patient waits on the table for you. */
+export function orderlyDeliverToOR(state) {
+  if (state.phase !== 'playing' || !state.orderlyGurney) return state;
+  return { ...state, orPatient: state.orderlyGurney, orderlyGurney: null };
+}
+
+/**
+ * The patient Dr. Okafor would step in for right now, or -1: his cooldown
+ * is up and someone below DOCTOR_ASSIST_PATIENCE_FRACTION of their
+ * patience needs a step other than surgery, isn't mid-minigame with you,
+ * and isn't the one whose meds you're carrying. Most urgent first.
+ */
+export function doctorAssistTarget(state) {
+  if (state.phase !== 'playing' || state.doctorCooldownSeconds > 0) return -1;
+  let best = -1;
+  let bestFraction = DOCTOR_ASSIST_PATIENCE_FRACTION;
+  state.beds.forEach((patient, i) => {
+    if (!patient || patient.inSurgery || currentStep(patient) === 'surgery') return;
+    if (state.activeTask?.patientId === patient.id || state.carried?.patientId === patient.id) return;
+    const fraction = patient.patienceRemainingSeconds / patient.patienceMaxSeconds;
+    if (fraction < bestFraction) {
+      best = i;
+      bestFraction = fraction;
+    }
+  });
+  return best;
+}
+
+/**
+ * Dr. Okafor finishes the current step for the patient in `bedIndex` (no
+ * tip — you didn't do it; a discharge still pays), tops their patience up
+ * to DOCTOR_ASSIST_PATIENCE_REFILL, and starts his cooldown. A no-op if
+ * they're no longer a valid target (the renderer picks the target, then he
+ * walks over, so it re-checks on arrival).
+ */
+export function doctorAssist(state, bedIndex, patientId) {
+  if (state.phase !== 'playing' || state.doctorCooldownSeconds > 0) return state;
+  const patient = state.beds[bedIndex];
+  if (!patient || patient.id !== patientId || patient.inSurgery || currentStep(patient) === 'surgery') return state;
+  if (state.activeTask?.patientId === patientId || state.carried?.patientId === patientId) return state;
+  if (patient.patienceRemainingSeconds / patient.patienceMaxSeconds >= DOCTOR_ASSIST_PATIENCE_FRACTION) return state;
+  const refilled = {
+    ...patient,
+    patienceRemainingSeconds: Math.max(patient.patienceRemainingSeconds, patient.patienceMaxSeconds * DOCTOR_ASSIST_PATIENCE_REFILL),
+  };
+  const next = advanceStep({ ...state, beds: setBed(state.beds, bedIndex, refilled) }, bedIndex, { tip: false });
+  return { ...next, doctorCooldownSeconds: DOCTOR_ASSIST_COOLDOWN_SECONDS, doctorAssists: state.doctorAssists + 1 };
 }
 
 /**
@@ -424,7 +518,11 @@ export function tick(state, deltaSeconds) {
     return { ...state, closingWaitSecondsRemaining: Math.max(0, state.closingWaitSecondsRemaining - delta) };
   }
 
-  let next = { ...state, sanity: clampSanity(state.sanity - SANITY_DRAIN_PER_SECOND * delta) };
+  let next = {
+    ...state,
+    sanity: clampSanity(state.sanity - SANITY_DRAIN_PER_SECOND * delta),
+    doctorCooldownSeconds: Math.max(0, (state.doctorCooldownSeconds ?? 0) - delta),
+  };
   if (next.sanity <= 0) {
     const secondsToZero = Math.max(0, state.sanity) / SANITY_DRAIN_PER_SECOND;
     next.zeroSanitySeconds = state.zeroSanitySeconds + Math.max(0, delta - secondsToZero);

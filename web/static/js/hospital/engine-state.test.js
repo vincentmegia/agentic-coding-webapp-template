@@ -22,6 +22,11 @@ import {
   startSurgery,
   resolveSurgery,
   cancelTask,
+  nextSurgeryBedIndex,
+  orderlyTakePatient,
+  orderlyDeliverToOR,
+  doctorAssistTarget,
+  doctorAssist,
   startKarenEvent,
   resolveKarenEvent,
   tick,
@@ -45,6 +50,8 @@ import {
   COFFEE_PERFECT_TIP_GARD,
   COFFEE_MOOD_RESTORE,
   shiftPaycheck,
+  DOCTOR_ASSIST_COOLDOWN_SECONDS,
+  DOCTOR_ASSIST_PATIENCE_REFILL,
 } from './rules.js';
 
 function playing(shift = 5, overrides = {}) {
@@ -434,5 +441,110 @@ describe('payout and extras', () => {
     const s = startleFromHallucination(playing(1));
     assert.equal(s.sanity, 95);
     assert.equal(s.mistakeCount, 0);
+  });
+});
+
+describe('the Orderly', () => {
+  function surgeryReady() {
+    let [s, bed] = bedded(playing(5), 'p1', 'appendicitis');
+    s = resolveBedTask(startBedTask(s, bed), true); // vitals
+    s = resolveBedTask(startBedTask(s, bed), true); // iv
+    return [s, bed];
+  }
+
+  test('wheels a surgery patient to the OR; you operate with empty hands', () => {
+    let [s, bed] = surgeryReady();
+    assert.equal(nextSurgeryBedIndex(s), bed);
+    s = orderlyTakePatient(s, bed);
+    assert.deepEqual(s.orderlyGurney, { bedIndex: bed, patientId: 'p1' });
+    assert.equal(s.beds[bed].inSurgery, true);
+    assert.equal(nextSurgeryBedIndex(s), -1);
+    assert.equal(startSurgery(s), s, 'not on the table yet');
+    s = orderlyDeliverToOR(s);
+    assert.deepEqual(s.orPatient, { bedIndex: bed, patientId: 'p1' });
+    s = startSurgery(s);
+    assert.equal(s.activeTask.kind, 'surgery');
+    s = resolveSurgery(s, true);
+    assert.equal(s.orPatient, null);
+    assert.equal(s.beds[bed], null);
+  });
+
+  test('their patience is paused on the way and on the table', () => {
+    let [s, bed] = surgeryReady();
+    s = orderlyTakePatient(s, bed);
+    const before = s.beds[bed].patienceRemainingSeconds;
+    s = tick(orderlyDeliverToOR(tick(s, 20)), 20);
+    assert.equal(s.beds[bed].patienceRemainingSeconds, before);
+  });
+
+  test('you can\'t scrub in with your hands full, and the table takes one patient', () => {
+    let [s, bed] = surgeryReady();
+    s = orderlyDeliverToOR(orderlyTakePatient(s, bed));
+    assert.equal(startSurgery(pickUpBandage(s)).activeTask, null);
+    let other;
+    [s, other] = bedded(s, 'p2', 'crash');
+    s = { ...s, beds: s.beds.map((b, i) => (i === other ? { ...b, step: 2 } : b)) };
+    assert.equal(orderlyTakePatient(s, other), s);
+  });
+
+  test('you can\'t take a patient the Orderly already has', () => {
+    let [s, bed] = surgeryReady();
+    s = orderlyTakePatient(s, bed);
+    assert.equal(startSurgeryTransport(s, bed), s);
+  });
+});
+
+describe('Dr. Okafor', () => {
+  function urgent(fraction, conditionId = 'sprain') {
+    let [s, bed] = bedded(playing(1, { doctorCooldownSeconds: 0 }), 'p1', conditionId);
+    s = { ...s, beds: s.beds.map((b, i) => (i === bed ? { ...b, patienceRemainingSeconds: b.patienceMaxSeconds * fraction } : b)) };
+    return [s, bed];
+  }
+
+  test('steps in for a patient nearly out of patience: step done, no tip, patience topped up', () => {
+    let [s, bed] = urgent(0.1);
+    assert.equal(doctorAssistTarget(s), bed);
+    s = doctorAssist(s, bed, 'p1');
+    assert.equal(currentStep(s.beds[bed]), 'bandage');
+    assert.equal(s.bonusGard, 0);
+    assert.equal(s.beds[bed].patienceRemainingSeconds, s.beds[bed].patienceMaxSeconds * DOCTOR_ASSIST_PATIENCE_REFILL);
+    assert.equal(s.doctorCooldownSeconds, DOCTOR_ASSIST_COOLDOWN_SECONDS);
+    assert.equal(s.doctorAssists, 1);
+    assert.equal(doctorAssistTarget(s), -1, 'cooling down');
+  });
+
+  test('leaves patients who are fine, in surgery, or need surgery', () => {
+    assert.equal(doctorAssistTarget(urgent(0.8)[0]), -1);
+    let [s, bed] = bedded(playing(5, { doctorCooldownSeconds: 0 }), 'p1', 'appendicitis');
+    s = resolveBedTask(startBedTask(s, bed), true);
+    s = resolveBedTask(startBedTask(s, bed), true);
+    s = { ...s, beds: s.beds.map((b) => (b ? { ...b, patienceRemainingSeconds: 1 } : b)) };
+    assert.equal(doctorAssistTarget(s), -1);
+  });
+
+  test('leaves the patient you are already treating', () => {
+    let [s, bed] = urgent(0.1);
+    s = startBedTask(s, bed);
+    assert.equal(doctorAssistTarget(s), -1);
+    assert.equal(doctorAssist(s, bed, 'p1'), s);
+  });
+
+  test('a discharge he finishes still pays the discharge bonus', () => {
+    let [s, bed] = urgent(0.1, 'migraine');
+    s = resolveBedTask(startBedTask(s, bed), true); // vitals by you: +tip
+    s = { ...s, beds: s.beds.map((b, i) => (i === bed ? { ...b, patienceRemainingSeconds: 1 } : b)) };
+    s = doctorAssist(s, bed, 'p1');
+    assert.equal(s.beds[bed], null);
+    assert.equal(s.bonusGard, TREATMENT_TIP_GARD + DISCHARGE_GARD.green);
+  });
+
+  test('his cooldown ticks down and starts the shift running', () => {
+    assert.equal(createInitialState(1, 12).doctorCooldownSeconds, DOCTOR_ASSIST_COOLDOWN_SECONDS);
+    assert.equal(tick(playing(1), 10).doctorCooldownSeconds, DOCTOR_ASSIST_COOLDOWN_SECONDS - 10);
+  });
+
+  test('a stale target (patient gone) is a no-op', () => {
+    const [s] = urgent(0.1);
+    assert.equal(doctorAssist(s, 3, 'nobody'), s);
   });
 });

@@ -72,7 +72,9 @@ touching that area rather than expecting this section to carry it:
   Library Shift — triage the queue into 4 beds, then treat each patient's
   plan: Vitals/IV/Surgery skill checks, Oxygen find-the-hearts, a Bandage
   trace with a roll from the 2nd-Floor Supply Room's cart, Meds from the
-  cabinet; Karen, Coffee Pour, hallucinations; Postgres leaderboard,
+  cabinet; helping staff (Dr. Okafor rescues near-transfer patients, the
+  Orderly wheels surgery patients to the OR, the Stock tech brings rolls
+  down); Karen, Coffee Pour, hallucinations; Postgres leaderboard,
   `localStorage` progress) — `docs/features/hospital-shift.md`. Rules live
   in `web/static/js/hospital/rules.js`; the nurse's `scrubs` outfit is in
   the shared `people.js`.
