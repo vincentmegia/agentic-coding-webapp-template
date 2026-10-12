@@ -307,7 +307,6 @@ export function gradeMedsPick(order, pickedDrug, pickedDose) {
 
 export const SKILL_CHECKS = {
   vitals: { zoneWidth: 0.22, hits: 1, speedMultiplier: 1 },
-  oxygen: { zoneWidth: 0.2, hits: 3, speedMultiplier: 1.1 },
   iv: { zoneWidth: 0.16, hits: 1, speedMultiplier: 1 },
   surgery: { zoneWidth: 0.14, hits: 3, speedMultiplier: 1.15 },
 };
@@ -345,6 +344,30 @@ export function skillCheckSweepSpeed(shiftNumber, kind) {
   const ramp = shiftRamp(shiftNumber, SKILL_CHECK_SWEEP_SHIFT_SATURATION);
   const base = SKILL_CHECK_SWEEP_SPEED_BASE + (SKILL_CHECK_SWEEP_SPEED_MAX - SKILL_CHECK_SWEEP_SPEED_BASE) * ramp;
   return base * (SKILL_CHECKS[kind]?.speedMultiplier ?? 1);
+}
+
+// ---------------------------------------------------------------------------
+// 7.5. Oxygen — a search scene, not a timing bar (the user: "make it find
+//      hearts and there will be skulls that symbol missed skill checks").
+//      Hearts and skulls are scattered over the scene; each heart clicked
+//      is one good pump of the bag, and clicking a skull is a missed skill
+//      check — a mistake, with the minigame staying open for a retry.
+// ---------------------------------------------------------------------------
+
+/** Hearts to find — one pump each. */
+export const OXYGEN_HEARTS = 3;
+/** Skull decoys scattered among them. */
+export const OXYGEN_SKULLS = 5;
+
+/**
+ * Grades a click on the Oxygen scene.
+ *
+ * @param {{kind: 'heart' | 'skull', found: boolean} | null} item - the item under the click, if any.
+ * @returns {'pump' | 'miss' | 'nothing'} 'pump' for a heart, 'miss' for a skull, 'nothing' for empty space or anything already clicked (a clicked skull fades out, so one slip never costs twice).
+ */
+export function gradeOxygenClick(item) {
+  if (!item || item.found) return 'nothing';
+  return item.kind === 'skull' ? 'miss' : 'pump';
 }
 
 // ---------------------------------------------------------------------------

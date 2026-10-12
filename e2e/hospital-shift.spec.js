@@ -218,23 +218,26 @@ test.describe('treatments', () => {
 		expect(s.discharged).toBe(1);
 	});
 
-	test('oxygen takes three good pumps; a miss is a mistake but the minigame stays open', async ({ page }) => {
+	test('oxygen: clicking a skull is a missed pump (a mistake), finding the three hearts finishes it', async ({ page }) => {
 		await seedSave(page);
 		await page.goto('/hospital-shift');
 		await startShift(page);
 		const [, bed] = await admit(page, 'allergy', 'red');
 		await walkTo(page, 'bed', bed);
-		await waitForOverlay(page, 'skill');
-		await hooks(page, 'setSkillGauge', 0.02);
-		await page.keyboard.press('Space');
+		const overlay = await waitForOverlay(page, 'oxygen');
+		expect(overlay.items.filter((it) => it.kind === 'heart')).toHaveLength(3);
+		const skull = overlay.items.find((it) => it.kind === 'skull');
+		await clickCanvasPoint(page, skull);
 		expect((await shiftState(page)).mistakeCount).toBe(1);
-		expect((await hooks(page, 'getOverlay')).hits).toBe(0);
-		await page.waitForTimeout(400); // the brief post-miss lockout
-		for (let i = 0; i < 3; i++) {
-			await passSkillCheck(page);
-			await page.waitForTimeout(50);
-		}
+		// The same skull can't cost twice.
+		await clickCanvasPoint(page, skull);
+		expect((await shiftState(page)).mistakeCount).toBe(1);
+		const hearts = overlay.items.filter((it) => it.kind === 'heart');
+		await clickCanvasPoint(page, hearts[0]);
+		expect((await hooks(page, 'getOverlay')).hits).toBe(1);
+		for (const heart of hearts.slice(1)) await clickCanvasPoint(page, heart);
 		await expect.poll(async () => (await shiftState(page)).beds[bed]?.step).toBe(1);
+		expect(await hooks(page, 'getOverlay')).toBeNull();
 	});
 
 	test('surgery: wheel the gurney to the OR and pass three stages', async ({ page }) => {

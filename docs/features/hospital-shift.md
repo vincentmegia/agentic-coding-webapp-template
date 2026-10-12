@@ -39,8 +39,9 @@ The user asked for a new project, "hospital shift." When asked, they chose:
 * **Minigames:** all four offered (Triage sort, Meds dispensing, Vitals
   check, Bandage/IV), plus, in their words: "for the vitals checks and the
   stuff that pumps oxygen and surgeries i want there to be skill checks
-  when they did it." So Vitals, Oxygen (bag-valve pumping) and Surgery are
-  timing-bar **skill checks**.
+  when they did it." So Vitals, Oxygen (bag-valve pumping) and Surgery
+  started as timing-bar **skill checks**; Oxygen later became a
+  find-the-hearts search where skulls stand for missed checks (see Scope).
 
 ## Scope
 
@@ -66,8 +67,12 @@ The user asked for a new project, "hospital shift." When asked, they chose:
 * **Treatments** (each step is one minigame):
   * **Vitals Check** (skill check, 1 hit) — stop the marker on the
     heartbeat in the gold zone of an ECG strip.
-  * **Oxygen** (skill check, 3 hits) — squeeze the bag-valve mask in time,
-    three good pumps.
+  * **Oxygen** (find the hearts) — hearts and skulls bob around the
+    scene beside the patient's bag-valve mask. Each heart clicked is one
+    good pump (three finish it); a skull is a missed skill check — a
+    mistake — and fades out so one slip can't cost twice. Changed from a
+    3-hit timing bar at the user's request ("make it find hearts and
+    there will be skulls that symbol missed skill checks").
   * **IV** (skill check, 1 hit, narrower) — the needle sways over the arm;
     tap when it's over the vein.
   * **Surgery** (skill check, 3 stages: Incision → Repair → Sutures,
@@ -136,7 +141,7 @@ The user asked for a new project, "hospital shift." When asked, they chose:
 3. Patients arrive at the Triage Desk queue. Click one → walk to the desk →
    Triage Sort: read vitals, pick Red/Yellow/Green → patient goes to a bed.
 4. Click a bed → walk to it → its current step opens:
-   - Vitals / Oxygen / IV: a skill check at the bed.
+   - Vitals / IV: a skill check at the bed; Oxygen: find the hearts, avoid the skulls.
    - Bandage: trace the wound.
    - Meds: the bed says "Meds"; walk to the Med Cabinet → pick drug + dose →
      carry it back to the bed.
@@ -239,7 +244,7 @@ All numbers are named constants in `web/static/js/hospital/rules.js`.
   multiplier at arrival/bedding. A patient in surgery (gurney carried) has
   their patience paused.
 * **Skill checks** (`SKILL_CHECKS`): zone width / hits — Vitals 0.22 / 1,
-  Oxygen 0.20 / 3, IV 0.16 / 1, Surgery 0.14 / 3. Sweep speed ramps with
+  IV 0.16 / 1, Surgery 0.14 / 3. Sweep speed ramps with
   shift number; shaky hands shrink the zone to 50% and speed it 1.6× at full
   hallucination.
 * **Bandage trace**: graded by `gradeBandageTrace(samples, path)` —

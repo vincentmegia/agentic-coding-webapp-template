@@ -25,6 +25,9 @@ import {
   isSkillCheckSuccess,
   skillCheckSweepSpeed,
   skillCheckHitsRequired,
+  OXYGEN_HEARTS,
+  OXYGEN_SKULLS,
+  gradeOxygenClick,
   SURGERY_STAGES,
   nearestOnPath,
   gradeBandageTrace,
@@ -153,10 +156,9 @@ describe('conditions and meds', () => {
 });
 
 describe('skill checks', () => {
-  test('oxygen and surgery need three hits, vitals and IV one', () => {
+  test('surgery needs three hits, vitals and IV one', () => {
     assert.equal(skillCheckHitsRequired('vitals'), 1);
     assert.equal(skillCheckHitsRequired('iv'), 1);
-    assert.equal(skillCheckHitsRequired('oxygen'), 3);
     assert.equal(skillCheckHitsRequired('surgery'), SURGERY_STAGES.length);
   });
 
@@ -184,6 +186,21 @@ describe('skill checks', () => {
 
   test('the sweep speeds up with shift number', () => {
     assert.ok(skillCheckSweepSpeed(30, 'vitals') > skillCheckSweepSpeed(1, 'vitals'));
+  });
+});
+
+describe('oxygen (find the hearts)', () => {
+  test('three hearts among more skulls', () => {
+    assert.equal(OXYGEN_HEARTS, 3);
+    assert.ok(OXYGEN_SKULLS > OXYGEN_HEARTS);
+  });
+
+  test('a heart pumps once, a skull is a miss once, empty space does nothing', () => {
+    assert.equal(gradeOxygenClick({ kind: 'heart', found: false }), 'pump');
+    assert.equal(gradeOxygenClick({ kind: 'heart', found: true }), 'nothing');
+    assert.equal(gradeOxygenClick({ kind: 'skull', found: false }), 'miss');
+    assert.equal(gradeOxygenClick({ kind: 'skull', found: true }), 'nothing');
+    assert.equal(gradeOxygenClick(null), 'nothing');
   });
 });
 

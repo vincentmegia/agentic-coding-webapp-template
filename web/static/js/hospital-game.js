@@ -43,6 +43,9 @@ import {
   gradeBandageTrace,
   bandagePathForRolls,
   BANDAGE_TOLERANCE_PX,
+  OXYGEN_HEARTS,
+  OXYGEN_SKULLS,
+  gradeOxygenClick,
   queueWaitSecondsForShift,
   WARD_MOOD_MAX,
   SANITY_MAX,
@@ -250,7 +253,7 @@ function drawHospitalPerson(ctx, x, y, opts = {}) {
 // ---------------------------------------------------------------------------
 
 /** Overlays tied to an engine `activeTask` (closing it means cancelTask). */
-const TASK_OVERLAYS = new Set(['skill', 'bandage', 'meds']);
+const TASK_OVERLAYS = new Set(['skill', 'oxygen', 'bandage', 'meds']);
 
 /**
  * Wires the game to hospital-shift.html's elements.
@@ -503,7 +506,7 @@ export function init(canvas, elements) {
   function openSkillOverlay(task) {
     overlay = {
       kind: 'skill', task, gauge: 0, direction: 1, hits: 0,
-      required: skillCheckHitsRequired(task), flash: null, squeeze: 0,
+      required: skillCheckHitsRequired(task), flash: null,
     };
   }
 
@@ -537,8 +540,37 @@ export function init(canvas, elements) {
     overlay = { kind: 'coffee-pour', fill: 0, pouring: false, band: coffeePourTargetBand(random()), grade: null, closeIn: 0 };
   }
 
+  /** Where the Oxygen scene scatters its hearts and skulls (right of the patient and bag). */
+  const OXYGEN_SCENE = { x: 390, y: 172, w: 420, h: 276 };
+  const OXYGEN_HIT_RADIUS = 26;
+
+  function openOxygenOverlay() {
+    const count = OXYGEN_HEARTS + OXYGEN_SKULLS;
+    const points = [];
+    for (let i = 0; i < count; i++) {
+      let candidate;
+      for (let attempt = 0; attempt < 60; attempt++) {
+        candidate = { x: OXYGEN_SCENE.x + random() * OXYGEN_SCENE.w, y: OXYGEN_SCENE.y + random() * OXYGEN_SCENE.h };
+        if (points.every((p) => Math.hypot(p.x - candidate.x, p.y - candidate.y) >= 72)) break;
+      }
+      points.push(candidate);
+    }
+    // Shuffle which points are hearts so they aren't always the first-placed ones.
+    const kinds = [...Array(OXYGEN_HEARTS).fill('heart'), ...Array(OXYGEN_SKULLS).fill('skull')];
+    for (let i = kinds.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [kinds[i], kinds[j]] = [kinds[j], kinds[i]];
+    }
+    overlay = {
+      kind: 'oxygen',
+      items: points.map((p, i) => ({ id: i, x: p.x, y: p.y, kind: kinds[i], found: false, fade: 0, phase: random() * Math.PI * 2 })),
+      hits: 0, required: OXYGEN_HEARTS, squeeze: 0, flash: null,
+    };
+  }
+
   function openTaskOverlay(task) {
     if (task === 'bandage') openBandageOverlay();
+    else if (task === 'oxygen') openOxygenOverlay();
     else openSkillOverlay(task);
   }
 
@@ -709,16 +741,14 @@ export function init(canvas, elements) {
     const resolve = overlay.task === 'surgery' ? resolveSurgery : resolveBedTask;
     if (!hit) {
       shiftState = resolve(shiftState, false);
-      flash(overlay.task === 'oxygen' ? 'Missed the rhythm!' : 'Missed!', false);
+      flash('Missed!', false);
       overlay.gauge = 0;
       overlay.direction = 1;
       return;
     }
     overlay.hits += 1;
-    overlay.squeeze = 1;
     if (overlay.hits < overlay.required) {
-      const stageText = overlay.task === 'surgery' ? `${SURGERY_STAGES[overlay.hits - 1]} done!` : 'Good pump!';
-      flash(stageText, true);
+      flash(`${SURGERY_STAGES[overlay.hits - 1]} done!`, true);
       return;
     }
     const before = shiftState;
@@ -727,6 +757,36 @@ export function init(canvas, elements) {
     const task = overlay.task;
     overlay = null;
     announceStepDone(bedIndex, before, task === 'surgery' ? 'Surgery went well' : `${TREATMENT_LABELS[task]} done`);
+  }
+
+  /**
+   * A click on the Oxygen scene: a heart is one good pump (three finish
+   * the step), a skull is a missed skill check — a mistake — and fades out
+   * so the same slip can't cost twice.
+   */
+  function handleOxygenClick(x, y) {
+    const item = overlay.items
+      .filter((it) => !it.found && Math.hypot(it.x - x, it.y - y) <= OXYGEN_HIT_RADIUS)
+      .sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0] ?? null;
+    const result = gradeOxygenClick(item);
+    if (result === 'nothing') return;
+    item.found = true;
+    if (result === 'miss') {
+      shiftState = resolveBedTask(shiftState, false);
+      flash('A skull — missed pump!', false);
+      return;
+    }
+    overlay.hits += 1;
+    overlay.squeeze = 1;
+    if (overlay.hits < overlay.required) {
+      flash('Good pump!', true);
+      return;
+    }
+    const before = shiftState;
+    const bedIndex = shiftState.activeTask.bedIndex;
+    shiftState = resolveBedTask(shiftState, true);
+    overlay = null;
+    announceStepDone(bedIndex, before, 'Breathing easier — Oxygen done');
   }
 
   function finishBandageTrace() {
@@ -809,6 +869,8 @@ export function init(canvas, elements) {
       if (hit) chooseTriage(hit.level);
     } else if (overlay.kind === 'skill') {
       sampleSkillCheck();
+    } else if (overlay.kind === 'oxygen') {
+      handleOxygenClick(x, y);
     } else if (overlay.kind === 'meds') {
       const bottle = medsBottleRects().find((r) => insideRect(r, x, y));
       if (bottle) { overlay.picked = bottle.name; return; }
@@ -954,8 +1016,10 @@ export function init(canvas, elements) {
       overlay.flash.seconds -= dt;
       if (overlay.flash.seconds <= 0) overlay.flash = null;
     }
-    if (overlay.kind === 'skill') {
+    if (overlay.kind === 'oxygen') {
       overlay.squeeze = Math.max(0, overlay.squeeze - dt * 3);
+      for (const it of overlay.items) if (it.found) it.fade = Math.min(1, it.fade + dt * 2.5);
+    } else if (overlay.kind === 'skill') {
       const speed = skillCheckSweepSpeed(currentShiftNumber, overlay.task) * shakyHandsSweepMultiplier(currentIntensity());
       overlay.gauge += overlay.direction * speed * dt;
       if (overlay.gauge >= 1) { overlay.gauge = 1; overlay.direction = -1; } else if (overlay.gauge <= 0) { overlay.gauge = 0; overlay.direction = 1; }
@@ -1840,7 +1904,6 @@ export function init(canvas, elements) {
 
   const SKILL_TITLES = {
     vitals: ['Vitals Check', 'Stop the marker in the gold zone to log the reading.'],
-    oxygen: ['Oxygen', 'Squeeze the bag in rhythm — three good pumps. Click / Space.'],
     iv: ['Start an IV', 'The needle sways — tap when it lines up with the vein.'],
     surgery: ['Surgery', 'Three steady hands: Incision, Repair, Sutures.'],
   };
@@ -1884,28 +1947,6 @@ export function init(canvas, elements) {
         ctx.font = 'bold 26px ui-monospace, monospace';
         ctx.fillText(value, 690, 208 + i * 60);
       });
-    } else if (overlay.task === 'oxygen') {
-      const squeeze = overlay.squeeze;
-      if (info) drawHospitalPerson(ctx, 330, 360, { personalityKey: info.personalityKey, scale: 1.4 });
-      drawRoundRect(ctx, 312, 262, 36, 26, 10, 'rgba(160,210,230,0.85)');
-      ctx.fillStyle = '#7fb8d0';
-      ctx.beginPath();
-      ctx.ellipse(540, 270, 110 - 30 * squeeze, 58 - 18 * squeeze, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#4f8aa8';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      drawRoundRect(ctx, 350, 268, 80 - 20 * squeeze, 10, 4, '#9aa6b0');
-      drawRoundRect(ctx, 650 - 30 * squeeze, 258, 40, 24, 6, '#5a7080');
-      // Oxygen puffs on a good pump.
-      if (squeeze > 0) {
-        ctx.fillStyle = `rgba(200,235,250,${squeeze})`;
-        for (const [dx, dy, r] of [[-20, -30, 10], [-34, -46, 7], [-8, -52, 6]]) {
-          ctx.beginPath();
-          ctx.arc(330 + dx, 262 + dy, r, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
     } else if (overlay.task === 'iv') {
       const skin = PERSON_TEMPLATES[info?.personalityKey]?.headColor ?? '#e0ac69';
       drawRoundRect(ctx, bar.x - 20, 250, bar.w + 40, 110, 50, skin);
@@ -2012,6 +2053,120 @@ export function init(canvas, elements) {
       }
     }
     drawFlash(406);
+  }
+
+  function drawHeart(x, y, size, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y + size * 0.9);
+    ctx.bezierCurveTo(x - size * 1.3, y + size * 0.1, x - size * 0.9, y - size * 0.95, x, y - size * 0.35);
+    ctx.bezierCurveTo(x + size * 0.9, y - size * 0.95, x + size * 1.3, y + size * 0.1, x, y + size * 0.9);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath();
+    ctx.ellipse(x - size * 0.42, y - size * 0.3, size * 0.18, size * 0.11, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawSkull(x, y, size) {
+    ctx.fillStyle = '#efeadf';
+    ctx.beginPath();
+    ctx.arc(x, y - size * 0.15, size * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+    drawRoundRect(ctx, x - size * 0.45, y + size * 0.35, size * 0.9, size * 0.45, size * 0.12, '#efeadf');
+    ctx.strokeStyle = 'rgba(58,42,42,0.35)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(x, y - size * 0.15, size * 0.8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#2a2226';
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(x + dir * size * 0.32, y - size * 0.12, size * 0.22, size * 0.26, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.moveTo(x, y + size * 0.12);
+    ctx.lineTo(x - size * 0.1, y + size * 0.3);
+    ctx.lineTo(x + size * 0.1, y + size * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#2a2226';
+    ctx.lineWidth = 1.2;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + i * size * 0.2, y + size * 0.45);
+      ctx.lineTo(x + i * size * 0.2, y + size * 0.75);
+      ctx.stroke();
+    }
+  }
+
+  function drawOxygenOverlay() {
+    drawPanel('Oxygen', 'Find the hearts to pump the bag — three good pumps. Skulls are missed pumps!');
+    const info = patientInfo.get(shiftState.activeTask?.patientId);
+    const t = performance.now() / 1000;
+    const squeeze = overlay.squeeze;
+
+    // Left column: the patient with a mask, tubed to the bag above.
+    drawRoundRect(ctx, PANEL.x + 24, 142, 230, 336, 14, '#e2ece8');
+    if (info) drawHospitalPerson(ctx, PANEL.x + 110, 420, { personalityKey: info.personalityKey, scale: 1.25 });
+    drawRoundRect(ctx, PANEL.x + 94, 352, 32, 22, 9, 'rgba(160,210,230,0.9)');
+    ctx.strokeStyle = '#9aa6b0';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(PANEL.x + 126, 362);
+    ctx.quadraticCurveTo(PANEL.x + 200, 330, PANEL.x + 190, 262);
+    ctx.stroke();
+    ctx.fillStyle = '#7fb8d0';
+    ctx.beginPath();
+    ctx.ellipse(PANEL.x + 190, 210, 40 - 12 * squeeze, 52 - 10 * squeeze, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#4f8aa8';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    drawRoundRect(ctx, PANEL.x + 176, 150 + 8 * squeeze, 28, 14, 5, '#5a7080');
+    if (squeeze > 0) {
+      ctx.fillStyle = `rgba(200,235,250,${squeeze})`;
+      for (const [dx, dy, r] of [[-26, -22, 9], [-40, -36, 6], [-14, -40, 5]]) {
+        ctx.beginPath();
+        ctx.arc(PANEL.x + 110 + dx, 352 + dy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // The scene: bobbing hearts (pulsing) and skulls.
+    drawRoundRect(ctx, OXYGEN_SCENE.x - 30, OXYGEN_SCENE.y - 30, OXYGEN_SCENE.w + 60, OXYGEN_SCENE.h + 60, 16, '#ece6da');
+    for (const it of overlay.items) {
+      const bob = Math.sin(t * 2 + it.phase) * 4;
+      const alpha = it.kind === 'skull' ? 1 - it.fade : 1;
+      if (alpha <= 0) continue;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      if (it.kind === 'heart') {
+        const pulse = it.found ? 1 : 1 + 0.08 * Math.sin(t * 6 + it.phase);
+        drawHeart(it.x, it.y + bob, 20 * pulse, it.found ? 'rgba(224,72,79,0.25)' : '#e0484f');
+        if (it.found) drawLabelChip(ctx, it.x, it.y + bob, '✓', 'bold 12px sans-serif', '#5fa86a', CREAM);
+      } else {
+        drawSkull(it.x, it.y + bob, 21);
+        if (it.found) {
+          ctx.strokeStyle = '#d9534f';
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(it.x - 16, it.y + bob - 18);
+          ctx.lineTo(it.x + 16, it.y + bob + 14);
+          ctx.moveTo(it.x + 16, it.y + bob - 18);
+          ctx.lineTo(it.x - 16, it.y + bob + 14);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    for (let i = 0; i < overlay.required; i++) {
+      ctx.globalAlpha = 1;
+      drawHeart(OXYGEN_SCENE.x + OXYGEN_SCENE.w / 2 - 30 + i * 30, 506, 9, i < overlay.hits ? '#e0484f' : 'rgba(58,42,42,0.2)');
+    }
+    drawFlash(160);
   }
 
   function drawBandageOverlay() {
@@ -2294,6 +2449,7 @@ export function init(canvas, elements) {
     ctx.save();
     if (overlay.kind === 'triage') drawTriageOverlay();
     else if (overlay.kind === 'skill') drawSkillOverlay();
+    else if (overlay.kind === 'oxygen') drawOxygenOverlay();
     else if (overlay.kind === 'bandage') drawBandageOverlay();
     else if (overlay.kind === 'meds') drawMedsOverlay();
     else if (overlay.kind === 'karen') drawKarenOverlay();
