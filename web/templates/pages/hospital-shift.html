@@ -1,0 +1,183 @@
+{{/* /hospital-shift page: canvas game shell + leaderboard
+     (docs/features/hospital-shift.md). Defines "hospital-shift-content",
+     not "content", for the same reason as library-game.html: "content" is
+     the shared placeholder other routes render. Same structure as
+     library-game.html minus its floor/camera/First Person controls.
+
+     DOM ids hospital-game.js binds to (rename both together):
+       #hospital-game-container       Fullscreen API target (app.css's :fullscreen override)
+       #hospital-canvas-wrapper       Aspect-locked wrapper around canvas + screens
+       #hospital-canvas               960x600 canvas
+       #hospital-hud-shift / -clock / -status   HUD text nodes
+       #hospital-fullscreen-button
+       #hospital-interact-hint        Hover hint (role="status")
+       #hospital-toast                Transient messages (role="status")
+       #hospital-start-screen, #hospital-start-shift-button
+       #hospital-paycheck-screen and its -title/-outcome/-shift-total/
+         -month-total text nodes, #hospital-final-paycheck-block,
+         -name/-earnings/-shifts inputs, -submit/-next-shift/-new-month buttons
+       #hospital-leaderboard          Leaderboard fragment root
+
+     No server-side state is read here: progress is localStorage-only. */}}
+{{define "hospital-shift-content"}}
+<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
+	<div class="space-y-6">
+		<section class="space-y-2">
+			<h1 class="text-2xl font-semibold text-ink">Hospital Shift</h1>
+			<p class="text-muted">
+				Work the ER as a nurse: triage arriving patients, then treat them bed by bed — check vitals, pump
+				oxygen, start IVs, bandage wounds, dispense meds and scrub in for surgery — over 30 shifts.
+			</p>
+		</section>
+
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
+			<div class="space-y-4">
+				<p id="hospital-interact-hint" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
+
+				<p id="hospital-toast" class="hidden rounded-card border border-line bg-surface-2 px-2 py-1 text-center text-xs font-medium text-ink sm:text-sm" role="status" aria-live="polite"></p>
+
+				<div id="hospital-game-container" class="relative mx-auto flex w-full max-w-[900px] flex-col overflow-hidden rounded-card border border-line bg-surface-2 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2/95 px-3 py-2">
+						<dl class="grid flex-1 grid-cols-3 gap-2 rounded-card border border-line bg-surface-2 px-2 py-2 text-center sm:px-4">
+							<div>
+								<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Shift</dt>
+								<dd id="hospital-hud-shift" class="font-mono text-sm tabular-nums text-ink sm:text-base">1/30</dd>
+							</div>
+							<div>
+								<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Time</dt>
+								<dd id="hospital-hud-clock" class="font-mono text-sm tabular-nums text-ink sm:text-base">--:--</dd>
+							</div>
+							<div>
+								<dt class="text-[10px] uppercase tracking-wide text-muted sm:text-xs">Ward</dt>
+								<dd id="hospital-hud-status" class="text-sm font-medium text-ink sm:text-base">Quiet</dd>
+							</div>
+						</dl>
+						<button
+							type="button"
+							id="hospital-fullscreen-button"
+							class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>Fullscreen</button>
+					</div>
+
+					<div id="hospital-canvas-wrapper" class="relative aspect-[960/600] w-full overflow-hidden">
+						<canvas
+							id="hospital-canvas"
+							width="960"
+							height="600"
+							class="block h-full w-full cursor-pointer touch-none"
+							role="img"
+							aria-label="Hospital Shift play area"
+						>Your browser doesn't support the canvas element needed to play this game.</canvas>
+
+						{{/* Start screen — visible by default (the only screen shown pre-JS). */}}
+						<div id="hospital-start-screen" class="absolute inset-0 flex items-center justify-center p-4">
+							<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 text-center shadow-lg">
+								<h2 class="text-lg font-semibold text-ink">The ER</h2>
+								<p class="text-xs text-muted">
+									You're <span class="font-semibold text-ink">Nurse Maya Santos</span>. Triage patients at the desk,
+									treat them in the beds, and keep the ward calm over a 30-shift run.
+								</p>
+								<button
+									type="button"
+									id="hospital-start-shift-button"
+									class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+								>Start Shift</button>
+							</div>
+						</div>
+
+						{{/* Paycheck screen — hidden by default; hospital-game.js unhides
+						     it and sets data-outcome/data-final. */}}
+						<div id="hospital-paycheck-screen" class="hidden absolute inset-0 flex items-center justify-center overflow-y-auto p-4">
+							<div class="w-full max-w-xs space-y-4 rounded-card border border-line bg-surface p-6 shadow-lg">
+								<h2 id="hospital-paycheck-title" class="text-center text-lg font-semibold text-ink">Handover</h2>
+
+								<dl class="space-y-1.5 text-sm">
+									<div class="flex items-start justify-between gap-3">
+										<dt class="text-muted">Outcome</dt>
+										<dd id="hospital-paycheck-outcome" class="text-right font-medium text-ink">Went well</dd>
+									</div>
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">This shift</dt>
+										<dd id="hospital-paycheck-shift-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
+									</div>
+									<div class="flex items-center justify-between">
+										<dt class="text-muted">Run total</dt>
+										<dd id="hospital-paycheck-month-total" class="font-mono tabular-nums text-ink">0 Gard</dd>
+									</div>
+								</dl>
+
+								{{/* Final Paycheck — shown only after shift 30. */}}
+								<div id="hospital-final-paycheck-block" class="hidden space-y-2 border-t border-line pt-4">
+									<p class="text-sm font-medium text-ink">Final Paycheck</p>
+									<form
+										hx-post="/hospital-shift/score"
+										hx-target="#hospital-leaderboard"
+										hx-swap="outerHTML"
+										hx-indicator="#leaderboard-loading"
+										class="space-y-2"
+									>
+										<label for="hospital-paycheck-name-input" class="block text-xs font-medium text-muted">
+											Submit to leaderboard (optional)
+										</label>
+										<div class="flex gap-2">
+											<input
+												type="text"
+												id="hospital-paycheck-name-input"
+												name="player_name"
+												maxlength="20"
+												required
+												placeholder="Your name"
+												class="w-full min-w-0 rounded-card border border-line bg-surface px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+											>
+											<button
+												type="submit"
+												id="hospital-paycheck-submit-button"
+												class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50"
+											>Submit</button>
+										</div>
+										<input type="hidden" id="hospital-paycheck-earnings-input" name="total_earnings" value="0">
+										<input type="hidden" id="hospital-paycheck-shifts-input" name="shifts_completed" value="30">
+									</form>
+								</div>
+
+								<div class="flex gap-2 pt-1">
+									<button
+										type="button"
+										id="hospital-paycheck-next-shift-button"
+										class="w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Start Next Shift</button>
+									<button
+										type="button"
+										id="hospital-paycheck-new-month-button"
+										class="hidden w-full rounded-card bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+									>Start New Month</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<aside class="space-y-3">
+				<div class="flex items-center justify-between gap-2">
+					<h2 class="text-lg font-semibold text-ink">Leaderboard</h2>
+					<span id="leaderboard-loading" class="htmx-indicator text-xs text-muted">Loading…</span>
+				</div>
+
+				<div
+					id="hospital-leaderboard"
+					hx-get="/hospital-shift/leaderboard"
+					hx-trigger="load"
+					hx-target="this"
+					hx-swap="outerHTML"
+					hx-indicator="#leaderboard-loading"
+				>
+					<p class="rounded-card border border-line bg-surface px-4 py-3 text-sm text-muted">Loading leaderboard…</p>
+				</div>
+			</aside>
+		</div>
+	</div>
+</main>
+
+<script type="module" src="/static/js/hospital-game.js"></script>
+{{end}}

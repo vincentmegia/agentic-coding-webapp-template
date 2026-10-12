@@ -465,6 +465,22 @@ h1, h2, h3, h4, h5, h6 {
 	object-fit: contain;
 }
 
+/* Hospital Shift fullscreen — the same override for hospital-game.js's ids. */
+#hospital-game-container:fullscreen {
+	width: 100vw;
+	max-width: 100vw;
+	height: 100vh;
+}
+#hospital-game-container:fullscreen #hospital-canvas-wrapper {
+	aspect-ratio: auto;
+	width: 100%;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+#hospital-game-container:fullscreen #hospital-canvas {
+	object-fit: contain;
+}
+
 /* ==========================================================================
    Bus Stop Finder (docs/features/bus-stop-finder.md)
    ==========================================================================

@@ -1,7 +1,7 @@
 // /projects page: heading + subhead, and a grid of project cards
-// (internal/handler/pages.go's projectItems). All six — Fishing Game,
-// Kitchen Shift, Puzzle Solver, Library Shift, Bus Stop Finder and Bus Rush
-// — are real (this site's own shipped mini-games/demos, each linked via an
+// (internal/handler/pages.go's projectItems). All seven — Fishing Game,
+// Kitchen Shift, Puzzle Solver, Library Shift, Bus Stop Finder, Bus Rush and
+// Hospital Shift — are real (this site's own shipped mini-games/demos, each linked via an
 // internal "Play now" HTMX nav link, except Bus Stop Finder's full-page
 // "Open") — the pulled-in
 // design mockup's four fictional sample cards (Fieldnotes/Tidewatch/Loom
@@ -43,6 +43,11 @@ const PROJECTS = [
 	{
 		title: 'Bus Rush',
 		description: 'A top-down arcade getaway — flee the police in a stolen bus across five Singapore districts, dodge oncoming traffic, bait cruisers into wrecks, and upgrade at the depot, with a public leaderboard for the best runs.',
+		tags: ['Go', 'Canvas', 'PostgreSQL'],
+	},
+	{
+		title: 'Hospital Shift',
+		description: 'An ER-shift sim — triage arriving patients, then check vitals, pump oxygen, start IVs, bandage wounds, dispense meds and scrub in for surgery across a 30-shift run, with a public leaderboard.',
 		tags: ['Go', 'Canvas', 'PostgreSQL'],
 	},
 ];

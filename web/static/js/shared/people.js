@@ -538,6 +538,31 @@ function drawOutfitDetail(ctx, x, y, s, personality) {
     ctx.arc(x - 5.5 * s, torsoTop + 9 * s, 1.8 * s, 0, Math.PI * 2);
     ctx.fill();
     drawRoundRect(ctx, x - 11 * s, y - 8 * s, 22 * s, 2.4 * s, 1 * s, '#1e1e24');
+  } else if (personality.outfit === 'scrubs') {
+    // Hospital Shift's nurse: a V-neck scrub top with a chest pocket and
+    // pen, and a stethoscope (accentColor) draped around the neck.
+    ctx.fillStyle = shadeColor(personality.bodyColor, -0.22);
+    ctx.beginPath();
+    ctx.moveTo(x - 4 * s, torsoTop + 1 * s);
+    ctx.lineTo(x, torsoTop + 7 * s);
+    ctx.lineTo(x + 4 * s, torsoTop + 1 * s);
+    ctx.closePath();
+    ctx.fill();
+    drawRoundRect(ctx, x + 2.5 * s, torsoTop + 10 * s, 6 * s, 5 * s, 1 * s, shadeColor(personality.bodyColor, -0.1));
+    drawRoundRect(ctx, x + 6 * s, torsoTop + 8 * s, 1.2 * s, 4 * s, 0.5 * s, '#3a5a9a');
+    const tube = personality.accentColor || '#3a3a44';
+    ctx.strokeStyle = tube;
+    ctx.lineWidth = Math.max(1, 1.1 * s);
+    ctx.beginPath();
+    ctx.moveTo(x - 6.5 * s, torsoTop + 0.5 * s);
+    ctx.quadraticCurveTo(x - 7 * s, torsoTop + 11 * s, x - 3 * s, torsoTop + 14 * s);
+    ctx.moveTo(x + 6.5 * s, torsoTop + 0.5 * s);
+    ctx.quadraticCurveTo(x + 5 * s, torsoTop + 8 * s, x + 1 * s, torsoTop + 10 * s);
+    ctx.stroke();
+    ctx.fillStyle = '#c8ccd4';
+    ctx.beginPath();
+    ctx.arc(x - 3 * s, torsoTop + 14.5 * s, 2 * s, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 

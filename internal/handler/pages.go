@@ -140,7 +140,8 @@ func (h *PagesHandler) Projects(w http.ResponseWriter, r *http.Request) {
 // It's FullPageLoad: /bus-stops sets its own route-scoped CSP for Google
 // Maps, which only applies on a real document load, never an HTMX swap.
 // Bus Rush (docs/features/bus-rush.md) is the sixth; it has no screenshot
-// yet, so it renders the placeholder tile.
+// yet, so it renders the placeholder tile. Hospital Shift (docs/features/
+// hospital-shift.md) is the seventh.
 var projectItems = []Project{
 	{
 		Title:       "Fishing Game",
@@ -189,6 +190,14 @@ var projectItems = []Project{
 		Tags:        []string{"Go", "Canvas", "PostgreSQL"},
 		TagTint:     "primary",
 		LiveURL:     "/bus-rush",
+	},
+	{
+		Title:       "Hospital Shift",
+		Description: "An ER-shift sim — triage arriving patients, then check vitals, pump oxygen, start IVs, bandage wounds, dispense meds and scrub in for surgery across a 30-shift run, with a public leaderboard.",
+		Tags:        []string{"Go", "Canvas", "PostgreSQL"},
+		TagTint:     "accent",
+		LiveURL:     "/hospital-shift",
+		ImagePath:   "/static/images/hospital/screenshot.png",
 	},
 }
 

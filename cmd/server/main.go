@@ -194,6 +194,9 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string, bus busStopsDeps) (*
 	libraryService := service.NewLibraryService(repository.NewLibraryRepository(conn, readConn))
 	libraryGame := handler.NewLibraryGameHandler(renderer, libraryService, Version)
 
+	hospitalService := service.NewHospitalService(repository.NewHospitalRepository(conn, readConn))
+	hospitalShift := handler.NewHospitalShiftHandler(renderer, hospitalService, Version)
+
 	busRushService := service.NewBusRushService(repository.NewBusRushRepository(conn, readConn))
 	busRush := handler.NewBusRushHandler(renderer, busRushService, Version)
 
@@ -223,6 +226,10 @@ func newMux(conn, readConn *sql.DB, landingAPIToken string, bus busStopsDeps) (*
 	mux.HandleFunc("GET /library-game", libraryGame.Index)
 	mux.HandleFunc("GET /library-game/leaderboard", libraryGame.Leaderboard)
 	mux.HandleFunc("POST /library-game/score", libraryGame.SubmitScore)
+	// See docs/features/hospital-shift.md's Routes/Handlers table.
+	mux.HandleFunc("GET /hospital-shift", hospitalShift.Index)
+	mux.HandleFunc("GET /hospital-shift/leaderboard", hospitalShift.Leaderboard)
+	mux.HandleFunc("POST /hospital-shift/score", hospitalShift.SubmitScore)
 	// See docs/features/bus-rush.md's Routes/Handlers table.
 	mux.HandleFunc("GET /bus-rush", busRush.Index)
 	mux.HandleFunc("GET /bus-rush/leaderboard", busRush.Leaderboard)

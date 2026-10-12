@@ -286,6 +286,8 @@ func LoadTemplates(templatesDir string) (*template.Template, error) {
 		filepath.Join(templatesDir, "components", "bus-rush-leaderboard.html"),
 		filepath.Join(templatesDir, "components", "bus-rush-shop.html"),
 		filepath.Join(templatesDir, "pages", "bus-rush.html"),
+		filepath.Join(templatesDir, "components", "hospital-leaderboard.html"),
+		filepath.Join(templatesDir, "pages", "hospital-shift.html"),
 	}
 	return template.New(filepath.Base(files[0])).Funcs(templateFuncs).ParseFiles(files...)
 }

@@ -68,8 +68,16 @@ touching that area rather than expecting this section to carry it:
   Postgres leaderboard, `localStorage` progress) — `docs/features/bus-rush.md`.
   Rules/tuning live in `web/static/js/busrush/rules.js`; no screenshot yet,
   so its `/projects` card shows the placeholder tile.
+- **Hospital Shift** (`/hospital-shift`, canvas ER-nurse shift sim mirroring
+  Library Shift — triage the queue into 4 beds, then treat each patient's
+  plan: Vitals/Oxygen/IV/Surgery skill checks, a Bandage trace, Meds from
+  the cabinet; Karen, Coffee Pour, hallucinations; Postgres leaderboard,
+  `localStorage` progress) — `docs/features/hospital-shift.md`. Rules live
+  in `web/static/js/hospital/rules.js`; the nurse's `scrubs` outfit is in
+  the shared `people.js`.
 - **Projects** (`/projects` card grid: Fishing Game, Kitchen Shift, Puzzle
-  Solver, Library Shift, Bus Stop Finder, Bus Rush) — `docs/features/projects.md`.
+  Solver, Library Shift, Bus Stop Finder, Bus Rush, Hospital Shift) —
+  `docs/features/projects.md`.
 - **Content Authoring** (`/settings/content`: edit the landing page's
   hero/carousel/Selected work without a redeploy, Postgres-backed) —
   `docs/features/landing-content-authoring.md`. Code-complete but

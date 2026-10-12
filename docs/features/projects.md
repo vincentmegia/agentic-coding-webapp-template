@@ -3,10 +3,10 @@
 ## Status
 
 `Shipped` — the page, route, template, and data model are implemented and
-visually verified in both light and dark mode. The grid currently has six
+visually verified in both light and dark mode. The grid currently has seven
 cards, all real links into this site's own mini-games/demos (see Data Model
 for each entry): the Fishing Game, Kitchen Shift, Puzzle Solver, Library
-Shift, Bus Stop Finder and Bus Rush. The first three, in the order they
+Shift, Bus Stop Finder, Bus Rush and Hospital Shift. The first three, in the order they
 were added: the Fishing Game
 (`docs/features/fishing-game.md`) at `/fishing-game`, with a real
 screenshot (`ImagePath: "/static/images/fishing/screenshot.png"`) — a live
@@ -26,8 +26,9 @@ followed with its own real screenshot; Bus Stop Finder
 (`docs/features/bus-stop-finder.md`) is the one `FullPageLoad` card (a
 plain "Open" link, because its route sets its own CSP); Bus Rush
 (`docs/features/bus-rush.md`) has no screenshot yet, so it's the one card
-showing the "Screenshot coming soon" placeholder tile. None of the six is
-a mockup. The four fictional sample cards the pulled-in design
+showing the "Screenshot coming soon" placeholder tile; Hospital Shift
+(`docs/features/hospital-shift.md`) has a real mid-shift screenshot. None
+of the seven is a mockup. The four fictional sample cards the pulled-in design
 mockup originally shipped with (Fieldnotes, Tidewatch, Loom UI,
 Nightlight) were deliberately removed rather than left sitting next to
 real projects — see Open Questions for the reasoning and what replaces
@@ -74,9 +75,9 @@ were removed rather than left in place until real replacements existed
 * A `Project` data shape (title, description, tags, tag tint, optional live
   URL, an `External` flag distinguishing an internal route from an off-site
   link, a `FullPageLoad` flag for routes that need a real document load,
-  and optional image) and a hardcoded list — currently six real entries
+  and optional image) and a hardcoded list — currently seven real entries
   (Fishing Game, Kitchen Shift, Puzzle Solver, Library Shift, Bus Stop
-  Finder, Bus Rush).
+  Finder, Bus Rush, Hospital Shift).
 * Responsive card grid: 1 column on mobile, 2 on `sm`, 3 on `lg`.
 * Per-card: an image area (real screenshot if `ImagePath` is set, otherwise
   a "Screenshot coming soon" placeholder tile), title, description, tag
