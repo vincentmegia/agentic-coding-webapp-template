@@ -12,8 +12,10 @@
 //
 //     triageQueue: Patient[],       // waiting at the Triage Desk (wait timer each)
 //     beds: (BedPatient | null)[],  // BED_COUNT slots
-//     carried: null | { kind: 'meds' | 'gurney', bedIndex, patientId } | { kind: 'bandage' },
-//       // a bandage roll isn't tied to a patient — any Bandage step uses it
+//     carried: null | { kind: 'meds' | 'gurney', bedIndex, patientId }, // what's in your hands
+//     hasBandage: boolean,          // a bandage roll in your pocket — never blocks the hands
+//       // (the user: "even when i have bandage on i should still be able to
+//       // perform the surgery"); any patient's Bandage step uses it
 //     activeTask: null | { kind, bedIndex, patientId },
 //       // the minigame in progress: 'vitals' | 'oxygen' | 'iv' | 'bandage'
 //       // (at a bed), 'meds-dispense' (at the cabinet), 'surgery' (in the OR)
@@ -87,6 +89,7 @@ export function createInitialState(shiftNumber, karenShiftNumber, overrides = {}
     triageQueue: [],
     beds: Array.from({ length: BED_COUNT }, () => null),
     carried: null,
+    hasBandage: false,
     activeTask: null,
     orderlyGurney: null,
     orPatient: null,
@@ -262,8 +265,8 @@ export function startBedTask(state, bedIndex) {
   const patient = state.beds[bedIndex];
   const step = currentStep(patient);
   if (!BED_MINIGAME_TREATMENTS.includes(step)) return state;
-  // A Bandage step needs a roll from the Supply Cart in hand.
-  if (step === 'bandage' && state.carried?.kind !== 'bandage') return state;
+  // A Bandage step needs a roll from the Supply Cart in your pocket.
+  if (step === 'bandage' && !state.hasBandage) return state;
   return { ...state, activeTask: { kind: step, bedIndex, patientId: patient.id } };
 }
 
@@ -277,8 +280,8 @@ export function resolveBedTask(state, success) {
   if (state.beds[task.bedIndex]?.id !== task.patientId) return { ...state, activeTask: null };
   if (!success) return { ...state, ...applyMistake(state) };
   // A successful dressing uses up the bandage roll.
-  const carried = task.kind === 'bandage' ? null : state.carried;
-  return advanceStep({ ...state, activeTask: null, carried }, task.bedIndex);
+  const hasBandage = task.kind === 'bandage' ? false : state.hasBandage;
+  return advanceStep({ ...state, activeTask: null, hasBandage }, task.bedIndex);
 }
 
 // ---------------------------------------------------------------------------
@@ -322,23 +325,24 @@ export function deliverMeds(state, bedIndex) {
 }
 
 /**
- * Hallucination: carried meds or a bandage roll slip from your hands (the
- * order stays; fetch another). Never while it's being used in a minigame.
+ * Hallucination: carried meds — or, with none, the pocketed bandage roll —
+ * slip away (the order stays; fetch another). Never mid-minigame.
  */
 export function dropCarriedSupply(state) {
-  const kind = state.carried?.kind;
-  if (state.phase !== 'playing' || state.activeTask || (kind !== 'meds' && kind !== 'bandage')) return state;
-  return { ...state, carried: null };
+  if (state.phase !== 'playing' || state.activeTask) return state;
+  if (state.carried?.kind === 'meds') return { ...state, carried: null };
+  if (state.hasBandage) return { ...state, hasBandage: false };
+  return state;
 }
 
 // ---------------------------------------------------------------------------
 // Supply Cart (2nd Floor): bandage rolls
 // ---------------------------------------------------------------------------
 
-/** Takes a bandage roll from the Supply Cart. A no-op with your hands full. */
+/** Pockets a bandage roll (Supply Cart or the Stock tech). Works with your hands full; one roll at a time. */
 export function pickUpBandage(state) {
-  if (state.phase !== 'playing' || state.activeTask || state.carried) return state;
-  return { ...state, carried: { kind: 'bandage' } };
+  if (state.phase !== 'playing' || state.activeTask || state.hasBandage) return state;
+  return { ...state, hasBandage: true };
 }
 
 // ---------------------------------------------------------------------------

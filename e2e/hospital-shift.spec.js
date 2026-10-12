@@ -93,7 +93,7 @@ async function fetchBandageRoll(page) {
 	await walkTo(page, 'stairs');
 	expect(await hooks(page, 'getCurrentFloor')).toBe(2);
 	await walkTo(page, 'supply-cart');
-	expect((await shiftState(page)).carried).toEqual({ kind: 'bandage' });
+	expect((await shiftState(page)).hasBandage).toBe(true);
 	await walkTo(page, 'elevator');
 	expect(await hooks(page, 'getCurrentFloor')).toBe(1);
 }
@@ -214,7 +214,7 @@ test.describe('treatments', () => {
 		}
 		await page.mouse.up();
 		await expect.poll(async () => (await shiftState(page)).beds[bed]?.step).toBe(2);
-		expect((await shiftState(page)).carried).toBeNull(); // the roll was used up
+		expect((await shiftState(page)).hasBandage).toBe(false); // the roll was used up
 		await page.waitForFunction(() => window.__hospitalShiftTestHooks.getOverlay() === null);
 
 		// Meds: the wrong drug is a mistake, the right one is carried to the bed.
@@ -284,6 +284,31 @@ test.describe('treatments', () => {
 		expect(s.discharged).toBe(1);
 	});
 
+	test('a bandage roll in your pocket doesn\'t stop you taking the gurney and operating', async ({ page }) => {
+		await seedSave(page);
+		await page.goto('/hospital-shift');
+		await startShift(page);
+		await fetchBandageRoll(page);
+		const [, bed] = await admit(page, 'appendicitis', 'red');
+		for (let step = 0; step < 2; step++) {
+			await walkTo(page, 'bed', bed);
+			await waitForOverlay(page, 'skill');
+			await passSkillCheck(page);
+			await expect.poll(async () => (await shiftState(page)).beds[bed]?.step).toBe(step + 1);
+		}
+		await walkTo(page, 'bed', bed);
+		expect((await shiftState(page)).carried?.kind).toBe('gurney');
+		await walkTo(page, 'operating-room');
+		await waitForOverlay(page, 'skill');
+		for (let i = 0; i < 3; i++) {
+			await passSkillCheck(page);
+			await page.waitForTimeout(50);
+		}
+		const s = await shiftState(page);
+		expect(s.beds[bed]).toBeNull();
+		expect(s.hasBandage).toBe(true);
+	});
+
 	test('the × button backs out of a minigame without a mistake', async ({ page }) => {
 		await seedSave(page);
 		await page.goto('/hospital-shift');
@@ -330,14 +355,14 @@ test.describe('the Supply Room (2nd Floor)', () => {
 		await expect(page.locator('#hospital-paycheck-screen')).toBeVisible();
 	});
 
-	test('one item at a time: no second roll while already holding one', async ({ page }) => {
+	test('one roll at a time: no second roll while you already have one', async ({ page }) => {
 		await seedSave(page);
 		await page.goto('/hospital-shift');
 		await startShift(page);
 		await fetchBandageRoll(page);
 		await walkTo(page, 'stairs');
 		await walkTo(page, 'supply-cart');
-		await expect(page.locator('#hospital-toast')).toContainText('hands are full');
+		await expect(page.locator('#hospital-toast')).toContainText('already have a bandage roll');
 	});
 });
 
@@ -400,7 +425,7 @@ test.describe('helping staff', () => {
 		await expect.poll(async () => (await hooks(page, 'getStaff')).find((a) => a.key === 'stockTech').floor).toBe(1);
 		await hooks(page, 'freezeStaff', 'stockTech');
 		await clickStaff(page, 'stockTech');
-		await expect.poll(async () => (await shiftState(page)).carried?.kind, { timeout: 10000 }).toBe('bandage');
+		await expect.poll(async () => (await shiftState(page)).hasBandage, { timeout: 10000 }).toBe(true);
 		expect(await hooks(page, 'getCurrentFloor')).toBe(1);
 	});
 });

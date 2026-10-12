@@ -516,8 +516,8 @@ export function init(canvas, elements) {
     if (a.key === 'orderly') {
       requestOrderly();
     } else if (a.key === 'stockTech') {
-      if (shiftState.carried) {
-        showToast(`Your hands are full — ${handsFullReason()}`);
+      if (shiftState.hasBandage) {
+        showToast('You already have a bandage roll in your pocket.');
         return;
       }
       a.pause = 5;
@@ -921,8 +921,8 @@ export function init(canvas, elements) {
     }
 
     if (station.kind === 'supply-cart') {
-      if (shiftState.carried) {
-        showToast(`Your hands are full — ${handsFullReason()}`);
+      if (shiftState.hasBandage) {
+        showToast('You already have a bandage roll in your pocket — use it on a wound first.');
         return;
       }
       shiftState = pickUpBandage(shiftState);
@@ -961,7 +961,6 @@ export function init(canvas, elements) {
     const carried = shiftState.carried;
     if (carried?.kind === 'meds') return `you're holding meds for ${bedLabel(carried.bedIndex)}.`;
     if (carried?.kind === 'gurney') return 'get the gurney to the OR first.';
-    if (carried?.kind === 'bandage') return "you're holding a bandage roll — use it on a wound first.";
     return '';
   }
 
@@ -992,7 +991,7 @@ export function init(canvas, elements) {
       return;
     }
     const step = currentStep(patient);
-    if (step === 'bandage' && carried?.kind !== 'bandage') {
+    if (step === 'bandage' && !shiftState.hasBandage) {
       showToast(`${label} needs a bandage — grab a roll from the Supply Cart upstairs (2nd Floor).`);
       return;
     }
@@ -1265,8 +1264,8 @@ export function init(canvas, elements) {
     if (random() < 0.12 * i * dt) halluc.flicker = 0.18;
     if (i >= 1 && random() < 0.04 * dt) halluc.scare = 0.45;
     if (i >= 0.5 && halluc.ghosts.length === 0 && random() < 0.06 * i * dt) halluc.ghosts.push({ id: `ghost-${halluc.ghostCounter++}`, age: 0, life: 15 });
-    const dropping = shiftState.carried?.kind;
-    if (!overlay && (dropping === 'meds' || dropping === 'bandage') && random() < MEDS_DROP_CHANCE_PER_SECOND * i * dt) {
+    const dropping = shiftState.carried?.kind === 'meds' ? 'meds' : (shiftState.hasBandage ? 'bandage' : null);
+    if (!overlay && dropping && random() < MEDS_DROP_CHANCE_PER_SECOND * i * dt) {
       shiftState = dropCarriedSupply(shiftState);
       showToast(dropping === 'meds'
         ? 'Your hands shake — the pills scatter across the floor. Fetch them again.'
@@ -2009,7 +2008,7 @@ export function init(canvas, elements) {
     }
     const pulse = (st.kind === 'operating-room' && (shiftState?.carried?.kind === 'gurney' || shiftState?.orPatient))
       || (st.kind === 'med-cabinet' && shiftState && !shiftState.carried && shiftState.beds.some((b) => currentStep(b) === 'meds'))
-      || (st.kind === 'supply-cart' && shiftState && !shiftState.carried && shiftState.beds.some((b) => currentStep(b) === 'bandage'));
+      || (st.kind === 'supply-cart' && shiftState && !shiftState.hasBandage && shiftState.beds.some((b) => currentStep(b) === 'bandage'));
     stationOutline(st, pulse ? `rgba(224,168,58,${0.55 + 0.45 * Math.sin(performance.now() / 180)})` : null);
     drawLabelChip(ctx, 0, st.h / 2 + 13, labelForStation(st), 'bold 11px sans-serif');
     ctx.restore();
@@ -2084,7 +2083,7 @@ export function init(canvas, elements) {
       } else {
         let text = TREATMENT_LABELS[step];
         if (step === 'meds') text = `Meds: ${findCondition(patient.conditionId).med.drug} ×${findCondition(patient.conditionId).med.dose}`;
-        else if (step === 'bandage' && shiftState.carried?.kind !== 'bandage') text = 'Bandage (roll: 2F)';
+        else if (step === 'bandage' && !shiftState.hasBandage) text = 'Bandage (roll: 2F)';
         drawLabelChip(ctx, 0, -hh - 16, `${patient.step + 1}/${patient.plan.length} ${text}`, 'bold 10px sans-serif', '#2f5f6f', CREAM);
       }
     }
@@ -2156,7 +2155,8 @@ export function init(canvas, elements) {
     drawHospitalPerson(ctx, player.x, player.y, { personalityKey: 'nurse', stress });
     if (coffeeSplashSeconds > 0) drawCoffeeSplash();
     drawLabelChip(ctx, player.x, player.y + 24, PLAYER_NAME, 'bold 10px sans-serif');
-    if (carried?.kind === 'bandage') drawBandageRoll(player.x + 20, player.y - 80, 1.2);
+    // The pocketed roll sits on the left, clear of a meds bottle on the right.
+    if (shiftState?.hasBandage) drawBandageRoll(player.x - 22, player.y - 78, 1.1);
     if (carried?.kind === 'meds') {
       const order = findCondition(shiftState.beds[carried.bedIndex]?.conditionId)?.med;
       const color = MEDICATIONS.find((m) => m.name === order?.drug)?.color ?? '#e8b440';

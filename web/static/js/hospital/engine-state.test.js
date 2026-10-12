@@ -193,29 +193,50 @@ describe('bandages (Supply Cart)', () => {
     assert.equal(startBedTask(s, bed), s);
   });
 
-  test('picking up a roll, then dressing the wound uses it up', () => {
+  test('picking up a roll pockets it; dressing the wound uses it up', () => {
     let [s, bed] = bandageReady();
     s = pickUpBandage(s);
-    assert.deepEqual(s.carried, { kind: 'bandage' });
+    assert.equal(s.hasBandage, true);
+    assert.equal(s.carried, null, 'a pocketed roll leaves your hands free');
     s = startBedTask(s, bed);
     assert.equal(s.activeTask.kind, 'bandage');
     s = resolveBedTask(s, false);
-    assert.deepEqual(s.carried, { kind: 'bandage' }, 'a botched dressing keeps the roll for the retry');
+    assert.equal(s.hasBandage, true, 'a botched dressing keeps the roll for the retry');
     s = resolveBedTask(s, true);
-    assert.equal(s.carried, null);
+    assert.equal(s.hasBandage, false);
     assert.equal(s.beds[bed], null);
   });
 
-  test('backing out keeps the roll in hand', () => {
+  test('backing out keeps the roll', () => {
     let [s, bed] = bandageReady();
     s = cancelTask(startBedTask(pickUpBandage(s), bed));
-    assert.deepEqual(s.carried, { kind: 'bandage' });
+    assert.equal(s.hasBandage, true);
   });
 
-  test('one item at a time: no roll while holding meds or pushing a gurney', () => {
-    const s = playing(1, { carried: { kind: 'meds', bedIndex: 0, patientId: 'x' } });
-    assert.equal(pickUpBandage(s), s);
-    assert.equal(pickUpBandage(pickUpBandage(playing(1))).carried.kind, 'bandage');
+  test('one roll at a time, but it never blocks your hands', () => {
+    const rolled = pickUpBandage(playing(1));
+    assert.equal(pickUpBandage(rolled), rolled);
+    const holdingMeds = playing(1, { carried: { kind: 'meds', bedIndex: 0, patientId: 'x' } });
+    assert.equal(pickUpBandage(holdingMeds).hasBandage, true);
+  });
+
+  test('with a roll pocketed you can still take a gurney and operate', () => {
+    let [s, bed] = bedded(pickUpBandage(playing(5)), 'p1', 'appendicitis');
+    s = resolveBedTask(startBedTask(s, bed), true); // vitals
+    s = resolveBedTask(startBedTask(s, bed), true); // iv
+    s = startSurgeryTransport(s, bed);
+    assert.equal(s.carried.kind, 'gurney');
+    s = resolveSurgery(startSurgery(s), true);
+    assert.equal(s.beds[bed], null);
+    assert.equal(s.hasBandage, true, 'surgery leaves the roll alone');
+  });
+
+  test('...and scrub in for a patient the Orderly brought', () => {
+    let [s, bed] = bedded(pickUpBandage(playing(5)), 'p1', 'appendicitis');
+    s = resolveBedTask(startBedTask(s, bed), true);
+    s = resolveBedTask(startBedTask(s, bed), true);
+    s = orderlyDeliverToOR(orderlyTakePatient(s, bed));
+    assert.equal(startSurgery(s).activeTask?.kind, 'surgery');
   });
 
   test('any patient can use the roll, and a transfer elsewhere doesn\'t take it', () => {
@@ -224,13 +245,17 @@ describe('bandages (Supply Cart)', () => {
     [s, bed] = bedded(s, 'p1', 'asthma');
     s = tick(s, 500);
     assert.equal(s.beds[bed], null);
-    assert.deepEqual(s.carried, { kind: 'bandage' });
+    assert.equal(s.hasBandage, true);
   });
 
-  test('a hallucination can make you drop the roll, but not mid-dressing', () => {
+  test('a hallucination drops meds first, else the roll — never mid-dressing', () => {
     let [s, bed] = bandageReady();
     s = pickUpBandage(s);
-    assert.equal(dropCarriedSupply(s).carried, null);
+    assert.equal(dropCarriedSupply(s).hasBandage, false);
+    const both = { ...s, carried: { kind: 'meds', bedIndex: 1, patientId: 'x' } };
+    const dropped = dropCarriedSupply(both);
+    assert.equal(dropped.carried, null);
+    assert.equal(dropped.hasBandage, true);
     s = startBedTask(s, bed);
     assert.equal(dropCarriedSupply(s), s);
   });
@@ -480,7 +505,8 @@ describe('the Orderly', () => {
   test('you can\'t scrub in with your hands full, and the table takes one patient', () => {
     let [s, bed] = surgeryReady();
     s = orderlyDeliverToOR(orderlyTakePatient(s, bed));
-    assert.equal(startSurgery(pickUpBandage(s)).activeTask, null);
+    const holding = { ...s, carried: { kind: 'meds', bedIndex: 3, patientId: 'x' } };
+    assert.equal(startSurgery(holding).activeTask, null);
     let other;
     [s, other] = bedded(s, 'p2', 'crash');
     s = { ...s, beds: s.beds.map((b, i) => (i === other ? { ...b, step: 2 } : b)) };

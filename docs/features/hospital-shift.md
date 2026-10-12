@@ -80,7 +80,7 @@ The user asked for a new project, "hospital shift." When asked, they chose:
     the Operating Room (the player carries the gurney), then operated on
     there; afterwards they return to their bed.
   * **Bandage** (precision trace) — needs a **bandage roll** from the
-    Supply Cart upstairs in hand (without one the bed says where to get
+    Supply Cart upstairs in your pocket (without one the bed says where to get
     it, and its chip reads "Bandage (roll: 2F)"); then hold and trace the
     dashed line along the wound, graded on coverage and accuracy. A
     finished dressing uses up the roll; a botched one or backing out
@@ -131,8 +131,10 @@ The user asked for a new project, "hospital shift." When asked, they chose:
   supply cart for bandages "and make a second floor where they are on",
   and for bandage steps to be more common): the 1st Floor is the ER; the
   2nd Floor is the **Supply Room**, holding only the **Supply Cart**
-  (take a bandage roll; one carried item at a time, same as meds or the
-  gurney). Library Shift's three ways between floors: **Stairs** and an
+  (pocket a bandage roll — one at a time, kept separate from your hands so
+  it never blocks meds, the gurney or surgery: the user said "even when i
+  have bandage on i should still be able to perform the surgery").
+  Library Shift's three ways between floors: **Stairs** and an
   **Elevator** at the same spot on both floors, and the HUD's
   `#hospital-floor-button` ("Go Upstairs"/"Go Downstairs"); all instant,
   allowed in every phase so you can always come back down for handover.
@@ -303,7 +305,8 @@ All numbers are named constants in `web/static/js/hospital/rules.js`.
   of samples within 16 px of it (`BANDAGE_MIN_ACCURACY`). Releasing early
   grades what was traced.
 * **Meds**: the cabinet fills the oldest bed whose current step is Meds.
-  Only one item (meds, a gurney or a bandage roll) can be carried at a time.
+  Only one item (meds or a gurney) can be in your hands at a time; a
+  bandage roll goes in your pocket and doesn't count.
 * **Payout**: `max(0, shiftPaycheck(mistakes) + bonusGard) × rating/5 ×
   hallucinationPayMultiplier`. Bonuses: step tips, discharges, coffee tips,
   Karen.
