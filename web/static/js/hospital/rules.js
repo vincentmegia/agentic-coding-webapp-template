@@ -224,14 +224,23 @@ export const TREATMENT_LABELS = {
   surgery: 'Surgery',
 };
 
+// Bandage steps need a roll from the 2nd-Floor Supply Cart in hand
+// (engine-state.js's pickUpBandage) — the user asked for a supply cart "and
+// make a second floor where they are on", and for bandages to be more
+// common: burn, dog bite and bad fall joined sprain, cut, broken arm and
+// crash injuries.
+
 /** Surgery cases only arrive from this shift on, so the first shifts teach the basics. */
 export const SURGERY_START_SHIFT = 4;
 
 export const CONDITIONS = [
   { id: 'sprain', name: 'Sprained ankle', level: 'green', complaint: 'Twisted my ankle on the stairs.', plan: ['vitals', 'bandage'] },
   { id: 'migraine', name: 'Migraine', level: 'green', complaint: 'Pounding headache since this morning.', plan: ['vitals', 'meds'], med: { drug: 'Ibuprofen', dose: 2 } },
+  { id: 'burn', name: 'Kitchen burn', level: 'green', complaint: 'Grabbed a hot pan by the handle.', plan: ['vitals', 'bandage'] },
   { id: 'dehydration', name: 'Dehydration', level: 'green', complaint: 'Dizzy after a long run in the heat.', plan: ['vitals', 'iv'] },
   { id: 'cut', name: 'Deep cut', level: 'yellow', complaint: 'Sliced my hand open cooking dinner.', plan: ['vitals', 'bandage', 'meds'], med: { drug: 'Amoxicillin', dose: 2 } },
+  { id: 'bite', name: 'Dog bite', level: 'yellow', complaint: "The neighbor's dog bit my leg.", plan: ['vitals', 'bandage', 'meds'], med: { drug: 'Amoxicillin', dose: 1 } },
+  { id: 'fall', name: 'Bad fall', level: 'yellow', complaint: 'Slipped in the shower — scraped and woozy.', plan: ['vitals', 'bandage', 'iv'] },
   { id: 'fever', name: 'High fever', level: 'yellow', complaint: 'Burning up and shivering all night.', plan: ['vitals', 'iv', 'meds'], med: { drug: 'Acetaminophen', dose: 2 } },
   { id: 'fracture', name: 'Broken arm', level: 'yellow', complaint: 'Fell off my bike — my arm looks wrong.', plan: ['vitals', 'meds', 'bandage'], med: { drug: 'Morphine', dose: 1 } },
   { id: 'pneumonia', name: 'Pneumonia', level: 'yellow', complaint: "Coughing for a week, can't catch my breath.", plan: ['vitals', 'oxygen', 'iv'] },

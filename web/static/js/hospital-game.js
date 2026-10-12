@@ -81,7 +81,8 @@ import {
   startMedsDispense,
   resolveMedsDispense,
   deliverMeds,
-  dropCarriedMeds,
+  dropCarriedSupply,
+  pickUpBandage,
   startSurgeryTransport,
   startSurgery,
   resolveSurgery,
@@ -96,6 +97,10 @@ import {
 } from './hospital/engine-state.js';
 import {
   buildStations,
+  stationsOnFloor,
+  entryPointFor,
+  FLOOR_1,
+  FLOOR_2,
   stationAtPoint,
   standoffFor,
   approachPoint,
@@ -272,9 +277,11 @@ export function init(canvas, elements) {
 
   const stations = buildStations();
   const stationOfKind = (kind) => stations.find((s) => s.kind === kind);
+  const visibleStations = () => stationsOnFloor(stations, currentFloor);
   const bedStation = (index) => stations.find((s) => s.kind === 'bed' && s.bedIndex === index);
 
   let player = { ...PLAYER_START };
+  let currentFloor = FLOOR_1;
   let moveTarget = null; // { x, y, station }
   let hoverStation = null;
 
@@ -343,6 +350,9 @@ export function init(canvas, elements) {
       case 'med-cabinet': return 'Med Cabinet';
       case 'operating-room': return 'Operating Room';
       case 'coffee-machine': return 'Coffee Machine';
+      case 'supply-cart': return 'Supply Cart';
+      case 'stairs': return station.targetFloor === FLOOR_2 ? 'Stairs ↑ Supply Room' : 'Stairs ↓ ER';
+      case 'elevator': return station.targetFloor === FLOOR_2 ? 'Elevator ↑' : 'Elevator ↓';
       case 'office':
         if (shiftState?.phase === 'playing') return 'Charge Nurse (after 7 PM)';
         if (shiftState?.phase === 'closing-wait' && !isOfficeReady(shiftState)) return `Charge Nurse (${Math.ceil(shiftState.closingWaitSecondsRemaining)}s)`;
@@ -422,7 +432,25 @@ export function init(canvas, elements) {
     }
   }
 
+  function updateFloorButton() {
+    if (!elements.floorButton) return;
+    const upstairs = currentFloor === FLOOR_2;
+    elements.floorButton.textContent = upstairs ? 'Go Downstairs' : 'Go Upstairs';
+    elements.floorButton.setAttribute('aria-pressed', String(upstairs));
+  }
+
+  /** Instant floor switch (Stairs, Elevator or the HUD button), allowed in every phase. */
+  function switchFloor(floor, via) {
+    currentFloor = floor;
+    player = { ...entryPointFor(via) };
+    moveTarget = null;
+    hoverStation = null;
+    pendingTriageAction = null;
+    updateFloorButton();
+  }
+
   function isPlayerAtOffice() {
+    if (currentFloor !== FLOOR_1) return false;
     const office = stationOfKind('office');
     return Math.hypot(player.x - office.x, player.y - office.y) <= office.w / 2 + PLAYER_STOP_MARGIN + 30;
   }
@@ -458,6 +486,7 @@ export function init(canvas, elements) {
 
   /** A queued patient's whole drawn body (their slot y is their feet). */
   function triageSlotAtPoint(x, y) {
+    if (currentFloor !== FLOOR_1) return null;
     return triageSlots().find((slot) => Math.abs(x - slot.x) <= 22 && y >= slot.y - 50 && y <= slot.y + 26) || null;
   }
 
@@ -581,6 +610,10 @@ export function init(canvas, elements) {
   // -- Arrival dispatch ---------------------------------------------------------
 
   function handleArrival(station) {
+    if (station.kind === 'stairs' || station.kind === 'elevator') {
+      switchFloor(station.targetFloor, station.kind);
+      return;
+    }
     if (!shiftState) return;
     const playing = shiftState.phase === 'playing';
 
@@ -625,11 +658,22 @@ export function init(canvas, elements) {
       return;
     }
 
+    if (station.kind === 'supply-cart') {
+      if (shiftState.carried) {
+        showToast(`Your hands are full — ${handsFullReason()}`);
+        return;
+      }
+      shiftState = pickUpBandage(shiftState);
+      const waiting = shiftState.beds.map((b, i) => (currentStep(b) === 'bandage' && !b.inSurgery ? bedLabel(i) : null)).filter(Boolean);
+      showToast(waiting.length
+        ? `Got a bandage roll — ${waiting.join(', ')} ${waiting.length === 1 ? 'needs' : 'need'} a dressing downstairs.`
+        : 'Got a bandage roll — keep it for the next wound.');
+      return;
+    }
+
     if (station.kind === 'med-cabinet') {
       if (shiftState.carried) {
-        showToast(shiftState.carried.kind === 'meds'
-          ? `You're already holding meds for ${bedLabel(shiftState.carried.bedIndex)}.`
-          : "Your hands are on the gurney — get it to the OR first.");
+        showToast(`Your hands are full — ${handsFullReason()}`);
         return;
       }
       const before = shiftState;
@@ -648,6 +692,14 @@ export function init(canvas, elements) {
     }
 
     if (station.kind === 'coffee-machine') openCoffeeOverlay();
+  }
+
+  function handsFullReason() {
+    const carried = shiftState.carried;
+    if (carried?.kind === 'meds') return `you're holding meds for ${bedLabel(carried.bedIndex)}.`;
+    if (carried?.kind === 'gurney') return 'get the gurney to the OR first.';
+    if (carried?.kind === 'bandage') return "you're holding a bandage roll — use it on a wound first.";
+    return '';
   }
 
   function handleBedArrival(bedIndex) {
@@ -677,6 +729,10 @@ export function init(canvas, elements) {
       return;
     }
     const step = currentStep(patient);
+    if (step === 'bandage' && carried?.kind !== 'bandage') {
+      showToast(`${label} needs a bandage — grab a roll from the Supply Cart upstairs (2nd Floor).`);
+      return;
+    }
     if (BED_MINIGAME_TREATMENTS.includes(step)) {
       const before = shiftState;
       shiftState = startBedTask(shiftState, bedIndex);
@@ -685,8 +741,10 @@ export function init(canvas, elements) {
       const med = findCondition(patient.conditionId).med;
       showToast(`${label} needs ${med.drug} ×${med.dose} — get it from the Med Cabinet.`);
     } else if (step === 'surgery') {
+      const before = shiftState;
       shiftState = startSurgeryTransport(shiftState, bedIndex);
-      showToast(`Wheeling ${label}'s patient to the Operating Room…`);
+      if (shiftState !== before) showToast(`Wheeling ${label}'s patient to the Operating Room…`);
+      else showToast(`${label} needs surgery, but your hands are full — ${handsFullReason()}`);
     }
   }
 
@@ -944,9 +1002,12 @@ export function init(canvas, elements) {
     if (random() < 0.12 * i * dt) halluc.flicker = 0.18;
     if (i >= 1 && random() < 0.04 * dt) halluc.scare = 0.45;
     if (i >= 0.5 && halluc.ghosts.length === 0 && random() < 0.06 * i * dt) halluc.ghosts.push({ id: `ghost-${halluc.ghostCounter++}`, age: 0, life: 15 });
-    if (!overlay && shiftState.carried?.kind === 'meds' && random() < MEDS_DROP_CHANCE_PER_SECOND * i * dt) {
-      shiftState = dropCarriedMeds(shiftState);
-      showToast('Your hands shake — the pills scatter across the floor. Fetch them again.');
+    const dropping = shiftState.carried?.kind;
+    if (!overlay && (dropping === 'meds' || dropping === 'bandage') && random() < MEDS_DROP_CHANCE_PER_SECOND * i * dt) {
+      shiftState = dropCarriedSupply(shiftState);
+      showToast(dropping === 'meds'
+        ? 'Your hands shake — the pills scatter across the floor. Fetch them again.'
+        : 'Your hands shake — the bandage roll unravels across the floor. Get another upstairs.');
     }
   }
 
@@ -1055,7 +1116,7 @@ export function init(canvas, elements) {
       }
     }
     pendingTriageAction = null;
-    commitStationTarget(stationAtPoint(x, y, stations), { x, y });
+    commitStationTarget(stationAtPoint(x, y, visibleStations()), { x, y });
   }
 
   function onCanvasPointerDown(e) {
@@ -1079,7 +1140,7 @@ export function init(canvas, elements) {
     }
     if (overlay) { canvas.style.cursor = ''; return; }
     const { x, y } = canvasCoordsFromEvent(e);
-    hoverStation = stationAtPoint(x, y, stations);
+    hoverStation = stationAtPoint(x, y, visibleStations());
     canvas.style.cursor = hoverStation || triageSlotAtPoint(x, y) ? 'pointer' : '';
   }
 
@@ -1137,6 +1198,8 @@ export function init(canvas, elements) {
     karenShiftNumber = karenShiftForSeed(save.karenSeed);
     shiftState = startShiftState(createInitialState(currentShiftNumber, karenShiftNumber));
     player = { ...PLAYER_START };
+    currentFloor = FLOOR_1;
+    updateFloorButton();
     moveTarget = null;
     overlay = null;
     pendingTriageAction = null;
@@ -1210,6 +1273,10 @@ export function init(canvas, elements) {
   const TILE = 40;
 
   function drawFloor() {
+    if (currentFloor === FLOOR_2) {
+      drawSupplyRoomFloor();
+      return;
+    }
     ctx.fillStyle = '#e4efe9';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     for (let row = 0; row * TILE < CANVAS_HEIGHT; row++) {
@@ -1251,6 +1318,64 @@ export function init(canvas, elements) {
     // Break-room rug under the coffee machine.
     const coffee = stationOfKind('coffee-machine');
     drawRoundRect(ctx, coffee.x - 70, coffee.y - 62, 190, 120, 16, 'rgba(194,138,90,0.18)');
+    drawWallClock();
+  }
+
+  /** The 2nd Floor: a stockroom — warm grey tiles, shelving along the walls. */
+  function drawSupplyRoomFloor() {
+    ctx.fillStyle = '#ece8e0';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    for (let row = 0; row * TILE < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col * TILE < CANVAS_WIDTH; col++) {
+        if ((row + col) % 2 === 0) {
+          ctx.fillStyle = '#e3ded4';
+          ctx.fillRect(col * TILE, row * TILE, TILE, TILE);
+        }
+      }
+    }
+    drawRoundRect(ctx, 0, 0, CANVAS_WIDTH, 58, 0, '#f4f1ea');
+    ctx.fillStyle = 'rgba(58,42,42,0.12)';
+    ctx.fillRect(0, 56, CANVAS_WIDTH, 3);
+    drawRoundRect(ctx, 744, 14, 190, 30, 6, '#2f5f6f');
+    ctx.fillStyle = CREAM;
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('SUPPLY ROOM · 2F', 839, 30);
+
+    // Wall shelving full of boxes, gauze and linen — set dressing only.
+    const shelf = (x, y, w) => {
+      drawRoundRect(ctx, x, y, w, 70, 6, '#c9b9a0');
+      for (let r = 0; r < 2; r++) {
+        const sy = y + 8 + r * 32;
+        ctx.fillStyle = '#a8957a';
+        ctx.fillRect(x + 4, sy + 24, w - 8, 3);
+        for (let bx = x + 8, k = 0; bx < x + w - 26; bx += 26, k++) {
+          const tone = ['#f2f0ea', '#a9cfe0', '#e8d6b0', '#f2f0ea', '#cfe3c8'][(k + r * 2 + Math.round(x)) % 5];
+          drawRoundRect(ctx, bx, sy + 4, 22, 20, 3, tone);
+          if (tone === '#f2f0ea') {
+            ctx.fillStyle = '#d9534f';
+            ctx.fillRect(bx + 9, sy + 9, 4, 10);
+            ctx.fillRect(bx + 6, sy + 12, 10, 4);
+          }
+        }
+      }
+    };
+    shelf(20, 74, 260);
+    shelf(320, 74, 260);
+    shelf(20, 500, 300);
+    shelf(380, 500, 300);
+    // A rolled-up mop bucket and a cardboard stack for life.
+    drawRoundRect(ctx, 640, 230, 70, 50, 6, '#c8a878');
+    drawRoundRect(ctx, 648, 200, 56, 34, 6, '#d6b88a');
+    ctx.strokeStyle = 'rgba(90,60,30,0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(640, 255);
+    ctx.lineTo(710, 255);
+    ctx.moveTo(676, 200);
+    ctx.lineTo(676, 234);
+    ctx.stroke();
     drawWallClock();
   }
 
@@ -1469,7 +1594,106 @@ export function init(canvas, elements) {
     }
   }
 
+  function drawStairsDetail(st) {
+    const half = st.w / 2;
+    const steps = 5;
+    const stepH = (half * 2 - 16) / steps;
+    for (let i = 0; i < steps; i++) {
+      const y = half - 8 - (i + 1) * stepH;
+      const inset = 8 + i * 2.5;
+      drawRoundRect(ctx, -half + inset, y, half * 2 - inset * 2, stepH, 2, shadeColor('#b8cde0', 0.15 + i * 0.1));
+      ctx.fillStyle = 'rgba(58,70,90,0.28)';
+      ctx.fillRect(-half + inset, y + stepH - 3, half * 2 - inset * 2, 3);
+    }
+    ctx.strokeStyle = '#8a6a4a';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-half + 7, half - 10);
+    ctx.lineTo(-half + 17, -half + 10);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    const dir = st.targetFloor > st.floor ? -1 : 1;
+    drawRoundRect(ctx, half - 22, -half + 5, 17, 17, 8.5, CREAM);
+    ctx.fillStyle = '#5a6a80';
+    ctx.beginPath();
+    const ay = -half + 13.5;
+    ctx.moveTo(half - 13.5, ay + dir * 5);
+    ctx.lineTo(half - 18.5, ay - dir * 3);
+    ctx.lineTo(half - 8.5, ay - dir * 3);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawElevatorDetail(st) {
+    const half = st.w / 2;
+    drawRoundRect(ctx, -14, -half + 5, 28, 11, 4, '#3a3440');
+    ctx.fillStyle = '#f2d98a';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${st.targetFloor > st.floor ? '▲' : '▼'} ${st.targetFloor}`, 0, -half + 11);
+    drawRoundRect(ctx, -26, -half + 19, 52, half * 2 - 25, 4, '#d8dde3');
+    drawRoundRect(ctx, -23, -half + 22, 22.5, half * 2 - 28, 2, '#aab4bf');
+    drawRoundRect(ctx, 0.5, -half + 22, 22.5, half * 2 - 28, 2, '#aab4bf');
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(-20, -half + 24, 3, half * 2 - 34);
+    ctx.fillRect(3.5, -half + 24, 3, half * 2 - 34);
+    drawRoundRect(ctx, 29, -6, 8, 16, 3, '#d8dde3');
+    ctx.fillStyle = '#e0a83a';
+    ctx.beginPath();
+    ctx.arc(33, 2, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /** A bandage roll: a cream cylinder seen side-on, its loose end trailing. */
+  function drawBandageRoll(x, y, s = 1) {
+    drawRoundRect(ctx, x - 9 * s, y - 7 * s, 18 * s, 14 * s, 4 * s, '#fbf8f1');
+    ctx.strokeStyle = 'rgba(160,150,130,0.6)';
+    ctx.lineWidth = 1;
+    for (const dx of [-4, 0, 4]) {
+      ctx.beginPath();
+      ctx.moveTo(x + dx * s, y - 7 * s);
+      ctx.lineTo(x + dx * s, y + 7 * s);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#e8e2d4';
+    ctx.beginPath();
+    ctx.ellipse(x + 9 * s, y, 3 * s, 7 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#c8c0ae';
+    ctx.beginPath();
+    ctx.ellipse(x + 9 * s, y, 1.2 * s, 2.6 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    drawRoundRect(ctx, x - 9 * s, y + 5 * s, 7 * s, 9 * s, 1.5 * s, '#fbf8f1');
+  }
+
+  function drawSupplyCartDetail(st) {
+    const hw = st.w / 2;
+    const hh = st.h / 2;
+    // A steel cart: two shelves of bandage rolls and gauze boxes.
+    drawRoundRect(ctx, -hw + 8, -hh + 10, st.w - 16, st.h - 22, 6, '#c3ccd4');
+    ctx.fillStyle = '#9aa6b0';
+    ctx.fillRect(-hw + 8, -4, st.w - 16, 4);
+    ctx.fillRect(-hw + 8, hh - 16, st.w - 16, 4);
+    for (let i = 0; i < 4; i++) drawBandageRoll(-hw + 26 + i * 20, -hh + 26, 0.8);
+    drawRoundRect(ctx, -hw + 16, 6, 32, 20, 3, '#f2f0ea');
+    drawRoundRect(ctx, -hw + 54, 6, 32, 20, 3, '#a9cfe0');
+    ctx.fillStyle = '#d9534f';
+    ctx.fillRect(-hw + 30, 10, 4, 12);
+    ctx.fillRect(-hw + 26, 14, 12, 4);
+    ctx.fillStyle = '#4a4a52';
+    for (const wx of [-hw + 14, hw - 14]) {
+      ctx.beginPath();
+      ctx.arc(wx, hh - 6, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   const STATION_COLORS = {
+    stairs: '#b8cde0',
+    elevator: '#c9a7d1',
+    'supply-cart': '#e8e2d4',
     office: '#d6e2ea',
     'triage-desk': '#f2e2c8',
     'med-cabinet': '#d9e4ec',
@@ -1482,6 +1706,9 @@ export function init(canvas, elements) {
     'med-cabinet': drawMedCabinetDetail,
     'operating-room': drawOperatingRoomDetail,
     'coffee-machine': drawCoffeeMachineDetail,
+    stairs: drawStairsDetail,
+    elevator: drawElevatorDetail,
+    'supply-cart': drawSupplyCartDetail,
   };
 
   function stationOutline(st, highlightColor) {
@@ -1511,7 +1738,8 @@ export function init(canvas, elements) {
       drawRoundRect(ctx, -7.5, 1, 15, 11, 3, '#5a5060');
     }
     const pulse = (st.kind === 'operating-room' && shiftState?.carried?.kind === 'gurney')
-      || (st.kind === 'med-cabinet' && shiftState && !shiftState.carried && shiftState.beds.some((b) => currentStep(b) === 'meds'));
+      || (st.kind === 'med-cabinet' && shiftState && !shiftState.carried && shiftState.beds.some((b) => currentStep(b) === 'meds'))
+      || (st.kind === 'supply-cart' && shiftState && !shiftState.carried && shiftState.beds.some((b) => currentStep(b) === 'bandage'));
     stationOutline(st, pulse ? `rgba(224,168,58,${0.55 + 0.45 * Math.sin(performance.now() / 180)})` : null);
     drawLabelChip(ctx, 0, st.h / 2 + 13, labelForStation(st), 'bold 11px sans-serif');
     ctx.restore();
@@ -1583,7 +1811,9 @@ export function init(canvas, elements) {
       if (patient.inSurgery) {
         drawLabelChip(ctx, 0, -hh - 16, 'In the OR', 'bold 10px sans-serif', '#3a6a5a', CREAM);
       } else {
-        const text = step === 'meds' ? `Meds: ${findCondition(patient.conditionId).med.drug} ×${findCondition(patient.conditionId).med.dose}` : TREATMENT_LABELS[step];
+        let text = TREATMENT_LABELS[step];
+        if (step === 'meds') text = `Meds: ${findCondition(patient.conditionId).med.drug} ×${findCondition(patient.conditionId).med.dose}`;
+        else if (step === 'bandage' && shiftState.carried?.kind !== 'bandage') text = 'Bandage (roll: 2F)';
         drawLabelChip(ctx, 0, -hh - 16, `${patient.step + 1}/${patient.plan.length} ${text}`, 'bold 10px sans-serif', '#2f5f6f', CREAM);
       }
     }
@@ -1655,6 +1885,7 @@ export function init(canvas, elements) {
     drawHospitalPerson(ctx, player.x, player.y, { personalityKey: 'nurse', stress });
     if (coffeeSplashSeconds > 0) drawCoffeeSplash();
     drawLabelChip(ctx, player.x, player.y + 24, PLAYER_NAME, 'bold 10px sans-serif');
+    if (carried?.kind === 'bandage') drawBandageRoll(player.x + 20, player.y - 80, 1.2);
     if (carried?.kind === 'meds') {
       const order = findCondition(shiftState.beds[carried.bedIndex]?.conditionId)?.med;
       const color = MEDICATIONS.find((m) => m.name === order?.drug)?.color ?? '#e8b440';
@@ -2464,8 +2695,8 @@ export function init(canvas, elements) {
     ctx.save();
     if (shake > 0) ctx.translate((random() - 0.5) * shake, (random() - 0.5) * shake);
     drawFloor();
-    stations.forEach(drawStation);
-    drawTriageQueue();
+    visibleStations().forEach(drawStation);
+    if (currentFloor === FLOOR_1) drawTriageQueue();
     drawPlayer();
     drawHallucinations();
     ctx.restore();
@@ -2568,6 +2799,7 @@ export function init(canvas, elements) {
   document.addEventListener('visibilitychange', onVisibilityChange);
   document.addEventListener('fullscreenchange', onFullscreenChange);
   elements.fullscreenButton.addEventListener('click', toggleFullscreen);
+  elements.floorButton?.addEventListener('click', () => switchFloor(currentFloor === FLOOR_1 ? FLOOR_2 : FLOOR_1, 'button'));
   elements.startScreen.shiftButton.addEventListener('click', startShift);
   elements.paycheckScreen.nextShiftButton.addEventListener('click', startShift);
   elements.paycheckScreen.newMonthButton.addEventListener('click', startNewMonth);
@@ -2612,6 +2844,7 @@ export function init(canvas, elements) {
     getPlayerPosition: () => ({ ...player }),
     setPlayerPosition: (x, y) => { player = { x, y }; },
     isPlayerMoving: () => moveTarget !== null,
+    getCurrentFloor: () => currentFloor,
     getShiftState: () => shiftState,
     getOverlay: () => (overlay ? JSON.parse(JSON.stringify(overlay)) : null),
     getTriageSlots: () => triageSlots(),
@@ -2663,6 +2896,7 @@ function bootstrap() {
     hoverHint: byId('hospital-interact-hint'),
     toast: byId('hospital-toast'),
     fullscreenButton: byId('hospital-fullscreen-button'),
+    floorButton: byId('hospital-floor-button'),
     startScreen: { root: byId('hospital-start-screen'), shiftButton: byId('hospital-start-shift-button') },
     paycheckScreen: {
       root: byId('hospital-paycheck-screen'),

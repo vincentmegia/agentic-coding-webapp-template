@@ -12,7 +12,8 @@
 //
 //     triageQueue: Patient[],       // waiting at the Triage Desk (wait timer each)
 //     beds: (BedPatient | null)[],  // BED_COUNT slots
-//     carried: null | { kind: 'meds' | 'gurney', bedIndex, patientId },
+//     carried: null | { kind: 'meds' | 'gurney', bedIndex, patientId } | { kind: 'bandage' },
+//       // a bandage roll isn't tied to a patient — any Bandage step uses it
 //     activeTask: null | { kind, bedIndex, patientId },
 //       // the minigame in progress: 'vitals' | 'oxygen' | 'iv' | 'bandage'
 //       // (at a bed), 'meds-dispense' (at the cabinet), 'surgery' (in the OR)
@@ -250,6 +251,8 @@ export function startBedTask(state, bedIndex) {
   const patient = state.beds[bedIndex];
   const step = currentStep(patient);
   if (!BED_MINIGAME_TREATMENTS.includes(step)) return state;
+  // A Bandage step needs a roll from the Supply Cart in hand.
+  if (step === 'bandage' && state.carried?.kind !== 'bandage') return state;
   return { ...state, activeTask: { kind: step, bedIndex, patientId: patient.id } };
 }
 
@@ -262,7 +265,9 @@ export function resolveBedTask(state, success) {
   if (state.phase !== 'playing' || !task || !BED_MINIGAME_TREATMENTS.includes(task.kind)) return state;
   if (state.beds[task.bedIndex]?.id !== task.patientId) return { ...state, activeTask: null };
   if (!success) return { ...state, ...applyMistake(state) };
-  return advanceStep({ ...state, activeTask: null }, task.bedIndex);
+  // A successful dressing uses up the bandage roll.
+  const carried = task.kind === 'bandage' ? null : state.carried;
+  return advanceStep({ ...state, activeTask: null, carried }, task.bedIndex);
 }
 
 // ---------------------------------------------------------------------------
@@ -305,10 +310,24 @@ export function deliverMeds(state, bedIndex) {
   return advanceStep({ ...state, carried: null }, bedIndex);
 }
 
-/** Hallucination: carried meds slip from your hands (the order stays; fetch them again). */
-export function dropCarriedMeds(state) {
-  if (state.phase !== 'playing' || state.carried?.kind !== 'meds') return state;
+/**
+ * Hallucination: carried meds or a bandage roll slip from your hands (the
+ * order stays; fetch another). Never while it's being used in a minigame.
+ */
+export function dropCarriedSupply(state) {
+  const kind = state.carried?.kind;
+  if (state.phase !== 'playing' || state.activeTask || (kind !== 'meds' && kind !== 'bandage')) return state;
   return { ...state, carried: null };
+}
+
+// ---------------------------------------------------------------------------
+// Supply Cart (2nd Floor): bandage rolls
+// ---------------------------------------------------------------------------
+
+/** Takes a bandage roll from the Supply Cart. A no-op with your hands full. */
+export function pickUpBandage(state) {
+  if (state.phase !== 'playing' || state.activeTask || state.carried) return state;
+  return { ...state, carried: { kind: 'bandage' } };
 }
 
 // ---------------------------------------------------------------------------

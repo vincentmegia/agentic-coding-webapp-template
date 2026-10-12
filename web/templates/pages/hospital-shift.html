@@ -10,6 +10,8 @@
        #hospital-canvas               960x600 canvas
        #hospital-hud-shift / -clock / -status   HUD text nodes
        #hospital-fullscreen-button
+       #hospital-floor-button         1st Floor (ER) / 2nd Floor (Supply Room) shortcut;
+                                      JS flips its label and aria-pressed
        #hospital-interact-hint        Hover hint (role="status")
        #hospital-toast                Transient messages (role="status")
        #hospital-start-screen, #hospital-start-shift-button
@@ -52,6 +54,12 @@
 								<dd id="hospital-hud-status" class="text-sm font-medium text-ink sm:text-base">Quiet</dd>
 							</div>
 						</dl>
+						<button
+							type="button"
+							id="hospital-floor-button"
+							aria-pressed="false"
+							class="shrink-0 rounded-card border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+						>Go Upstairs</button>
 						<button
 							type="button"
 							id="hospital-fullscreen-button"

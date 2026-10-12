@@ -5,6 +5,10 @@ import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   buildStations,
+  stationsOnFloor,
+  entryPointFor,
+  FLOOR_1,
+  FLOOR_2,
   stationAtPoint,
   standoffFor,
   approachPoint,
@@ -16,10 +20,28 @@ import {
 describe('floor plan', () => {
   const stations = buildStations(4);
 
-  test('has every station kind and one bed per index', () => {
-    const kinds = new Set(stations.map((s) => s.kind));
-    for (const kind of ['office', 'triage-desk', 'med-cabinet', 'operating-room', 'coffee-machine', 'bed']) assert.ok(kinds.has(kind), kind);
+  test('the ER on the 1st Floor, the Supply Cart alone upstairs, stairs and an elevator on both', () => {
+    const kinds = (floor) => new Set(stationsOnFloor(stations, floor).map((s) => s.kind));
+    for (const kind of ['office', 'triage-desk', 'med-cabinet', 'operating-room', 'coffee-machine', 'bed', 'stairs', 'elevator']) assert.ok(kinds(FLOOR_1).has(kind), kind);
+    assert.deepEqual([...kinds(FLOOR_2)].sort(), ['elevator', 'stairs', 'supply-cart']);
     assert.deepEqual(stations.filter((s) => s.kind === 'bed').map((s) => s.bedIndex), [0, 1, 2, 3]);
+    assert.ok(stations.every((s) => s.floor === FLOOR_1 || s.floor === FLOOR_2));
+  });
+
+  test('stairs and elevator lead to the other floor from the same spot', () => {
+    for (const kind of ['stairs', 'elevator']) {
+      const [a, b] = stations.filter((s) => s.kind === kind);
+      assert.deepEqual([a.x, a.y], [b.x, b.y]);
+      assert.equal(a.targetFloor, b.floor);
+      assert.equal(b.targetFloor, a.floor);
+    }
+  });
+
+  test('you land beside the fixture you used, clear of every station', () => {
+    for (const via of ['stairs', 'elevator', 'button']) {
+      const p = entryPointFor(via);
+      assert.equal(stationAtPoint(p.x, p.y, stations), null, via);
+    }
   });
 
   test('stations fit on the canvas and never overlap', () => {
@@ -31,6 +53,7 @@ describe('floor plan', () => {
       for (let j = i + 1; j < stations.length; j++) {
         const a = stations[i];
         const b = stations[j];
+        if (a.floor !== b.floor) continue;
         const overlapX = Math.abs(a.x - b.x) < (a.w + b.w) / 2;
         const overlapY = Math.abs(a.y - b.y) < (a.h + b.h) / 2;
         assert.ok(!(overlapX && overlapY), `${a.id} overlaps ${b.id}`);

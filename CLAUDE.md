@@ -70,8 +70,9 @@ touching that area rather than expecting this section to carry it:
   so its `/projects` card shows the placeholder tile.
 - **Hospital Shift** (`/hospital-shift`, canvas ER-nurse shift sim mirroring
   Library Shift — triage the queue into 4 beds, then treat each patient's
-  plan: Vitals/Oxygen/IV/Surgery skill checks, a Bandage trace, Meds from
-  the cabinet; Karen, Coffee Pour, hallucinations; Postgres leaderboard,
+  plan: Vitals/IV/Surgery skill checks, Oxygen find-the-hearts, a Bandage
+  trace with a roll from the 2nd-Floor Supply Room's cart, Meds from the
+  cabinet; Karen, Coffee Pour, hallucinations; Postgres leaderboard,
   `localStorage` progress) — `docs/features/hospital-shift.md`. Rules live
   in `web/static/js/hospital/rules.js`; the nurse's `scrubs` outfit is in
   the shared `people.js`.

@@ -48,7 +48,7 @@ The user asked for a new project, "hospital shift." When asked, they chose:
 **In scope (v1):**
 
 * `GET /hospital-shift` page + canvas game shell (960×600), click-to-move on
-  a single ER floor, same architecture as Library Shift: pure DOM-free
+  two floors (see below), same architecture as Library Shift: pure DOM-free
   logic modules (`web/static/js/hospital/{rules,engine-state,floor-plan}.js`,
   `node --test`-covered) driven by one canvas engine
   (`web/static/js/hospital-game.js`).
@@ -79,8 +79,12 @@ The user asked for a new project, "hospital shift." When asked, they chose:
     narrowest zone) — the patient must first be wheeled from their bed to
     the Operating Room (the player carries the gurney), then operated on
     there; afterwards they return to their bed.
-  * **Bandage** (precision trace) — hold and trace the dashed line along
-    the wound; graded on coverage and accuracy.
+  * **Bandage** (precision trace) — needs a **bandage roll** from the
+    Supply Cart upstairs in hand (without one the bed says where to get
+    it, and its chip reads "Bandage (roll: 2F)"); then hold and trace the
+    dashed line along the wound, graded on coverage and accuracy. A
+    finished dressing uses up the roll; a botched one or backing out
+    keeps it. Any patient's Bandage step can use any roll.
   * **Meds** (Meds Dispensing) — at the Med Cabinet, pick the ordered
     drug from bottles with look-alike names and the right dose, carry it to
     the patient's bed.
@@ -123,9 +127,24 @@ The user asked for a new project, "hospital shift." When asked, they chose:
 * `localStorage` progress (`hospital-game:v1`), Postgres leaderboard
   (`hospital_scores`), `/projects` card.
 
+* **Two floors + Supply Cart** (added after v1 — the user asked for a
+  supply cart for bandages "and make a second floor where they are on",
+  and for bandage steps to be more common): the 1st Floor is the ER; the
+  2nd Floor is the **Supply Room**, holding only the **Supply Cart**
+  (take a bandage roll; one carried item at a time, same as meds or the
+  gurney). Library Shift's three ways between floors: **Stairs** and an
+  **Elevator** at the same spot on both floors, and the HUD's
+  `#hospital-floor-button` ("Go Upstairs"/"Go Downstairs"); all instant,
+  allowed in every phase so you can always come back down for handover.
+  You land beside the fixture you used. Patients keep ticking while you're
+  upstairs. Hallucinations can make you drop a carried roll, like meds.
+  New bandage conditions: **Kitchen burn** (green: vitals, bandage),
+  **Dog bite** (yellow: vitals, bandage, Amoxicillin ×1) and **Bad fall**
+  (yellow: vitals, bandage, IV) — bandage now appears in 7 of 14 plans.
+
 **Out of scope (v1):**
 
-* Two floors, First Person Mode, Reading Nook-style mood restore, 0-Mood
+* First Person Mode, Reading Nook-style mood restore, 0-Mood
   penalties, shops/gear — Library Shift grew these over many follow-ups;
   v1 ships the mechanics the user chose.
 * Mobile-specific controls beyond tap-to-move.
@@ -142,7 +161,8 @@ The user asked for a new project, "hospital shift." When asked, they chose:
    Triage Sort: read vitals, pick Red/Yellow/Green → patient goes to a bed.
 4. Click a bed → walk to it → its current step opens:
    - Vitals / IV: a skill check at the bed; Oxygen: find the hearts, avoid the skulls.
-   - Bandage: trace the wound.
+   - Bandage: get a roll from the Supply Cart on the 2nd Floor (Stairs,
+     Elevator or "Go Upstairs"), come back down, trace the wound.
    - Meds: the bed says "Meds"; walk to the Med Cabinet → pick drug + dose →
      carry it back to the bed.
    - Surgery: at the bed you take the gurney; walk to the Operating Room →
@@ -163,7 +183,11 @@ characters at Library Shift's 1.55 scale, label chips, the Caprasimo
 Sanity label. The ER floor is pale mint vinyl tiles. Stations: Triage Desk
 (top), Charge Nurse's office (top-left), Med Cabinet (top-right), four
 curtained beds across the middle, Operating Room (right, green-tiled),
-break-room Coffee Machine (bottom-left). Minigames are full-canvas
+break-room Coffee Machine (bottom-left), Stairs (top-right) and Elevator
+(bottom-right) — Library Shift's art for both. The 2nd Floor Supply Room
+has warm grey tiles, wall shelving of gauze boxes and linen, and the steel
+Supply Cart stacked with bandage rolls in the middle; it pulses while a
+bed is waiting on a dressing and your hands are free. Minigames are full-canvas
 overlays; each skill check has its own scene (ECG monitor, bag-valve mask,
 arm with vein, surgical field) over one shared timing bar.
 
@@ -252,7 +276,7 @@ All numbers are named constants in `web/static/js/hospital/rules.js`.
   of samples within 16 px of it (`BANDAGE_MIN_ACCURACY`). Releasing early
   grades what was traced.
 * **Meds**: the cabinet fills the oldest bed whose current step is Meds.
-  Only one item (meds or a gurney) can be carried at a time.
+  Only one item (meds, a gurney or a bandage roll) can be carried at a time.
 * **Payout**: `max(0, shiftPaycheck(mistakes) + bonusGard) × rating/5 ×
   hallucinationPayMultiplier`. Bonuses: step tips, discharges, coffee tips,
   Karen.

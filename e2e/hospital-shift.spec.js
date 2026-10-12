@@ -80,9 +80,22 @@ async function waitUntilArrived(page) {
 	await page.waitForFunction(() => window.__hospitalShiftTestHooks.isPlayerMoving() === false, null, { timeout: 10000 });
 }
 
+/** A station on the player's current floor (Stairs/Elevator exist on both). */
 async function station(page, kind, bedIndex) {
 	const stations = await hooks(page, 'getStations');
-	return stations.find((s) => s.kind === kind && (bedIndex === undefined || s.bedIndex === bedIndex));
+	const floor = await hooks(page, 'getCurrentFloor');
+	const matches = stations.filter((s) => s.kind === kind && (bedIndex === undefined || s.bedIndex === bedIndex));
+	return matches.find((s) => s.floor === floor) || matches[0];
+}
+
+/** Up the Stairs to the Supply Room, take a bandage roll, back down in the Elevator. */
+async function fetchBandageRoll(page) {
+	await walkTo(page, 'stairs');
+	expect(await hooks(page, 'getCurrentFloor')).toBe(2);
+	await walkTo(page, 'supply-cart');
+	expect((await shiftState(page)).carried).toEqual({ kind: 'bandage' });
+	await walkTo(page, 'elevator');
+	expect(await hooks(page, 'getCurrentFloor')).toBe(1);
 }
 
 async function walkTo(page, kind, bedIndex) {
@@ -181,7 +194,12 @@ test.describe('treatments', () => {
 		await passSkillCheck(page);
 		await expect.poll(async () => (await shiftState(page)).beds[bed]?.step).toBe(1);
 
-		// Bandage: trace the real path with the mouse held down.
+		// Bandage: no roll in hand → the bed sends you upstairs for one.
+		await walkTo(page, 'bed', bed);
+		expect(await hooks(page, 'getOverlay')).toBeNull();
+		await expect(page.locator('#hospital-toast')).toContainText('Supply Cart upstairs');
+		await fetchBandageRoll(page);
+		// Then trace the real path with the mouse held down.
 		await walkTo(page, 'bed', bed);
 		const bandage = await waitForOverlay(page, 'bandage');
 		const pts = bandage.path;
@@ -196,6 +214,7 @@ test.describe('treatments', () => {
 		}
 		await page.mouse.up();
 		await expect.poll(async () => (await shiftState(page)).beds[bed]?.step).toBe(2);
+		expect((await shiftState(page)).carried).toBeNull(); // the roll was used up
 		await page.waitForFunction(() => window.__hospitalShiftTestHooks.getOverlay() === null);
 
 		// Meds: the wrong drug is a mistake, the right one is carried to the bed.
@@ -278,6 +297,47 @@ test.describe('treatments', () => {
 		expect(await hooks(page, 'getOverlay')).toBeNull();
 		expect(s.activeTask).toBeNull();
 		expect(s.mistakeCount).toBe(0);
+	});
+});
+
+test.describe('the Supply Room (2nd Floor)', () => {
+	test('the HUD button switches floors, and only that floor\'s stations are reachable', async ({ page }) => {
+		await page.goto('/hospital-shift');
+		await startShift(page);
+		await expect(page.locator('#hospital-floor-button')).toHaveText('Go Upstairs');
+		await page.locator('#hospital-floor-button').click();
+		expect(await hooks(page, 'getCurrentFloor')).toBe(2);
+		await expect(page.locator('#hospital-floor-button')).toHaveText('Go Downstairs');
+		await expect(page.locator('#hospital-floor-button')).toHaveAttribute('aria-pressed', 'true');
+		// A bed sits where the empty stockroom floor is upstairs — clicking there
+		// just walks, it doesn't reach the bed.
+		const bed = (await hooks(page, 'getStations')).find((s) => s.kind === 'bed');
+		await clickCanvasPoint(page, bed);
+		await waitUntilArrived(page);
+		expect(await hooks(page, 'getOverlay')).toBeNull();
+		await page.locator('#hospital-floor-button').click();
+		expect(await hooks(page, 'getCurrentFloor')).toBe(1);
+	});
+
+	test('you can come back down during handover to reach the office', async ({ page }) => {
+		await page.goto('/hospital-shift');
+		await startShift(page);
+		await walkTo(page, 'stairs');
+		await hooks(page, 'skipToClosing');
+		await walkTo(page, 'stairs');
+		expect(await hooks(page, 'getCurrentFloor')).toBe(1);
+		await walkTo(page, 'office');
+		await expect(page.locator('#hospital-paycheck-screen')).toBeVisible();
+	});
+
+	test('one item at a time: no second roll while already holding one', async ({ page }) => {
+		await seedSave(page);
+		await page.goto('/hospital-shift');
+		await startShift(page);
+		await fetchBandageRoll(page);
+		await walkTo(page, 'stairs');
+		await walkTo(page, 'supply-cart');
+		await expect(page.locator('#hospital-toast')).toContainText('hands are full');
 	});
 });
 
