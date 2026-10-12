@@ -44,11 +44,17 @@ export const ROUND_TIER_SHIFT_SPAN = 10;
 /** Real seconds per shift, per tier — Library Shift's slow 10/8/6 minutes. */
 export const ROUND_TIER_CLOCK_SECONDS = [600, 480, 360];
 
-/** Patients arriving at triage over one shift, per tier. */
-export const ROUND_TIER_PATIENT_VOLUME = [6, 9, 12];
+/** Patients arriving at triage over one shift, per tier. Raised from [6, 9, 12] — the user asked to "make it more busier". */
+export const ROUND_TIER_PATIENT_VOLUME = [12, 16, 22];
 
-/** The first patient of every shift arrives within this window (seconds in), so there's always someone early. */
-export const FIRST_PATIENT_ARRIVAL_SECONDS = [4, 12];
+/** The opening patients of every shift arrive within this window (seconds in), so the ER is busy from the start. */
+export const FIRST_PATIENT_ARRIVAL_SECONDS = [4, 20];
+
+/** How many patients arrive in that opening window. */
+export const EARLY_PATIENT_COUNT = 2;
+
+/** Arrivals stop this far into the shift, leaving time to treat the last ones. */
+export const ARRIVAL_WINDOW_FRACTION = 0.85;
 
 export function roundTier(shiftNumber) {
   return clamp(Math.ceil(clampShift(shiftNumber) / ROUND_TIER_SHIFT_SPAN), 1, ROUND_TIER_COUNT);
@@ -60,6 +66,31 @@ export function shiftClockSecondsForShift(shiftNumber) {
 
 export function patientVolumeForShift(shiftNumber) {
   return ROUND_TIER_PATIENT_VOLUME[roundTier(shiftNumber) - 1];
+}
+
+/**
+ * When each of a shift's patients arrives, in seconds since the shift
+ * began, sorted. The first EARLY_PATIENT_COUNT land in the opening window;
+ * the rest are spread evenly — one per equal slice of the remaining
+ * arrival window, at a random point inside its slice — so the flow is
+ * steady instead of clumping into rushes and dead spells.
+ *
+ * @param {number} count
+ * @param {number} totalSeconds - the shift clock.
+ * @param {number[]} rolls - one value in [0, 1) per patient (missing → 0.5).
+ * @returns {number[]}
+ */
+export function patientArrivalTimes(count, totalSeconds, rolls = []) {
+  const roll = (i) => clampRoll(rolls[i]);
+  const [early, late] = FIRST_PATIENT_ARRIVAL_SECONDS;
+  const times = [];
+  const earlyCount = Math.min(count, EARLY_PATIENT_COUNT);
+  for (let i = 0; i < earlyCount; i++) times.push(early + roll(i) * (late - early));
+  const rest = count - earlyCount;
+  const windowEnd = Math.max(late, totalSeconds * ARRIVAL_WINDOW_FRACTION);
+  const slice = (windowEnd - late) / Math.max(1, rest);
+  for (let i = 0; i < rest; i++) times.push(late + (i + roll(earlyCount + i)) * slice);
+  return times.sort((a, b) => a - b);
 }
 
 // ---------------------------------------------------------------------------

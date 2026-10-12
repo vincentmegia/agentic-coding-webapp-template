@@ -142,6 +142,15 @@ The user asked for a new project, "hospital shift." When asked, they chose:
   **Dog bite** (yellow: vitals, bandage, Amoxicillin ×1) and **Bad fall**
   (yellow: vitals, bandage, IV) — bandage now appears in 7 of 14 plans.
 
+* **Busier ER** (added after the user asked to "make it more busier"):
+  patients per shift raised from 6/9/12 to **12/16/22** by tier, and
+  arrivals are spread evenly (`patientArrivalTimes`: two in the opening
+  4–20 s, then one per equal slice of the window up to 85% of the shift)
+  instead of uniformly random, so there are no long dead spells. Three
+  non-interactive background staff wander the floors — Dr. Okafor and an
+  Orderly in the ER (routes kept clear of the triage line), a Stock tech in
+  the Supply Room.
+
 **Out of scope (v1):**
 
 * First Person Mode, Reading Nook-style mood restore, 0-Mood
@@ -252,7 +261,7 @@ like every other game; all run state lives in `localStorage`.
 All numbers are named constants in `web/static/js/hospital/rules.js`.
 
 * **Tiers**: shifts 1–10 / 11–20 / 21–30; clock 600/480/360 s; patients
-  per shift 6/9/12; the first patient arrives 4–12 s in.
+  per shift 12/16/22; two arrive in the first 4–20 s, the rest spread evenly.
 * **Conditions** (`CONDITIONS`): each has a triage level, a complaint, an
   ordered treatment plan and (when it has a Meds step) a drug + dose.
   Surgery cases (appendicitis, crash injuries) only arrive from shift 4

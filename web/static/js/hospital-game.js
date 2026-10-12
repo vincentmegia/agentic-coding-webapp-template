@@ -18,7 +18,7 @@ import { drawPerson, shadeColor, PEOPLE_TEMPLATES } from './shared/people.js';
 import {
   SHIFTS_PER_MONTH,
   patientVolumeForShift,
-  FIRST_PATIENT_ARRIVAL_SECONDS,
+  patientArrivalTimes,
   inGameTimeLabel,
   karenShiftForSeed,
   KAREN_LINE,
@@ -235,6 +235,37 @@ export const PERSON_TEMPLATES = {
   },
 };
 
+// Background staff (set dressing — the user asked to make the ER "more
+// busier"): they wander between waypoints and can't be clicked.
+PERSON_TEMPLATES.doctor = {
+  label: 'Dr. Okafor',
+  bodyColor: '#f6f5f0', pantsColor: '#4f5d70', headColor: '#6b4226', hairColor: '#1a120c', accentColor: '#34343e',
+  eyeColor: '#1a1a1a', eyeShape: 'narrow', browAngle: 0, mouthCurve: 0.5, blush: false,
+  hairStyle: 'sidePart', outfit: 'scrubs', glasses: true, shoeColor: '#2a2a30',
+};
+PERSON_TEMPLATES.orderly = {
+  label: 'Orderly',
+  bodyColor: '#8fa9d6', pantsColor: '#7a94c2', headColor: '#f1c27d', hairColor: '#5a3a22', accentColor: '#8fa9d6',
+  eyeColor: '#2a2a3a', eyeShape: 'roundSmall', browAngle: 0.2, mouthCurve: 0.6, blush: true,
+  hairStyle: 'spiky', outfit: 'scrubs', shoeColor: '#e8e8e8',
+};
+PERSON_TEMPLATES.stockTech = {
+  label: 'Stock tech',
+  bodyColor: '#c9a26a', pantsColor: '#4a4a5a', headColor: '#e0ac69', hairColor: '#2a1c14', accentColor: '#c9a26a',
+  eyeColor: '#2a2a2a', eyeShape: 'roundSmall', browAngle: 0.1, mouthCurve: 0.3, blush: false,
+  hairStyle: 'beanie', outfit: 'scrubs', hatColor: '#3f7a6a', shoeColor: '#4a3a32',
+};
+
+/** Who wanders where, and the clear spots they walk between. */
+const AMBIENT_STAFF = [
+  // Floor 1 routes stay below the beds and in the right-hand corridor, clear
+  // of the triage line, so staff never read as patients waiting there.
+  { key: 'doctor', name: 'Dr. Okafor', floor: 1, waypoints: [[220, 462], [420, 470], [600, 462], [700, 470], [745, 235]] },
+  { key: 'orderly', name: 'Orderly', floor: 1, waypoints: [[560, 525], [300, 525], [170, 520], [745, 240], [480, 520]] },
+  { key: 'stockTech', name: 'Stock tech', floor: 2, waypoints: [[160, 250], [600, 330], [240, 430], [560, 440], [700, 200]] },
+];
+const AMBIENT_SPEED = 70;
+
 /** Every design a patient can have (not Karen, not the nurse). */
 export const PATIENT_PERSONALITY_KEYS = ['grumpyRegular', 'shyStudent', 'cheerfulKid', 'teen', 'grandma', 'businessman', 'artist', 'bearded', 'curly'];
 
@@ -300,6 +331,45 @@ export function init(canvas, elements) {
   let patientIdCounter = 0;
   /** id -> { name, vitals, personalityKey } — chart flavor the engine doesn't carry. */
   const patientInfo = new Map();
+
+  let ambient = [];
+
+  function resetAmbient() {
+    ambient = AMBIENT_STAFF.map((def, i) => {
+      const [x, y] = def.waypoints[i % def.waypoints.length];
+      return { ...def, x, y, target: (i + 1) % def.waypoints.length, pause: random() * 2 };
+    });
+  }
+
+  function updateAmbient(dt) {
+    for (const a of ambient) {
+      if (a.pause > 0) { a.pause -= dt; continue; }
+      const [tx, ty] = a.waypoints[a.target];
+      const dx = tx - a.x;
+      const dy = ty - a.y;
+      const dist = Math.hypot(dx, dy);
+      const step = AMBIENT_SPEED * dt;
+      if (dist <= step) {
+        a.x = tx;
+        a.y = ty;
+        a.pause = 0.8 + random() * 2.2;
+        let next = Math.floor(random() * a.waypoints.length);
+        if (next === a.target) next = (next + 1) % a.waypoints.length;
+        a.target = next;
+      } else {
+        a.x += (dx / dist) * step;
+        a.y += (dy / dist) * step;
+      }
+    }
+  }
+
+  function drawAmbient() {
+    for (const a of ambient) {
+      if (a.floor !== currentFloor) continue;
+      drawHospitalPerson(ctx, a.x, a.y, { personalityKey: a.key, scale: 0.8 });
+      drawLabelChip(ctx, a.x, a.y + 20, a.name, '9px sans-serif', 'rgba(255,251,246,0.75)');
+    }
+  }
 
   let overlay = null;
   let pendingTriageAction = null; // { kind: 'patient'|'karen'|'ghost', id? }
@@ -496,10 +566,8 @@ export function init(canvas, elements) {
     const total = shiftState.totalClockSeconds;
     const events = [];
     const count = patientVolumeForShift(currentShiftNumber);
-    for (let i = 0; i < count; i++) {
-      const [early, late] = FIRST_PATIENT_ARRIVAL_SECONDS;
-      events.push({ type: 'patient', at: i === 0 ? early + random() * (late - early) : random() * total * 0.85 });
-    }
+    const rolls = Array.from({ length: count }, () => random());
+    for (const at of patientArrivalTimes(count, total, rolls)) events.push({ type: 'patient', at });
     if (currentShiftNumber === karenShiftNumber) events.push({ type: 'karen', at: total * 0.3 });
     return events.sort((a, b) => a.at - b.at);
   }
@@ -1198,6 +1266,7 @@ export function init(canvas, elements) {
     karenShiftNumber = karenShiftForSeed(save.karenSeed);
     shiftState = startShiftState(createInitialState(currentShiftNumber, karenShiftNumber));
     player = { ...PLAYER_START };
+    resetAmbient();
     currentFloor = FLOOR_1;
     updateFloorButton();
     moveTarget = null;
@@ -2697,6 +2766,7 @@ export function init(canvas, elements) {
     drawFloor();
     visibleStations().forEach(drawStation);
     if (currentFloor === FLOOR_1) drawTriageQueue();
+    drawAmbient();
     drawPlayer();
     drawHallucinations();
     ctx.restore();
@@ -2746,6 +2816,7 @@ export function init(canvas, elements) {
     }
 
     trackGardPops(dt);
+    updateAmbient(dt);
     coffeeSplashSeconds = Math.max(0, coffeeSplashSeconds - dt);
     updateHallucinations(dt);
 

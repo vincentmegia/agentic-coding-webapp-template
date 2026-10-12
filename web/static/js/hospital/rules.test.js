@@ -5,6 +5,10 @@ import {
   roundTier,
   shiftClockSecondsForShift,
   patientVolumeForShift,
+  patientArrivalTimes,
+  FIRST_PATIENT_ARRIVAL_SECONDS,
+  EARLY_PATIENT_COUNT,
+  ARRIVAL_WINDOW_FRACTION,
   inGameTimeLabel,
   karenShiftForSeed,
   KAREN_SHIFT_MIN,
@@ -58,7 +62,30 @@ describe('tiers and clock', () => {
 
   test('the clock shrinks and patient volume grows per tier', () => {
     assert.deepEqual([1, 11, 21].map(shiftClockSecondsForShift), [600, 480, 360]);
-    assert.deepEqual([1, 11, 21].map(patientVolumeForShift), [6, 9, 12]);
+    assert.deepEqual([1, 11, 21].map(patientVolumeForShift), [12, 16, 22]);
+  });
+
+  test('arrivals: two early, the rest spread evenly with no long dead spell', () => {
+    for (const total of [600, 480, 360]) {
+      for (let seed = 0; seed < 50; seed++) {
+        const count = 16;
+        const rolls = Array.from({ length: count }, (_, i) => ((seed * 0.37 + i * 0.61) % 1));
+        const times = patientArrivalTimes(count, total, rolls);
+        assert.equal(times.length, count);
+        const [early, late] = FIRST_PATIENT_ARRIVAL_SECONDS;
+        assert.equal(times.filter((t) => t >= early && t <= late).length >= EARLY_PATIENT_COUNT, true);
+        assert.ok(times.every((t) => t >= early && t <= total * ARRIVAL_WINDOW_FRACTION));
+        for (let i = 1; i < times.length; i++) assert.ok(times[i] >= times[i - 1]);
+        const slice = (total * ARRIVAL_WINDOW_FRACTION - late) / (count - EARLY_PATIENT_COUNT);
+        for (let i = 1; i < times.length; i++) assert.ok(times[i] - times[i - 1] <= 2 * slice + 1e-9, `gap at ${i}`);
+      }
+    }
+  });
+
+  test('arrivals handle tiny counts and missing rolls', () => {
+    assert.deepEqual(patientArrivalTimes(0, 600), []);
+    assert.equal(patientArrivalTimes(1, 600).length, 1);
+    assert.ok(patientArrivalTimes(5, 600).every(Number.isFinite));
   });
 
   test('the in-game day runs 7:00 AM to 7:00 PM', () => {
