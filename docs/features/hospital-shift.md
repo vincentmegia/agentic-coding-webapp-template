@@ -281,8 +281,9 @@ All numbers are named constants in `web/static/js/hospital/rules.js`.
   per shift 12/16/22; two arrive in the first 4–20 s, the rest spread evenly.
 * **Conditions** (`CONDITIONS`): each has a triage level, a complaint, an
   ordered treatment plan and (when it has a Meds step) a drug + dose.
-  Surgery cases (appendicitis, crash injuries) only arrive from shift 4
-  (`SURGERY_START_SHIFT`), so the first shifts teach the basic steps.
+  Surgery cases (appendicitis, crash injuries) arrive from shift 2
+  (`SURGERY_START_SHIFT`; was 4 until the user asked for surgeries on
+  shift 2), so shift 1 teaches the basic steps.
 * **Triage vitals**: `vitalsForLevel(level, rolls)` generates vitals that
   `triageLevelForVitals` classifies back to that same level — Red: SpO₂ <
   90, HR > 130 or systolic BP < 90; Yellow: temp ≥ 38.5 °C or HR 101–130;

@@ -261,8 +261,8 @@ export const TREATMENT_LABELS = {
 // common: burn, dog bite and bad fall joined sprain, cut, broken arm and
 // crash injuries.
 
-/** Surgery cases only arrive from this shift on, so the first shifts teach the basics. */
-export const SURGERY_START_SHIFT = 4;
+/** Surgery cases only arrive from this shift on, so shift 1 teaches the basics. Was 4 — the user asked for surgeries "on shift 2". */
+export const SURGERY_START_SHIFT = 2;
 
 export const CONDITIONS = [
   { id: 'sprain', name: 'Sprained ankle', level: 'green', complaint: 'Twisted my ankle on the stairs.', plan: ['vitals', 'bandage'] },
